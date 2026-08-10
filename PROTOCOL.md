@@ -35,7 +35,7 @@ go build -trimpath -ldflags '-s -w' -o inkwire ./cmd/inkwire
 ./inkwire PICKSMART payload.bin
 ```
 
-默认目标是 `FF:FF:92:94:38:61`。macOS 无法通过公开 CoreBluetooth API 获取真实 MAC 时，驱动自动按 `PICKSMART` / `NEMR92943861` 精确匹配广播名称。当前本机构建产物为 macOS arm64，约 2 MB。
+默认目标是 `FF:FF:92:94:38:61`。macOS 无法通过公开 CoreBluetooth API 获取真实 MAC 时，驱动自动按 `PICKSMART` / `NEMR92943861` 精确匹配广播名称。命令行显式传入其它名称、MAC 或 CoreBluetooth UUID 后，只匹配该目标，不再回退到默认名称。当前本机构建产物为 macOS arm64，约 2 MB。
 
 ---
 

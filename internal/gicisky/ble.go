@@ -185,13 +185,13 @@ func (d *Driver) PushWithRetry(ctx context.Context, payload []byte) error {
 }
 
 func (d *Driver) matches(name, address string) bool {
-	if name == TargetName || name == FallbackName || name == d.Target {
+	if strings.EqualFold(name, d.Target) || strings.EqualFold(address, d.Target) {
 		return true
 	}
-	if strings.EqualFold(address, d.Target) {
-		return true
+	if !strings.EqualFold(d.Target, TargetAddress) {
+		return false
 	}
-	return false
+	return strings.EqualFold(name, TargetName) || strings.EqualFold(name, FallbackName)
 }
 
 func (d *Driver) logf(format string, args ...any) {
