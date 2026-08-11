@@ -193,7 +193,7 @@ func (c *Canvas) FillPath(path Path, ink Ink) {
 		return
 	}
 	contours := path.flatten()
-	bounds := contourBounds(contours).Intersect(c.clip)
+	bounds := contourBounds(contours).Intersect(c.logicalClip())
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			if pointInPath(image.Pt(x, y), contours) {

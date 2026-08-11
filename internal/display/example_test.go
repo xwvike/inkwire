@@ -46,3 +46,18 @@ func ExamplePath() {
 	fmt.Printf("path=%v payload=%d\n", path.Bounds(), len(payload))
 	// Output: path=(10,10)-(41,31) payload=9472
 }
+
+func ExampleDisplayList() {
+	frame, _ := display.NewFrame(32, 16, display.InkWhite)
+	list := &display.DisplayList{}
+	list.Save()
+	list.ClipRect(image.Rect(2, 2, 18, 14))
+	list.Translate(image.Pt(4, 3))
+	list.FillRoundRect(image.Rect(0, 0, 12, 8), 2, display.InkBlack)
+	list.StrokeCircle(image.Pt(16, 4), 4, display.StrokeStyle{Ink: display.InkRed, Width: 2})
+	list.Restore()
+	_ = list.Replay(display.NewCanvas(frame))
+
+	fmt.Printf("commands=%d bounds=%v\n", list.Len(), list.Bounds())
+	// Output: commands=6 bounds=(4,3)-(18,12)
+}

@@ -8,22 +8,22 @@ import (
 	"inkwire/internal/display"
 )
 
-func TestRenderShowcase(t *testing.T) {
-	frame, err := renderShowcase()
+func TestRenderStateShowcase(t *testing.T) {
+	frame, err := renderStateShowcase()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if frame.Width() != display.GiciskyWidth || frame.Height() != display.GiciskyHeight {
-		t.Fatalf("showcase dimensions = %dx%d", frame.Width(), frame.Height())
+		t.Fatalf("state showcase dimensions = %dx%d", frame.Width(), frame.Height())
 	}
 	payload, err := display.EncodeGicisky(frame)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(payload) != display.GiciskyPayloadSize {
-		t.Fatalf("showcase payload = %d bytes", len(payload))
+		t.Fatalf("state showcase payload = %d bytes", len(payload))
 	}
-	want, err := os.ReadFile("showcase.png")
+	want, err := os.ReadFile("state_showcase.png")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,6 +32,6 @@ func TestRenderShowcase(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(got.Bytes(), want) {
-		t.Fatal("DisplayList showcase differs from the checked-in reference PNG")
+		t.Fatal("state showcase differs from the checked-in reference PNG")
 	}
 }

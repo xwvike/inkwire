@@ -45,16 +45,20 @@ func renderShowcase() (*display.Frame, error) {
 	if err != nil {
 		return nil, err
 	}
-	view := showcase{canvas: display.NewCanvas(frame), fonts: fonts}
+	list := &display.DisplayList{}
+	view := showcase{list: list, fonts: fonts}
 	if err := view.draw(); err != nil {
+		return nil, err
+	}
+	if err := list.Replay(display.NewCanvas(frame)); err != nil {
 		return nil, err
 	}
 	return frame, nil
 }
 
 type showcase struct {
-	canvas *display.Canvas
-	fonts  *display.FontRegistry
+	list  *display.DisplayList
+	fonts *display.FontRegistry
 }
 
 func (s showcase) draw() error {
@@ -62,8 +66,8 @@ func (s showcase) draw() error {
 	black2 := display.StrokeStyle{Ink: display.InkBlack, Width: 2}
 	red1 := display.StrokeStyle{Ink: display.InkRed, Width: 1}
 
-	s.canvas.StrokeRoundRect(image.Rect(1, 1, 295, 127), 6, black1)
-	s.canvas.FillRoundRect(image.Rect(3, 3, 293, 26), 5, display.InkBlack)
+	s.list.StrokeRoundRect(image.Rect(1, 1, 295, 127), 6, black1)
+	s.list.FillRoundRect(image.Rect(3, 3, 293, 26), 5, display.InkBlack)
 	if err := s.text(image.Rect(8, 5, 288, 24), 18, display.AlignStart,
 		run("INKWIRE  ", "monaco", 14, display.InkWhite),
 		run("图元与文字展示", "ui", 14, display.InkWhite),
@@ -75,31 +79,31 @@ func (s showcase) draw() error {
 	left := image.Rect(4, 29, 99, 124)
 	middle := image.Rect(101, 29, 198, 124)
 	right := image.Rect(200, 29, 292, 124)
-	s.canvas.StrokeRoundRect(left, 5, black1)
-	s.canvas.StrokeRoundRect(middle, 5, black1)
-	s.canvas.StrokeRoundRect(right, 5, black1)
+	s.list.StrokeRoundRect(left, 5, black1)
+	s.list.StrokeRoundRect(middle, 5, black1)
+	s.list.StrokeRoundRect(right, 5, black1)
 
 	if err := s.label(image.Rect(9, 32, 94, 44), "BASIC / SHAPES"); err != nil {
 		return err
 	}
-	s.canvas.DrawLine(image.Pt(9, 47), image.Pt(45, 47), black1)
-	s.canvas.DrawLine(image.Pt(52, 47), image.Pt(92, 47), display.StrokeStyle{
+	s.list.DrawLine(image.Pt(9, 47), image.Pt(45, 47), black1)
+	s.list.DrawLine(image.Pt(52, 47), image.Pt(92, 47), display.StrokeStyle{
 		Ink: display.InkRed, Width: 2, Dash: []int{3, 2}, DashOffset: 1,
 	})
-	s.canvas.StrokeRect(image.Rect(9, 53, 34, 67), black1)
-	s.canvas.FillRect(image.Rect(39, 53, 62, 67), display.InkRed)
-	s.canvas.StrokeRoundRect(image.Rect(67, 53, 93, 67), 4, black2)
-	s.canvas.StrokeCircle(image.Pt(17, 80), 7, black1)
-	s.canvas.FillCircle(image.Pt(38, 80), 7, display.InkRed)
-	s.canvas.StrokeEllipse(image.Rect(49, 73, 69, 88), red1)
-	s.canvas.FillEllipse(image.Rect(74, 73, 94, 88), display.InkBlack)
-	s.canvas.DrawPolyline([]image.Point{
+	s.list.StrokeRect(image.Rect(9, 53, 34, 67), black1)
+	s.list.FillRect(image.Rect(39, 53, 62, 67), display.InkRed)
+	s.list.StrokeRoundRect(image.Rect(67, 53, 93, 67), 4, black2)
+	s.list.StrokeCircle(image.Pt(17, 80), 7, black1)
+	s.list.FillCircle(image.Pt(38, 80), 7, display.InkRed)
+	s.list.StrokeEllipse(image.Rect(49, 73, 69, 88), red1)
+	s.list.FillEllipse(image.Rect(74, 73, 94, 88), display.InkBlack)
+	s.list.DrawPolyline([]image.Point{
 		image.Pt(9, 101), image.Pt(18, 92), image.Pt(27, 101), image.Pt(36, 92), image.Pt(45, 101),
 	}, red1)
-	s.canvas.StrokePolygon([]image.Point{
+	s.list.StrokePolygon([]image.Point{
 		image.Pt(52, 118), image.Pt(58, 98), image.Pt(70, 94), image.Pt(79, 106), image.Pt(72, 118),
 	}, black1)
-	s.canvas.FillPolygon([]image.Point{
+	s.list.FillPolygon([]image.Point{
 		image.Pt(77, 118), image.Pt(86, 96), image.Pt(95, 118),
 	}, display.InkRed)
 
@@ -110,12 +114,12 @@ func (s showcase) draw() error {
 	wave.MoveTo(image.Pt(107, 52))
 	wave.CubicTo(image.Pt(124, 35), image.Pt(143, 67), image.Pt(159, 51))
 	wave.QuadraticTo(image.Pt(176, 38), image.Pt(193, 52))
-	s.canvas.StrokePath(wave, black1)
-	s.canvas.DrawArc(image.Rect(106, 59, 137, 89), 140, 260, display.StrokeStyle{
+	s.list.StrokePath(wave, black1)
+	s.list.DrawArc(image.Rect(106, 59, 137, 89), 140, 260, display.StrokeStyle{
 		Ink: display.InkRed, Width: 2, Dash: []int{4, 2},
 	})
-	s.canvas.FillPie(image.Rect(141, 61, 166, 86), -90, 125, display.InkRed)
-	s.canvas.FillChord(image.Rect(170, 60, 194, 86), 20, 210, display.InkBlack)
+	s.list.FillPie(image.Rect(141, 61, 166, 86), -90, 125, display.InkRed)
+	s.list.FillChord(image.Rect(170, 60, 194, 86), 20, 210, display.InkBlack)
 
 	var landscape display.Path
 	landscape.MoveTo(image.Pt(106, 118))
@@ -124,8 +128,8 @@ func (s showcase) draw() error {
 	landscape.QuadraticTo(image.Pt(139, 88), image.Pt(151, 110))
 	landscape.CubicTo(image.Pt(162, 102), image.Pt(172, 91), image.Pt(181, 118))
 	landscape.Close()
-	s.canvas.FillPath(landscape, display.InkBlack)
-	s.canvas.StrokeCircle(image.Pt(188, 106), 10, display.StrokeStyle{Ink: display.InkRed, Width: 3})
+	s.list.FillPath(landscape, display.InkBlack)
+	s.list.StrokeCircle(image.Pt(188, 106), 10, display.StrokeStyle{Ink: display.InkRed, Width: 3})
 
 	if err := s.label(image.Rect(205, 32, 287, 44), "TYPE / COLOR"); err != nil {
 		return err
@@ -153,7 +157,7 @@ func (s showcase) draw() error {
 	); err != nil {
 		return err
 	}
-	s.canvas.FillRoundRect(image.Rect(204, 110, 288, 121), 3, display.InkBlack)
+	s.list.FillRoundRect(image.Rect(204, 110, 288, 121), 3, display.InkBlack)
 	if err := s.text(image.Rect(207, 110, 285, 121), 11, display.AlignCenter,
 		run("WHITE", "monaco", 10, display.InkWhite),
 		run(" / RED", "monaco", 10, display.InkRed),
@@ -168,7 +172,7 @@ func (s showcase) label(bounds image.Rectangle, value string) error {
 }
 
 func (s showcase) text(bounds image.Rectangle, lineHeight int, align display.HorizontalAlign, runs ...display.TextRun) error {
-	layout, err := s.canvas.DrawTextBox(s.fonts, display.TextBox{
+	layout, err := s.list.DrawTextBox(s.fonts, display.TextBox{
 		Bounds: bounds, Runs: runs, Align: align, LineHeight: lineHeight,
 	})
 	if err != nil {

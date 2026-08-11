@@ -67,7 +67,7 @@ func (c *Canvas) DrawImage(source image.Image, destination image.Rectangle, opti
 		return err
 	}
 	window := fitImage(source.Bounds(), destination, options.Fit)
-	drawRect := window.target.Intersect(c.clip)
+	drawRect := window.target.Intersect(c.logicalClip())
 	if drawRect.Empty() {
 		return nil
 	}
@@ -79,7 +79,8 @@ func (c *Canvas) DrawImage(source image.Image, destination image.Rectangle, opti
 			sourceX := window.sourceX + (float64(x-window.target.Min.X)+0.5)*window.sourceWidth/float64(window.target.Dx()) - 0.5
 			sourceY := window.sourceY + (float64(y-window.target.Min.Y)+0.5)*window.sourceHeight/float64(window.target.Dy()) - 0.5
 			sample := sampleImage(source, sourceX, sourceY, options.Sampling)
-			ink, _ := c.frame.InkAt(x, y)
+			point := c.devicePoint(image.Pt(x, y))
+			ink, _ := c.frame.InkAt(point.X, point.Y)
 			sample = compositeOverInk(sample, ink)
 			index := (y-drawRect.Min.Y)*drawRect.Dx() + x - drawRect.Min.X
 			luminance[index] = 0.2126*sample.r + 0.7152*sample.g + 0.0722*sample.b

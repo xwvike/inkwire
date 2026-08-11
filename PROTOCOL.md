@@ -2,7 +2,7 @@
 
 本文是项目的唯一说明文档，记录当前驱动的构建与使用、字节级协议、编码规则和真机实验结论。
 
-配套代码：`cmd/inkwire` + `internal/gicisky`（Go 传输层）以及 `internal/display`（Go 三色画布、字体、文字布局、PNG 预览与像素编码）。
+配套代码：`cmd/inkwire` + `internal/gicisky`（Go 传输层）以及 `internal/display`（Go 三色画布、状态栈、显示列表、字体、文字布局、PNG 预览与像素编码）。
 
 本文档区分 **已在真机验证** 和 **未验证/推测**。请不要把推测部分当作事实来写代码。
 
@@ -249,15 +249,19 @@ glyph = hzk12_bytes[offset : offset + 24]  # MSB first，逐行取位
 - `TextStyle` 通过字体族和整数像素字号选择原生 strike；`TextRun` 支持同一文字块内的多字号与黑/红混排。
 - `ui` 字体族把普通 ASCII 路由到 Monaco strike，把中文和全角字符路由到对应 HZK；原始 HZK 文件本身不包含半角 ASCII。
 - `Canvas` 使用整数像素和半开矩形坐标，可绘制矩形、带宽度直线、折线、圆、椭圆、圆角矩形、圆弧、扇形、弓形及填充/描边多边形；所有描边统一使用 `StrokeStyle`。
+- `Canvas.Save` / `Restore` 保存和恢复当前状态，`ClipRect` 叠加矩形裁剪，`Translate` 提供整数平移。裁剪建立后固定在 Frame 坐标中；之后继续平移不会移动已有裁剪区域。`Clip(rect)` 仍可创建共享 Frame 的子 Canvas，子 Canvas 继承当时的平移和裁剪，但拥有独立状态栈，不会污染父 Canvas。
 - `StrokeStyle.Dash` 以栅格像素数交替描述开/关段，`DashOffset` 控制起点；虚线状态沿整条折线和闭合轮廓连续，不在拐点重新开始。奇数项 pattern 会按标准做法重复一遍后循环，非正数 pattern 视为无效描边。
 - 通用 `Path` 支持 `MoveTo`、`LineTo`、`QuadraticTo`、`CubicTo`、椭圆弧和 `Close`。曲线绘制时按最多 1px 步长压平到整数网格；多个轮廓统一使用 even-odd 规则填充，因此可以直接形成孔洞。
 - 标准圆和圆环必须优先使用专用 `FillCircle` / `StrokeCircle`：`StrokeCircle` 支持任意正整数像素宽度，1–6px 已逐级做连通性和轴向厚度测试。Path 的多轮廓孔洞用于任意复杂轮廓，不用它代替精确圆栅格。
 - 圆弧角度遵循屏幕坐标：0° 向右，正角度顺时针；绝对值达到 360° 的 sweep 视为完整椭圆。图元不做抗锯齿，只生成确定性的黑、白、红像素；粗线固定使用方形笔刷、方形端点和实心连接。
 - 图元层明确不承担灰度、渐变、阴影、模糊、任意浮点变换或通用矢量排版。需要的新轮廓由 `Path` 表达，裁剪后的子 Canvas 与父 Canvas 共享同一个 Frame。
 - 每个图片节点独立选择 `stretch` / `contain` / `cover`、nearest / bilinear，以及 threshold / Floyd–Steinberg / ordered Dithering，不存在强制全局开关。
+- `DisplayList` 记录与 Canvas 对应的状态、文字、图片和图元命令，可查询命令数与实际逻辑边界，支持 `Replay`、`Clone` 和 `Reset`。重放复用同一组确定性栅格化代码，并且不会改变目标 Canvas 的状态栈、平移或裁剪。
+- DisplayList 在记录时复制点集、虚线 pattern 和 Path，并把 `image.Image` 转成内部 NRGBA 快照；因此调用方在记录后修改原切片、Path 或图片不会改变重放结果。已经测量的 `TextLayout` 对外不可变，可安全复用。
 - 横屏逻辑画布为 296×128；竖屏为 128×296，可明确选择顺时针或逆时针映射到物理面板。设备编码器仍统一执行协议所需的逆时针旋转和位打包。
-- 字体、文字、图元、图像和方向逻辑都有 Go 单元测试；运行时不调用 Python 或浏览器。当前 Canvas 为立即模式，DisplayList、状态栈和通用布局树尚未进入这一层。
-- `examples/showcase/showcase.png` 是 296×128 图元与文字综合展示图；运行 `go run ./examples/showcase -png examples/showcase/showcase.png -payload /tmp/inkwire-showcase.bin` 可从当前代码重新生成 PNG 和真机 payload。
+- 字体、文字、图元、图像、Canvas 状态和 DisplayList 都有 Go 单元测试；测试覆盖直接绘制与重放逐像素一致、可变输入快照、Clone 独立性、边界计算及状态下溢。运行时不调用 Python 或浏览器。任意角度旋转、缩放和通用布局树仍不属于这一层。
+- `examples/showcase/showcase.png` 是 296×128 图元与文字综合展示图；生成器现通过 DisplayList 重放产生画面，并逐字节比对已真机确认的基准 PNG。运行 `go run ./examples/showcase -png examples/showcase/showcase.png -payload /tmp/inkwire-showcase.bin` 可重新生成 PNG 和真机 payload。
+- `examples/state_showcase/state_showcase.png` 是 Canvas 状态和 DisplayList 专项展示图：画面直接标出 `CLIP RECT`、`TRANSLATE`、`SAVE / RESTORE`、命令数与逻辑边界，生成过程还实际执行 `Clone`、`Reset` 和 `Replay`。2026-08-12 已通过 Go 驱动上传真机，9472 字节 payload 完成 40/40 分块并进入刷新。
 
 ---
 
@@ -296,7 +300,7 @@ Mirror:       ✗
 **已完成**
 - 协议逆向完成，参考实现真机验证通过
 - Go 驱动已在 macOS arm64 + `tinygo.org/x/bluetooth` v0.15.0 真机验证：完成 9472 字节、40 个数据块上传并收到 `05 08`
-- Go 渲染层已实现三色 `Frame/Canvas`、内嵌标准 HZK12/14/16 与 Monaco 10/12/14/16 strike、GB2312 严格取字、富文本 runs、原生字号匹配、换行/对齐、缺字叉框、图片缩放与逐节点 Dithering、横竖屏、PNG 预览和 Gicisky payload 编码
+- Go 渲染层已实现三色 `Frame/Canvas`、Canvas 状态栈与整数平移/裁剪、不可变 `DisplayList`、内嵌标准 HZK12/14/16 与 Monaco 10/12/14/16 strike、GB2312 严格取字、富文本 runs、原生字号匹配、换行/对齐、缺字叉框、图片缩放与逐节点 Dithering、横竖屏、PNG 预览和 Gicisky payload 编码
 - `go test ./...` 覆盖正常上传、异常 ACK 重发、截断握手、首次异常块号与空 Payload；`go vet ./...` 通过
 - 当前纯传输命令构建为约 2 MB；显示命令接入后，内嵌约 0.7 MB 的字体资源会进入同一个二进制，运行时仍不依赖 Python、Pillow、Bleak 或虚拟环境
 - 黑白文字 payload 的方向已真机验证：横向画面逆时针旋转 90° 后打包可正确显示
@@ -306,7 +310,7 @@ Mirror:       ✗
 **待办（按优先级）**
 1. 将当前源码提交到个人 GitHub 仓库。
 2. 肉眼确认标准 HZK16 与 Monaco 14、独立 Monaco 16 的基线和建议行高。
-3. 在当前显示底层之上实现布局树、序列化接口和调度层。
+3. 在当前 `Canvas + TextLayout + DisplayList` 底层之上实现布局树、序列化接口和调度层。
 4. 准备迁移主机时，在 Linux/BlueZ 上验证固定 MAC 直连与 Notify 行为。
 
 **未尝试**

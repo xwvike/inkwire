@@ -57,7 +57,7 @@ func (c *Canvas) FillPolygon(points []image.Point, ink Ink) {
 	if !ink.valid() || len(points) < 3 {
 		return
 	}
-	bounds := polygonBounds(points).Intersect(c.clip)
+	bounds := polygonBounds(points).Intersect(c.logicalClip())
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			if pointInPolygon(image.Pt(x, y), points) {
@@ -72,7 +72,7 @@ func (c *Canvas) FillCircle(center image.Point, radius int, ink Ink) {
 	if radius < 0 || !ink.valid() {
 		return
 	}
-	drawBounds := circleBounds(center, radius).Intersect(c.clip)
+	drawBounds := circleBounds(center, radius).Intersect(c.logicalClip())
 	for y := drawBounds.Min.Y; y < drawBounds.Max.Y; y++ {
 		for x := drawBounds.Min.X; x < drawBounds.Max.X; x++ {
 			if pointInCircle(x, y, center, radius) {
@@ -93,7 +93,7 @@ func (c *Canvas) StrokeCircle(center image.Point, radius int, stroke StrokeStyle
 		return
 	}
 	innerRadius := radius - stroke.Width
-	drawBounds := circleBounds(center, radius).Intersect(c.clip)
+	drawBounds := circleBounds(center, radius).Intersect(c.logicalClip())
 	for y := drawBounds.Min.Y; y < drawBounds.Max.Y; y++ {
 		for x := drawBounds.Min.X; x < drawBounds.Max.X; x++ {
 			if pointInCircle(x, y, center, radius) &&
@@ -109,7 +109,7 @@ func (c *Canvas) FillEllipse(bounds image.Rectangle, ink Ink) {
 	if !ink.valid() || bounds.Empty() {
 		return
 	}
-	drawBounds := bounds.Intersect(c.clip)
+	drawBounds := bounds.Intersect(c.logicalClip())
 	for y := drawBounds.Min.Y; y < drawBounds.Max.Y; y++ {
 		for x := drawBounds.Min.X; x < drawBounds.Max.X; x++ {
 			if pointInEllipse(x, y, bounds) {
@@ -132,7 +132,7 @@ func (c *Canvas) StrokeEllipse(bounds image.Rectangle, stroke StrokeStyle) {
 		return
 	}
 	inner := insetRect(bounds, stroke.Width)
-	drawBounds := bounds.Intersect(c.clip)
+	drawBounds := bounds.Intersect(c.logicalClip())
 	for y := drawBounds.Min.Y; y < drawBounds.Max.Y; y++ {
 		for x := drawBounds.Min.X; x < drawBounds.Max.X; x++ {
 			if pointInEllipse(x, y, bounds) && (inner.Empty() || !pointInEllipse(x, y, inner)) {
@@ -148,7 +148,7 @@ func (c *Canvas) FillRoundRect(rect image.Rectangle, radius int, ink Ink) {
 		return
 	}
 	radius = clampRadius(rect, radius)
-	drawBounds := rect.Intersect(c.clip)
+	drawBounds := rect.Intersect(c.logicalClip())
 	for y := drawBounds.Min.Y; y < drawBounds.Max.Y; y++ {
 		for x := drawBounds.Min.X; x < drawBounds.Max.X; x++ {
 			if pointInRoundRect(x, y, rect, radius) {
@@ -175,7 +175,7 @@ func (c *Canvas) StrokeRoundRect(rect image.Rectangle, radius int, stroke Stroke
 	}
 	inner := insetRect(rect, stroke.Width)
 	innerRadius := max(0, radius-stroke.Width)
-	drawBounds := rect.Intersect(c.clip)
+	drawBounds := rect.Intersect(c.logicalClip())
 	for y := drawBounds.Min.Y; y < drawBounds.Max.Y; y++ {
 		for x := drawBounds.Min.X; x < drawBounds.Max.X; x++ {
 			if pointInRoundRect(x, y, rect, radius) && (inner.Empty() || !pointInRoundRect(x, y, inner, innerRadius)) {

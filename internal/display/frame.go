@@ -105,11 +105,17 @@ func (f *Frame) Clear(ink Ink) {
 // Canvas draws integer-aligned primitives into a Frame.
 type Canvas struct {
 	frame *Frame
-	clip  image.Rectangle
+	state canvasState
+	stack []canvasState
+}
+
+type canvasState struct {
+	clip   image.Rectangle
+	offset image.Point
 }
 
 func NewCanvas(frame *Frame) *Canvas {
-	return &Canvas{frame: frame, clip: frame.Bounds()}
+	return &Canvas{frame: frame, state: canvasState{clip: frame.Bounds()}}
 }
 
 func (c *Canvas) Frame() *Frame {
@@ -117,21 +123,64 @@ func (c *Canvas) Frame() *Frame {
 }
 
 // Clip returns a child canvas sharing the same frame with a tighter clip.
+// The child inherits the current translation but owns an independent state stack.
 func (c *Canvas) Clip(rect image.Rectangle) *Canvas {
-	return &Canvas{frame: c.frame, clip: c.clip.Intersect(rect)}
+	state := c.state
+	state.clip = state.clip.Intersect(c.deviceRect(rect))
+	return &Canvas{frame: c.frame, state: state}
+}
+
+// Save pushes the current translation and clipping state.
+func (c *Canvas) Save() {
+	c.stack = append(c.stack, c.state)
+}
+
+// Restore replaces the current state with the latest saved state. It returns
+// false without changing the canvas when the stack is empty.
+func (c *Canvas) Restore() bool {
+	if len(c.stack) == 0 {
+		return false
+	}
+	last := len(c.stack) - 1
+	c.state = c.stack[last]
+	c.stack = c.stack[:last]
+	return true
+}
+
+// ClipRect intersects the current clip with rect in the current logical coordinates.
+func (c *Canvas) ClipRect(rect image.Rectangle) {
+	c.state.clip = c.state.clip.Intersect(c.deviceRect(rect))
+}
+
+// Translate moves the origin for subsequent drawing by an integer offset.
+func (c *Canvas) Translate(offset image.Point) {
+	c.state.offset = c.state.offset.Add(offset)
 }
 
 func (c *Canvas) Set(x, y int, ink Ink) {
-	if image.Pt(x, y).In(c.clip) {
-		c.frame.Set(x, y, ink)
+	point := c.devicePoint(image.Pt(x, y))
+	if point.In(c.state.clip) {
+		c.frame.Set(point.X, point.Y, ink)
 	}
 }
 
 func (c *Canvas) FillRect(rect image.Rectangle, ink Ink) {
-	rect = rect.Intersect(c.clip)
+	rect = rect.Intersect(c.logicalClip())
 	for y := rect.Min.Y; y < rect.Max.Y; y++ {
 		for x := rect.Min.X; x < rect.Max.X; x++ {
-			c.frame.Set(x, y, ink)
+			c.Set(x, y, ink)
 		}
 	}
+}
+
+func (c *Canvas) devicePoint(point image.Point) image.Point {
+	return point.Add(c.state.offset)
+}
+
+func (c *Canvas) deviceRect(rect image.Rectangle) image.Rectangle {
+	return rect.Add(c.state.offset)
+}
+
+func (c *Canvas) logicalClip() image.Rectangle {
+	return c.state.clip.Sub(c.state.offset)
 }
