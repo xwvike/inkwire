@@ -1,0 +1,264 @@
+package display
+
+import (
+	"fmt"
+	"image"
+	"image/color"
+	"math"
+)
+
+type ImageFit uint8
+
+const (
+	FitStretch ImageFit = iota
+	FitContain
+	FitCover
+)
+
+type SamplingMode uint8
+
+const (
+	SampleNearest SamplingMode = iota
+	SampleBilinear
+)
+
+type DitherMode uint8
+
+const (
+	DitherThreshold DitherMode = iota
+	DitherFloydSteinberg
+	DitherOrdered
+)
+
+type ImageOptions struct {
+	Fit          ImageFit
+	Sampling     SamplingMode
+	Dither       DitherMode
+	Threshold    int
+	RedThreshold int
+	RedMaxGreen  int
+}
+
+type imageWindow struct {
+	target       image.Rectangle
+	sourceX      float64
+	sourceY      float64
+	sourceWidth  float64
+	sourceHeight float64
+}
+
+type sampledColor struct {
+	r, g, b float64
+	a       float64
+}
+
+func (c *Canvas) DrawImage(source image.Image, destination image.Rectangle, options ImageOptions) error {
+	if source == nil {
+		return fmt.Errorf("source image must not be nil")
+	}
+	if destination.Empty() {
+		return fmt.Errorf("destination image bounds must not be empty")
+	}
+	if source.Bounds().Empty() {
+		return fmt.Errorf("source image bounds must not be empty")
+	}
+	options, err := normalizeImageOptions(options)
+	if err != nil {
+		return err
+	}
+	window := fitImage(source.Bounds(), destination, options.Fit)
+	drawRect := window.target.Intersect(c.clip)
+	if drawRect.Empty() {
+		return nil
+	}
+
+	luminance := make([]float64, drawRect.Dx()*drawRect.Dy())
+	redPixels := make([]bool, len(luminance))
+	for y := drawRect.Min.Y; y < drawRect.Max.Y; y++ {
+		for x := drawRect.Min.X; x < drawRect.Max.X; x++ {
+			sourceX := window.sourceX + (float64(x-window.target.Min.X)+0.5)*window.sourceWidth/float64(window.target.Dx()) - 0.5
+			sourceY := window.sourceY + (float64(y-window.target.Min.Y)+0.5)*window.sourceHeight/float64(window.target.Dy()) - 0.5
+			sample := sampleImage(source, sourceX, sourceY, options.Sampling)
+			ink, _ := c.frame.InkAt(x, y)
+			sample = compositeOverInk(sample, ink)
+			index := (y-drawRect.Min.Y)*drawRect.Dx() + x - drawRect.Min.X
+			luminance[index] = 0.2126*sample.r + 0.7152*sample.g + 0.0722*sample.b
+			redPixels[index] = sample.r > float64(options.RedThreshold) && sample.g < float64(options.RedMaxGreen)
+		}
+	}
+
+	switch options.Dither {
+	case DitherThreshold:
+		drawThresholdImage(c, drawRect, luminance, redPixels, float64(options.Threshold))
+	case DitherFloydSteinberg:
+		drawFloydSteinbergImage(c, drawRect, luminance, redPixels, float64(options.Threshold))
+	case DitherOrdered:
+		drawOrderedImage(c, drawRect, luminance, redPixels)
+	}
+	return nil
+}
+
+func normalizeImageOptions(options ImageOptions) (ImageOptions, error) {
+	if options.Fit > FitCover {
+		return options, fmt.Errorf("invalid image fit %d", options.Fit)
+	}
+	if options.Sampling > SampleBilinear {
+		return options, fmt.Errorf("invalid sampling mode %d", options.Sampling)
+	}
+	if options.Dither > DitherOrdered {
+		return options, fmt.Errorf("invalid dither mode %d", options.Dither)
+	}
+	if options.Threshold == 0 {
+		options.Threshold = 128
+	}
+	if options.RedThreshold == 0 {
+		options.RedThreshold = 170
+	}
+	if options.RedMaxGreen == 0 {
+		options.RedMaxGreen = 170
+	}
+	for name, value := range map[string]int{
+		"threshold": options.Threshold, "red threshold": options.RedThreshold, "red max green": options.RedMaxGreen,
+	} {
+		if value < 0 || value > 255 {
+			return options, fmt.Errorf("%s must be between 0 and 255, got %d", name, value)
+		}
+	}
+	return options, nil
+}
+
+func fitImage(source, destination image.Rectangle, fit ImageFit) imageWindow {
+	window := imageWindow{
+		target: destination, sourceX: float64(source.Min.X), sourceY: float64(source.Min.Y),
+		sourceWidth: float64(source.Dx()), sourceHeight: float64(source.Dy()),
+	}
+	switch fit {
+	case FitContain:
+		scale := math.Min(float64(destination.Dx())/float64(source.Dx()), float64(destination.Dy())/float64(source.Dy()))
+		width := max(1, int(math.Round(float64(source.Dx())*scale)))
+		height := max(1, int(math.Round(float64(source.Dy())*scale)))
+		x := destination.Min.X + (destination.Dx()-width)/2
+		y := destination.Min.Y + (destination.Dy()-height)/2
+		window.target = image.Rect(x, y, x+width, y+height)
+	case FitCover:
+		sourceRatio := float64(source.Dx()) / float64(source.Dy())
+		targetRatio := float64(destination.Dx()) / float64(destination.Dy())
+		if sourceRatio > targetRatio {
+			width := float64(source.Dy()) * targetRatio
+			window.sourceX += (float64(source.Dx()) - width) / 2
+			window.sourceWidth = width
+		} else {
+			height := float64(source.Dx()) / targetRatio
+			window.sourceY += (float64(source.Dy()) - height) / 2
+			window.sourceHeight = height
+		}
+	}
+	return window
+}
+
+func sampleImage(source image.Image, x, y float64, mode SamplingMode) sampledColor {
+	if mode == SampleNearest {
+		return colorAt(source, int(math.Round(x)), int(math.Round(y)))
+	}
+	x0, y0 := int(math.Floor(x)), int(math.Floor(y))
+	x1, y1 := x0+1, y0+1
+	tx, ty := x-float64(x0), y-float64(y0)
+	c00, c10 := colorAt(source, x0, y0), colorAt(source, x1, y0)
+	c01, c11 := colorAt(source, x0, y1), colorAt(source, x1, y1)
+	return sampledColor{
+		r: bilerp(c00.r, c10.r, c01.r, c11.r, tx, ty),
+		g: bilerp(c00.g, c10.g, c01.g, c11.g, tx, ty),
+		b: bilerp(c00.b, c10.b, c01.b, c11.b, tx, ty),
+		a: bilerp(c00.a, c10.a, c01.a, c11.a, tx, ty),
+	}
+}
+
+func colorAt(source image.Image, x, y int) sampledColor {
+	bounds := source.Bounds()
+	x = min(max(x, bounds.Min.X), bounds.Max.X-1)
+	y = min(max(y, bounds.Min.Y), bounds.Max.Y-1)
+	c := color.NRGBAModel.Convert(source.At(x, y)).(color.NRGBA)
+	return sampledColor{r: float64(c.R), g: float64(c.G), b: float64(c.B), a: float64(c.A) / 255}
+}
+
+func compositeOverInk(source sampledColor, destination Ink) sampledColor {
+	background := destination.RGBA()
+	return sampledColor{
+		r: source.r*source.a + float64(background.R)*(1-source.a),
+		g: source.g*source.a + float64(background.G)*(1-source.a),
+		b: source.b*source.a + float64(background.B)*(1-source.a),
+		a: 1,
+	}
+}
+
+func bilerp(c00, c10, c01, c11, tx, ty float64) float64 {
+	top := c00 + (c10-c00)*tx
+	bottom := c01 + (c11-c01)*tx
+	return top + (bottom-top)*ty
+}
+
+func drawThresholdImage(canvas *Canvas, rect image.Rectangle, values []float64, red []bool, threshold float64) {
+	for index, value := range values {
+		x := rect.Min.X + index%rect.Dx()
+		y := rect.Min.Y + index/rect.Dx()
+		canvas.Set(x, y, quantizedInk(value, red[index], threshold))
+	}
+}
+
+func drawFloydSteinbergImage(canvas *Canvas, rect image.Rectangle, values []float64, red []bool, threshold float64) {
+	width := rect.Dx()
+	errors := make([]float64, len(values))
+	for index, base := range values {
+		x := index % width
+		y := index / width
+		if red[index] {
+			canvas.Set(rect.Min.X+x, rect.Min.Y+y, InkRed)
+			continue
+		}
+		value := min(255, max(0, base+errors[index]))
+		ink := quantizedInk(value, false, threshold)
+		canvas.Set(rect.Min.X+x, rect.Min.Y+y, ink)
+		output := 0.0
+		if ink == InkWhite {
+			output = 255
+		}
+		errorValue := value - output
+		if x+1 < width {
+			errors[index+1] += errorValue * 7 / 16
+		}
+		if y+1 < rect.Dy() {
+			if x > 0 {
+				errors[index+width-1] += errorValue * 3 / 16
+			}
+			errors[index+width] += errorValue * 5 / 16
+			if x+1 < width {
+				errors[index+width+1] += errorValue / 16
+			}
+		}
+	}
+}
+
+func drawOrderedImage(canvas *Canvas, rect image.Rectangle, values []float64, red []bool) {
+	bayer := [4][4]int{
+		{0, 8, 2, 10},
+		{12, 4, 14, 6},
+		{3, 11, 1, 9},
+		{15, 7, 13, 5},
+	}
+	for index, value := range values {
+		x := index % rect.Dx()
+		y := index / rect.Dx()
+		threshold := (float64(bayer[y%4][x%4]) + 0.5) * 255 / 16
+		canvas.Set(rect.Min.X+x, rect.Min.Y+y, quantizedInk(value, red[index], threshold))
+	}
+}
+
+func quantizedInk(luminance float64, red bool, threshold float64) Ink {
+	if red {
+		return InkRed
+	}
+	if luminance > threshold {
+		return InkWhite
+	}
+	return InkBlack
+}

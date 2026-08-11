@@ -1,0 +1,19 @@
+Upstream: https://github.com/aguegu/BitmapFont
+Commit: fd7dd723d26e59a815a0871e63fa077825f11c00
+License: GPL-3.0-or-later (see COPYING)
+
+HZK12, HZK14, and HZK16 are copied byte-for-byte from the upstream font/
+directory. Inkwire uses its own Go loader and does not include the upstream C++
+decoder. Other HZK styles and sizes are intentionally excluded so the UI keeps
+one consistent glyph style.
+
+The MONACO files are 1-bit ASCII strikes generated from macOS
+/System/Library/Fonts/Monaco.ttf with Pillow 12.3.0, integer coordinates, and
+no antialiasing. MONACO10 keeps the exact 8x12, baseline 10, advance 6 setup
+that was verified on the physical tag. The retained sizes are 10, 12, 14, and
+16px; Monaco 10/12/14 are paired with HZK 12/14/16 respectively.
+
+MONACO10  057f04939824bf3054b32caa59ed9bfd588a006f69eb02ce01055bf31b653670
+MONACO12  558820ae439e960e57931988d94adaf14ae33d2dca5814f555fcfd29a4c4757c
+MONACO14  3ff16aa076214d9f4490a7d4ff65104a1c4ec2d318a2ea2761dd028d66ef5f85
+MONACO16  b2427ffde1fff9d9263a634b9c86323c6f62f01efb30a8f69036463d3b008996

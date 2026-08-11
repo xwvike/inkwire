@@ -2,7 +2,10 @@ module inkwire
 
 go 1.23.8
 
-require tinygo.org/x/bluetooth v0.15.0
+require (
+	golang.org/x/text v0.28.0
+	tinygo.org/x/bluetooth v0.15.0
+)
 
 require (
 	github.com/go-ole/go-ole v1.2.6 // indirect
