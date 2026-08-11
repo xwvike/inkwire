@@ -248,9 +248,15 @@ glyph = hzk12_bytes[offset : offset + 24]  # MSB first，逐行取位
 
 - `TextStyle` 通过字体族和整数像素字号选择原生 strike；`TextRun` 支持同一文字块内的多字号与黑/红混排。
 - `ui` 字体族把普通 ASCII 路由到 Monaco strike，把中文和全角字符路由到对应 HZK；原始 HZK 文件本身不包含半角 ASCII。
+- `Canvas` 使用整数像素和半开矩形坐标，可绘制矩形、带宽度直线、折线、圆、椭圆、圆角矩形、圆弧、扇形、弓形及填充/描边多边形；所有描边统一使用 `StrokeStyle`。
+- `StrokeStyle.Dash` 以栅格像素数交替描述开/关段，`DashOffset` 控制起点；虚线状态沿整条折线和闭合轮廓连续，不在拐点重新开始。奇数项 pattern 会按标准做法重复一遍后循环，非正数 pattern 视为无效描边。
+- 通用 `Path` 支持 `MoveTo`、`LineTo`、`QuadraticTo`、`CubicTo`、椭圆弧和 `Close`。曲线绘制时按最多 1px 步长压平到整数网格；多个轮廓统一使用 even-odd 规则填充，因此可以直接形成孔洞。
+- 标准圆和圆环必须优先使用专用 `FillCircle` / `StrokeCircle`：`StrokeCircle` 支持任意正整数像素宽度，1–6px 已逐级做连通性和轴向厚度测试。Path 的多轮廓孔洞用于任意复杂轮廓，不用它代替精确圆栅格。
+- 圆弧角度遵循屏幕坐标：0° 向右，正角度顺时针；绝对值达到 360° 的 sweep 视为完整椭圆。图元不做抗锯齿，只生成确定性的黑、白、红像素；粗线固定使用方形笔刷、方形端点和实心连接。
+- 图元层明确不承担灰度、渐变、阴影、模糊、任意浮点变换或通用矢量排版。需要的新轮廓由 `Path` 表达，裁剪后的子 Canvas 与父 Canvas 共享同一个 Frame。
 - 每个图片节点独立选择 `stretch` / `contain` / `cover`、nearest / bilinear，以及 threshold / Floyd–Steinberg / ordered Dithering，不存在强制全局开关。
 - 横屏逻辑画布为 296×128；竖屏为 128×296，可明确选择顺时针或逆时针映射到物理面板。设备编码器仍统一执行协议所需的逆时针旋转和位打包。
-- 所有字体、文字、图像和方向逻辑都有 Go 单元测试；运行时不调用 Python 或浏览器。
+- 字体、文字、图元、图像和方向逻辑都有 Go 单元测试；运行时不调用 Python 或浏览器。当前 Canvas 为立即模式，DisplayList、状态栈和通用布局树尚未进入这一层。
 
 ---
 

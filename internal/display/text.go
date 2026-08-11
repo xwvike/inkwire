@@ -245,7 +245,8 @@ func drawMissingGlyph(canvas *Canvas, rect image.Rectangle, ink Ink) {
 		return
 	}
 	inset := rect.Inset(1)
-	canvas.StrokeRect(inset, 1, ink)
-	canvas.DrawLine(inset.Min.Add(image.Pt(1, 1)), inset.Max.Sub(image.Pt(2, 2)), ink)
-	canvas.DrawLine(image.Pt(inset.Max.X-2, inset.Min.Y+1), image.Pt(inset.Min.X+1, inset.Max.Y-2), ink)
+	stroke := StrokeStyle{Ink: ink, Width: 1}
+	canvas.StrokeRect(inset, stroke)
+	canvas.DrawLine(inset.Min.Add(image.Pt(1, 1)), inset.Max.Sub(image.Pt(2, 2)), stroke)
+	canvas.DrawLine(image.Pt(inset.Max.X-2, inset.Min.Y+1), image.Pt(inset.Min.X+1, inset.Max.Y-2), stroke)
 }

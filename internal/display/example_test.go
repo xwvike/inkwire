@@ -26,3 +26,23 @@ func ExampleLayoutText() {
 	fmt.Printf("text=%dx%d payload=%d\n", size.X, size.Y, len(payload))
 	// Output: text=66x14 payload=9472
 }
+
+func ExamplePath() {
+	frame, _ := display.NewFrame(296, 128, display.InkWhite)
+	canvas := display.NewCanvas(frame)
+
+	var path display.Path
+	path.MoveTo(image.Pt(10, 10))
+	path.LineTo(image.Pt(40, 10))
+	path.LineTo(image.Pt(40, 30))
+	path.LineTo(image.Pt(10, 30))
+	path.Close()
+	canvas.FillPath(path, display.InkBlack)
+	canvas.DrawArc(image.Rect(50, 10, 81, 41), 180, 270, display.StrokeStyle{
+		Ink: display.InkRed, Width: 2, Dash: []int{4, 2},
+	})
+
+	payload, _ := display.EncodeGicisky(frame)
+	fmt.Printf("path=%v payload=%d\n", path.Bounds(), len(payload))
+	// Output: path=(10,10)-(41,31) payload=9472
+}
