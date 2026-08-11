@@ -257,6 +257,7 @@ glyph = hzk12_bytes[offset : offset + 24]  # MSB first，逐行取位
 - 每个图片节点独立选择 `stretch` / `contain` / `cover`、nearest / bilinear，以及 threshold / Floyd–Steinberg / ordered Dithering，不存在强制全局开关。
 - 横屏逻辑画布为 296×128；竖屏为 128×296，可明确选择顺时针或逆时针映射到物理面板。设备编码器仍统一执行协议所需的逆时针旋转和位打包。
 - 字体、文字、图元、图像和方向逻辑都有 Go 单元测试；运行时不调用 Python 或浏览器。当前 Canvas 为立即模式，DisplayList、状态栈和通用布局树尚未进入这一层。
+- `examples/showcase/showcase.png` 是 296×128 图元与文字综合展示图；运行 `go run ./examples/showcase -png examples/showcase/showcase.png -payload /tmp/inkwire-showcase.bin` 可从当前代码重新生成 PNG 和真机 payload。
 
 ---
 
