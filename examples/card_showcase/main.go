@@ -123,6 +123,9 @@ func (c cardShowcase) portrait(fraction float64) error {
 		Dither:   display.DitherFloydSteinberg,
 		// The room behind the subject is warm enough to reach the red plane,
 		// which would scatter red through a photograph that has none in it.
+		// This is belt and braces today: the contrast pass works on luminance
+		// and hands back a grey image, and red can never fire when R equals G.
+		// It matters the moment a caller keeps the colour.
 		RedThreshold: 255,
 	}); err != nil {
 		c.list.Restore()
