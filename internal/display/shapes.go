@@ -44,12 +44,16 @@ func (c *Canvas) DrawPolyline(points []image.Point, stroke StrokeStyle) {
 	c.strokePoints(points, false, stroke)
 }
 
-// StrokePolygon connects the final point back to the first point.
+// StrokePolygon connects the final point back to the first point. The polygon
+// is closed, so the stroke is drawn inside it and never paints outside the
+// matching FillPolygon.
 func (c *Canvas) StrokePolygon(points []image.Point, stroke StrokeStyle) {
 	if !stroke.valid() || len(points) < 3 {
 		return
 	}
-	c.strokePoints(points, true, stroke)
+	c.strokeInward(polygonBounds(points), func(x, y int) bool {
+		return pointInPolygon(image.Pt(x, y), points)
+	}, points, stroke)
 }
 
 // FillPolygon fills a simple polygon using the even-odd rule.

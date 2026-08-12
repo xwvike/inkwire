@@ -74,12 +74,13 @@ func TestFillAndStrokeAgreeOnTheEdge(t *testing.T) {
 			func(c *Canvas) { c.FillEllipse(box, InkBlack) },
 			func(c *Canvas) { c.DrawArc(box, 0, 360, thin) }},
 
-		// Polygons and paths have no implicit stroker at all, so they always
-		// straddle. These are the widest gaps in the set.
-		{"Polygon", 65,
+		// Polygons have no implicit stroker, so they build the inward band by
+		// eroding a mask of the fill instead. Both forms were straddling the
+		// edge before that: 65 of 141 pixels solid, 39 of 85 dashed.
+		{"Polygon", 0,
 			func(c *Canvas) { c.FillPolygon(poly, InkBlack) },
 			func(c *Canvas) { c.StrokePolygon(poly, thin) }},
-		{"Polygon dashed", 39,
+		{"Polygon dashed", 0,
 			func(c *Canvas) { c.FillPolygon(poly, InkBlack) },
 			func(c *Canvas) { c.StrokePolygon(poly, dashed) }},
 		{"Path", 40,
