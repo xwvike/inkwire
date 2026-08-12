@@ -34,6 +34,7 @@ const (
 	commandTranslate
 	commandSet
 	commandFillRect
+	commandFillPattern
 	commandStrokeRect
 	commandDrawLine
 	commandDrawPolyline
@@ -67,6 +68,7 @@ type displayCommand struct {
 	sweep   float64
 	path    Path
 	layout  *TextLayout
+	pattern *Pattern
 	source  *image.NRGBA
 	options ImageOptions
 }
@@ -189,6 +191,15 @@ func (d *DisplayList) FillRect(rect image.Rectangle, ink Ink) {
 		return
 	}
 	d.appendDraw(displayCommand{kind: commandFillRect, rect: rect, ink: ink}, rect)
+}
+
+// FillPattern records a tiled fill. A Pattern is immutable once built, so it is
+// recorded by reference rather than copied.
+func (d *DisplayList) FillPattern(rect image.Rectangle, pattern *Pattern) {
+	if rect.Empty() || pattern == nil {
+		return
+	}
+	d.appendDraw(displayCommand{kind: commandFillPattern, rect: rect, pattern: pattern}, rect)
 }
 
 // StrokeRect records a rectangle outline drawn inside rect.
@@ -451,6 +462,8 @@ func (c displayCommand) replay(canvas *Canvas) error {
 		canvas.Set(c.point.X, c.point.Y, c.ink)
 	case commandFillRect:
 		canvas.FillRect(c.rect, c.ink)
+	case commandFillPattern:
+		canvas.FillPattern(c.rect, c.pattern)
 	case commandStrokeRect:
 		canvas.StrokeRect(c.rect, c.stroke)
 	case commandDrawLine:
