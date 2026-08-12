@@ -39,17 +39,12 @@ func main() {
 		fail(fmt.Errorf("no assets embedded"))
 	}
 
-	fonts, err := display.NewBuiltinFontRegistry()
-	if err != nil {
-		fail(err)
-	}
-
 	if *payloadFor != "" {
 		entry, ok := findAsset(entries, *payloadFor)
 		if !ok {
 			fail(fmt.Errorf("no asset named %q", *payloadFor))
 		}
-		frame, err := renderCard(entry, fonts)
+		frame, err := renderCard(entry, nil)
 		if err != nil {
 			fail(err)
 		}
@@ -72,7 +67,7 @@ func main() {
 	}
 	fmt.Printf("%-14s %10s %10s %14s\n", "asset", "mid-tone", "otsu", "treatment")
 	for _, entry := range entries {
-		frame, err := renderCard(entry, fonts)
+		frame, err := renderCard(entry, nil)
 		if err != nil {
 			fail(err)
 		}
@@ -83,7 +78,7 @@ func main() {
 			entry.name, 100*entry.profile.MidToneFraction, entry.profile.Threshold, treatmentOf(entry.profile))
 	}
 
-	sheet, err := renderSheet(entries, fonts)
+	sheet, err := renderSheet(entries, nil)
 	if err != nil {
 		fail(err)
 	}
@@ -189,82 +184,68 @@ func redVerdict(profile compose.ImageProfile) string {
 }
 
 // One asset on one panel, with the measurement beside it.
-func renderCard(entry asset, fonts *display.FontRegistry) (*display.Frame, error) {
-	frame, err := display.NewPage(display.OrientationLandscape, display.InkWhite)
-	if err != nil {
-		return nil, err
-	}
-	canvas := display.NewCanvas(frame)
-
-	canvas.FillRect(image.Rect(0, 0, 296, 18), display.InkBlack)
-	if err := text(canvas, fonts, image.Rect(5, 1, 200, 17), 15, display.AlignStart,
-		run("GALLERY ", "monaco", 12, display.InkWhite),
-		run("图片自动适配", "hzk", 12, display.InkWhite),
-	); err != nil {
-		return nil, err
-	}
-
+func renderCard(entry asset, _ *display.FontRegistry) (*display.Frame, error) {
 	frameBox := image.Rect(6, 24, 110, 122)
-	canvas.StrokeRoundRect(frameBox, 4, display.StrokeStyle{Ink: display.InkBlack, Width: 1})
 	prepared, options, err := prepare(entry, frameBox.Inset(4))
 	if err != nil {
 		return nil, err
 	}
-	if err := canvas.DrawImage(prepared, frameBox.Inset(4), options); err != nil {
+	compiler, err := compose.NewDefaultCompiler()
+	if err != nil {
 		return nil, err
 	}
-
-	if err := text(canvas, fonts, image.Rect(120, 24, 290, 42), 18, display.AlignStart,
-		run(entry.name, "monaco", 14, display.InkBlack),
-	); err != nil {
-		return nil, err
-	}
-	canvas.DrawLine(image.Pt(120, 46), image.Pt(290, 46), display.StrokeStyle{
-		Ink: display.InkBlack, Width: 1, Dash: []int{3, 3},
+	compiled, report, err := compiler.Compile(compose.Document{
+		Orientation: display.OrientationLandscape,
+		Background:  compose.Value(display.InkWhite),
+		Root: compose.Absolute{Size: image.Pt(296, 128), Clip: true, Children: []compose.Placed{
+			{Bounds: image.Rect(0, 0, 296, 18), Node: compose.Rectangle{Size: image.Pt(296, 18), Fill: compose.Ink(display.InkBlack)}},
+			{Bounds: image.Rect(5, 1, 200, 17), Node: compose.Text{Size: image.Pt(195, 16), Runs: []display.TextRun{run("GALLERY ", "monaco", 12, display.InkWhite), run("图片自动适配", "hzk", 12, display.InkWhite)}}},
+			{Bounds: frameBox, Node: compose.Stack{Size: frameBox.Size(), Children: []compose.Node{
+				compose.Rectangle{Size: frameBox.Size(), Radius: 4, Stroke: compose.Stroke(display.StrokeStyle{Ink: display.InkBlack, Width: 1})},
+				compose.Image{Size: frameBox.Inset(4).Size(), Source: prepared, Processing: compose.ImageManual, Options: options},
+			}}},
+			{Bounds: image.Rect(120, 24, 290, 42), Node: compose.Text{Size: image.Pt(170, 18), Runs: []display.TextRun{run(entry.name, "monaco", 14, display.InkBlack)}}},
+			{Bounds: image.Rect(120, 46, 290, 48), Node: compose.Line{Size: image.Pt(170, 2), From: image.Pt(0, 0), To: image.Pt(170, 0), Stroke: display.StrokeStyle{Ink: display.InkBlack, Width: 1, Dash: []int{3, 3}}}},
+			{Bounds: image.Rect(120, 50, 176, 64), Node: compose.Text{Size: image.Pt(56, 14), Runs: []display.TextRun{run("中间调", "ui", 12, display.InkBlack)}}},
+			{Bounds: image.Rect(180, 50, 290, 64), Node: compose.Text{Size: image.Pt(110, 14), Runs: []display.TextRun{run(fmt.Sprintf("%.1f%%", 100*entry.profile.MidToneFraction), "monaco", 12, display.InkBlack)}}},
+			{Bounds: image.Rect(120, 67, 176, 81), Node: compose.Text{Size: image.Pt(56, 14), Runs: []display.TextRun{run("OTSU", "monaco", 12, display.InkBlack)}}},
+			{Bounds: image.Rect(180, 67, 290, 81), Node: compose.Text{Size: image.Pt(110, 14), Runs: []display.TextRun{run(fmt.Sprintf("%d", entry.profile.Threshold), "monaco", 12, display.InkBlack)}}},
+			{Bounds: image.Rect(120, 84, 176, 98), Node: compose.Text{Size: image.Pt(56, 14), Runs: []display.TextRun{run("红色", "ui", 12, display.InkBlack)}}},
+			{Bounds: image.Rect(180, 84, 290, 98), Node: compose.Text{Size: image.Pt(110, 14), Runs: []display.TextRun{run(redVerdict(entry.profile), "monaco", 12, display.InkBlack)}}},
+			{Bounds: image.Rect(120, 102, 290, 121), Node: compose.Rectangle{Size: image.Pt(170, 19), Radius: 3, Stroke: compose.Stroke(display.StrokeStyle{Ink: verdictInk(entry.profile), Width: 1})}},
+			{Bounds: image.Rect(123, 105, 287, 118), Node: compose.Text{Size: image.Pt(164, 13), Align: display.AlignCenter, Runs: []display.TextRun{run(verdictText(entry.profile), "ui", 12, verdictInk(entry.profile))}}},
+		}},
 	})
+	if err != nil {
+		return nil, err
+	}
+	if len(report.MissingRunes) != 0 || len(report.Warnings) != 0 {
+		return nil, fmt.Errorf("gallery compose report: missing=%q warnings=%v", string(report.MissingRunes), report.Warnings)
+	}
+	return compiled.Render()
+}
 
-	rows := []struct{ label, value string }{
-		{"中间调", fmt.Sprintf("%.1f%%", 100*entry.profile.MidToneFraction)},
-		{"OTSU", fmt.Sprintf("%d", entry.profile.Threshold)},
-		{"红色", redVerdict(entry.profile)},
+func verdictInk(profile compose.ImageProfile) display.Ink {
+	if profile.Photographic {
+		return display.InkRed
 	}
-	for index, row := range rows {
-		top := 50 + index*17
-		if err := text(canvas, fonts, image.Rect(120, top, 176, top+14), 14, display.AlignStart,
-			run(row.label, "ui", 12, display.InkBlack),
-		); err != nil {
-			return nil, err
-		}
-		if err := text(canvas, fonts, image.Rect(180, top, 290, top+14), 14, display.AlignStart,
-			run(row.value, "monaco", 12, display.InkBlack),
-		); err != nil {
-			return nil, err
-		}
+	return display.InkBlack
+}
+func verdictText(profile compose.ImageProfile) string {
+	if profile.Photographic {
+		return "误差扩散 · 照片"
 	}
-
-	verdict, ink := "阈值 · 图形", display.InkBlack
-	if entry.profile.Photographic {
-		verdict, ink = "误差扩散 · 照片", display.InkRed
-	}
-	badge := image.Rect(120, 102, 290, 121)
-	canvas.StrokeRoundRect(badge, 3, display.StrokeStyle{Ink: ink, Width: 1})
-	return frame, text(canvas, fonts, badge.Inset(3), 14, display.AlignCenter,
-		run(verdict, "ui", 12, ink),
-	)
+	return "阈值 · 图形"
 }
 
 // The contact sheet is a review artifact rather than a panel image, so it is
 // free to be larger than 296x128.
-func renderSheet(entries []asset, fonts *display.FontRegistry) (*display.Frame, error) {
+func renderSheet(entries []asset, _ *display.FontRegistry) (*display.Frame, error) {
 	const cell, gap, caption = 92, 8, 28
 	columns := 5
 	rows := (len(entries) + columns - 1) / columns
-	frame, err := display.NewFrame(columns*(cell+gap)+gap, rows*(cell+gap+caption)+gap, display.InkWhite)
-	if err != nil {
-		return nil, err
-	}
-	canvas := display.NewCanvas(frame)
-
+	sheetSize := image.Pt(columns*(cell+gap)+gap, rows*(cell+gap+caption)+gap)
+	children := make([]compose.Placed, 0, len(entries)*3)
 	for index, entry := range entries {
 		column, row := index%columns, index/columns
 		box := image.Rect(
@@ -275,43 +256,34 @@ func renderSheet(entries []asset, fonts *display.FontRegistry) (*display.Frame, 
 		if err != nil {
 			return nil, err
 		}
-		if err := canvas.DrawImage(prepared, box, options); err != nil {
-			return nil, err
-		}
-		canvas.StrokeRect(box, display.StrokeStyle{Ink: display.InkBlack, Width: 1})
-
+		children = append(children,
+			compose.Placed{Bounds: box, Node: compose.Image{Size: box.Size(), Source: prepared, Processing: compose.ImageManual, Options: options}},
+			compose.Placed{Bounds: box, Node: compose.Rectangle{Size: box.Size(), Stroke: compose.Stroke(display.StrokeStyle{Ink: display.InkBlack, Width: 1})}},
+		)
 		ink := display.InkBlack
 		mark := "T"
 		if entry.profile.Photographic {
 			ink, mark = display.InkRed, "FS"
 		}
-		if err := text(canvas, fonts, image.Rect(box.Min.X, box.Max.Y+1, box.Max.X, box.Max.Y+14), 13,
-			display.AlignStart, run(entry.name, "monaco", 10, display.InkBlack)); err != nil {
-			return nil, err
-		}
-		if err := text(canvas, fonts, image.Rect(box.Min.X, box.Max.Y+14, box.Max.X, box.Max.Y+27), 13,
-			display.AlignStart,
-			run(fmt.Sprintf("%.0f%% t%d ", 100*entry.profile.MidToneFraction, entry.profile.Threshold), "monaco", 10, display.InkBlack),
-			run(mark, "monaco", 10, ink),
-		); err != nil {
-			return nil, err
-		}
+		children = append(children,
+			compose.Placed{Bounds: image.Rect(box.Min.X, box.Max.Y+1, box.Max.X, box.Max.Y+14), Node: compose.Text{Size: image.Pt(box.Dx(), 13), Runs: []display.TextRun{run(entry.name, "monaco", 10, display.InkBlack)}}},
+			compose.Placed{Bounds: image.Rect(box.Min.X, box.Max.Y+14, box.Max.X, box.Max.Y+27), Node: compose.Text{Size: image.Pt(box.Dx(), 13), Runs: []display.TextRun{
+				run(fmt.Sprintf("%.0f%% t%d ", 100*entry.profile.MidToneFraction, entry.profile.Threshold), "monaco", 10, display.InkBlack), run(mark, "monaco", 10, ink),
+			}}},
+		)
 	}
-	return frame, nil
-}
-
-func text(canvas *display.Canvas, fonts *display.FontRegistry, bounds image.Rectangle,
-	lineHeight int, align display.HorizontalAlign, runs ...display.TextRun) error {
-	layout, err := canvas.DrawTextBox(fonts, display.TextBox{
-		Bounds: bounds, Runs: runs, Align: align, LineHeight: lineHeight,
-	})
+	compiler, err := compose.NewDefaultCompiler()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if missing := layout.MissingRunes(); len(missing) != 0 {
-		return fmt.Errorf("missing gallery glyphs: %q", string(missing))
+	compiled, report, err := compiler.Compile(compose.Document{Size: sheetSize, Background: compose.Value(display.InkWhite), Root: compose.Absolute{Size: sheetSize, Clip: true, Children: children}})
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	if len(report.MissingRunes) != 0 || len(report.Warnings) != 0 {
+		return nil, fmt.Errorf("gallery sheet compose report: missing=%q warnings=%v", string(report.MissingRunes), report.Warnings)
+	}
+	return compiled.Render()
 }
 
 func run(value, font string, size int, ink display.Ink) display.TextRun {

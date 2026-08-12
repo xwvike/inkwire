@@ -6,6 +6,7 @@ import (
 	"image"
 	"os"
 
+	"github.com/xwvike/inkwire/internal/compose"
 	"github.com/xwvike/inkwire/internal/display"
 )
 
@@ -37,151 +38,92 @@ func main() {
 }
 
 func renderShowcase() (*display.Frame, error) {
-	frame, err := display.NewPage(display.OrientationLandscape, display.InkWhite)
+	compiler, err := compose.NewDefaultCompiler()
 	if err != nil {
 		return nil, err
 	}
-	fonts, err := display.NewBuiltinFontRegistry()
-	if err != nil {
-		return nil, err
-	}
-	list := &display.DisplayList{}
-	view := showcase{list: list, fonts: fonts}
-	if err := view.draw(); err != nil {
-		return nil, err
-	}
-	if err := list.Replay(display.NewCanvas(frame)); err != nil {
-		return nil, err
-	}
-	return frame, nil
-}
-
-type showcase struct {
-	list  *display.DisplayList
-	fonts *display.FontRegistry
-}
-
-func (s showcase) draw() error {
-	black1 := display.StrokeStyle{Ink: display.InkBlack, Width: 1}
-	black2 := display.StrokeStyle{Ink: display.InkBlack, Width: 2}
-	red1 := display.StrokeStyle{Ink: display.InkRed, Width: 1}
-
-	s.list.StrokeRoundRect(image.Rect(1, 1, 295, 127), 6, black1)
-	s.list.FillRoundRect(image.Rect(3, 3, 293, 26), 5, display.InkBlack)
-	if err := s.text(image.Rect(8, 5, 288, 24), 18, display.AlignStart,
-		run("INKWIRE  ", "monaco", 14, display.InkWhite),
-		run("图元与文字展示", "ui", 14, display.InkWhite),
-		run("  RBW", "monaco", 14, display.InkRed),
-	); err != nil {
-		return err
-	}
-
-	left := image.Rect(4, 29, 99, 124)
-	middle := image.Rect(101, 29, 198, 124)
-	right := image.Rect(200, 29, 292, 124)
-	s.list.StrokeRoundRect(left, 5, black1)
-	s.list.StrokeRoundRect(middle, 5, black1)
-	s.list.StrokeRoundRect(right, 5, black1)
-
-	if err := s.label(image.Rect(9, 32, 94, 44), "BASIC / SHAPES"); err != nil {
-		return err
-	}
-	s.list.DrawLine(image.Pt(9, 47), image.Pt(45, 47), black1)
-	s.list.DrawLine(image.Pt(52, 47), image.Pt(92, 47), display.StrokeStyle{
-		Ink: display.InkRed, Width: 2, Dash: []int{3, 2}, DashOffset: 1,
+	compiled, _, err := compiler.Compile(compose.Document{
+		Orientation: display.OrientationLandscape,
+		Background:  compose.Value(display.InkWhite),
+		Root: compose.Absolute{Size: image.Pt(296, 128), Clip: true, Children: []compose.Placed{
+			{Bounds: image.Rect(1, 1, 295, 127), Node: compose.Rectangle{Size: image.Pt(294, 126), Radius: 6, Stroke: compose.Stroke(stroke(display.InkBlack, 1))}},
+			{Bounds: image.Rect(3, 3, 293, 26), Node: compose.Rectangle{Size: image.Pt(290, 23), Radius: 5, Fill: compose.Ink(display.InkBlack)}},
+			{Bounds: image.Rect(8, 5, 288, 24), Node: compose.Text{Size: image.Pt(280, 19), Runs: []display.TextRun{
+				run("INKWIRE  ", "monaco", 14, display.InkWhite), run("图元与文字展示", "ui", 14, display.InkWhite), run("  RBW", "monaco", 14, display.InkRed),
+			}}},
+			{Bounds: image.Rect(4, 29, 99, 124), Node: basicShapes()},
+			{Bounds: image.Rect(101, 29, 198, 124), Node: pathsAndArcs()},
+			{Bounds: image.Rect(200, 29, 292, 124), Node: typeAndColor()},
+		}},
 	})
-	s.list.StrokeRect(image.Rect(9, 53, 34, 67), black1)
-	s.list.FillRect(image.Rect(39, 53, 62, 67), display.InkRed)
-	s.list.StrokeRoundRect(image.Rect(67, 53, 93, 67), 4, black2)
-	s.list.StrokeCircle(image.Pt(17, 80), 7, black1)
-	s.list.FillCircle(image.Pt(38, 80), 7, display.InkRed)
-	s.list.StrokeEllipse(image.Rect(49, 73, 69, 88), red1)
-	s.list.FillEllipse(image.Rect(74, 73, 94, 88), display.InkBlack)
-	s.list.DrawPolyline([]image.Point{
-		image.Pt(9, 101), image.Pt(18, 92), image.Pt(27, 101), image.Pt(36, 92), image.Pt(45, 101),
-	}, red1)
-	s.list.StrokePolygon([]image.Point{
-		image.Pt(52, 118), image.Pt(58, 98), image.Pt(70, 94), image.Pt(79, 106), image.Pt(72, 118),
-	}, black1)
-	s.list.FillPolygon([]image.Point{
-		image.Pt(77, 118), image.Pt(86, 96), image.Pt(95, 118),
-	}, display.InkRed)
-
-	if err := s.label(image.Rect(106, 32, 193, 44), "PATH / ARC"); err != nil {
-		return err
+	if err != nil {
+		return nil, err
 	}
+	return compiled.Render()
+}
+
+func basicShapes() compose.Node {
+	return compose.Absolute{Size: image.Pt(95, 95), Clip: true, Children: []compose.Placed{
+		{Bounds: image.Rect(0, 0, 95, 95), Node: compose.Rectangle{Size: image.Pt(95, 95), Radius: 5, Stroke: compose.Stroke(stroke(display.InkBlack, 1))}},
+		{Bounds: image.Rect(5, 3, 90, 15), Node: label("BASIC / SHAPES")},
+		{Bounds: image.Rect(5, 18, 40, 20), Node: compose.Line{Size: image.Pt(35, 2), From: image.Pt(0, 1), To: image.Pt(35, 1), Stroke: stroke(display.InkBlack, 1)}},
+		{Bounds: image.Rect(48, 18, 90, 22), Node: compose.Line{Size: image.Pt(42, 4), From: image.Pt(0, 2), To: image.Pt(42, 2), Stroke: display.StrokeStyle{Ink: display.InkRed, Width: 2, Dash: []int{3, 2}, DashOffset: 1}}},
+		{Bounds: image.Rect(5, 25, 30, 45), Node: compose.Rectangle{Size: image.Pt(25, 20), Stroke: compose.Stroke(stroke(display.InkBlack, 1))}},
+		{Bounds: image.Rect(35, 25, 58, 45), Node: compose.Rectangle{Size: image.Pt(23, 20), Fill: compose.Ink(display.InkRed)}},
+		{Bounds: image.Rect(63, 25, 90, 45), Node: compose.Rectangle{Size: image.Pt(27, 20), Radius: 4, Stroke: compose.Stroke(stroke(display.InkBlack, 2))}},
+		{Bounds: image.Rect(5, 49, 23, 67), Node: compose.Circle{Center: image.Pt(9, 9), Radius: 7, Stroke: compose.Stroke(stroke(display.InkBlack, 1))}},
+		{Bounds: image.Rect(28, 49, 44, 67), Node: compose.Circle{Center: image.Pt(8, 9), Radius: 7, Fill: compose.Ink(display.InkRed)}},
+		{Bounds: image.Rect(49, 47, 69, 68), Node: compose.Ellipse{Size: image.Pt(20, 21), Stroke: compose.Stroke(stroke(display.InkRed, 1))}},
+		{Bounds: image.Rect(74, 47, 94, 68), Node: compose.Ellipse{Size: image.Pt(20, 21), Fill: compose.Ink(display.InkBlack)}},
+		{Bounds: image.Rect(5, 72, 45, 88), Node: compose.Polyline{Size: image.Pt(40, 16), Points: []image.Point{{X: 0, Y: 15}, {X: 9, Y: 6}, {X: 18, Y: 15}, {X: 27, Y: 6}, {X: 36, Y: 15}}, Stroke: stroke(display.InkRed, 1)}},
+		{Bounds: image.Rect(50, 65, 78, 95), Node: compose.Polygon{Size: image.Pt(28, 30), Points: []image.Point{{X: 2, Y: 29}, {X: 8, Y: 9}, {X: 18, Y: 5}, {X: 27, Y: 17}, {X: 20, Y: 29}}, Stroke: compose.Stroke(stroke(display.InkBlack, 1))}},
+		{Bounds: image.Rect(75, 65, 95, 95), Node: compose.Polygon{Size: image.Pt(20, 30), Points: []image.Point{{X: 2, Y: 29}, {X: 11, Y: 7}, {X: 19, Y: 29}}, Fill: compose.Ink(display.InkRed)}},
+	}}
+}
+
+func pathsAndArcs() compose.Node {
 	var wave display.Path
-	wave.MoveTo(image.Pt(107, 52))
-	wave.CubicTo(image.Pt(124, 35), image.Pt(143, 67), image.Pt(159, 51))
-	wave.QuadraticTo(image.Pt(176, 38), image.Pt(193, 52))
-	s.list.StrokePath(wave, black1)
-	s.list.DrawArc(image.Rect(106, 59, 137, 89), 140, 260, display.StrokeStyle{
-		Ink: display.InkRed, Width: 2, Dash: []int{4, 2},
-	})
-	s.list.FillPie(image.Rect(141, 61, 166, 86), -90, 125, display.InkRed)
-	s.list.FillChord(image.Rect(170, 60, 194, 86), 20, 210, display.InkBlack)
-
+	wave.MoveTo(image.Pt(6, 23))
+	wave.CubicTo(image.Pt(23, 6), image.Pt(42, 38), image.Pt(58, 22))
+	wave.QuadraticTo(image.Pt(75, 9), image.Pt(91, 23))
 	var landscape display.Path
-	landscape.MoveTo(image.Pt(106, 118))
-	landscape.LineTo(image.Pt(116, 98))
-	landscape.LineTo(image.Pt(127, 110))
-	landscape.QuadraticTo(image.Pt(139, 88), image.Pt(151, 110))
-	landscape.CubicTo(image.Pt(162, 102), image.Pt(172, 91), image.Pt(181, 118))
+	landscape.MoveTo(image.Pt(5, 89))
+	landscape.LineTo(image.Pt(15, 69))
+	landscape.LineTo(image.Pt(26, 81))
+	landscape.QuadraticTo(image.Pt(38, 59), image.Pt(50, 81))
+	landscape.CubicTo(image.Pt(61, 73), image.Pt(72, 62), image.Pt(82, 89))
 	landscape.Close()
-	s.list.FillPath(landscape, display.InkBlack)
-	s.list.StrokeCircle(image.Pt(188, 106), 10, display.StrokeStyle{Ink: display.InkRed, Width: 3})
-
-	if err := s.label(image.Rect(205, 32, 287, 44), "TYPE / COLOR"); err != nil {
-		return err
-	}
-	if err := s.text(image.Rect(205, 44, 287, 63), 18, display.AlignStart,
-		run("中文", "hzk", 16, display.InkBlack),
-		run("16", "monaco", 16, display.InkRed),
-	); err != nil {
-		return err
-	}
-	if err := s.text(image.Rect(205, 64, 287, 80), 16, display.AlignStart,
-		run("图元", "hzk", 14, display.InkBlack),
-		run("14", "monaco", 14, display.InkRed),
-	); err != nil {
-		return err
-	}
-	if err := s.text(image.Rect(205, 81, 288, 96), 14, display.AlignStart,
-		run("中文12 ", "ui", 12, display.InkBlack),
-		run("ABC", "monaco", 12, display.InkRed),
-	); err != nil {
-		return err
-	}
-	if err := s.text(image.Rect(205, 97, 287, 110), 12, display.AlignCenter,
-		run("MONACO10 23.5", "monaco", 10, display.InkBlack),
-	); err != nil {
-		return err
-	}
-	s.list.FillRoundRect(image.Rect(204, 110, 288, 121), 3, display.InkBlack)
-	if err := s.text(image.Rect(207, 110, 285, 121), 11, display.AlignCenter,
-		run("WHITE", "monaco", 10, display.InkWhite),
-		run(" / RED", "monaco", 10, display.InkRed),
-	); err != nil {
-		return err
-	}
-	return nil
+	return compose.Absolute{Size: image.Pt(97, 95), Clip: true, Children: []compose.Placed{
+		{Bounds: image.Rect(0, 0, 97, 95), Node: compose.Rectangle{Size: image.Pt(97, 95), Radius: 5, Stroke: compose.Stroke(stroke(display.InkBlack, 1))}},
+		{Bounds: image.Rect(5, 3, 92, 15), Node: label("PATH / ARC")},
+		{Bounds: image.Rect(4, 18, 94, 45), Node: compose.Path{Size: image.Pt(90, 27), Path: wave, Stroke: compose.Stroke(stroke(display.InkBlack, 1))}},
+		{Bounds: image.Rect(5, 46, 37, 76), Node: compose.Arc{Size: image.Pt(32, 30), Start: 140, Sweep: 260, Stroke: display.StrokeStyle{Ink: display.InkRed, Width: 2, Dash: []int{4, 2}}}},
+		{Bounds: image.Rect(41, 48, 66, 73), Node: compose.Pie{Size: image.Pt(25, 25), Start: -90, Sweep: 125, Ink: display.InkRed}},
+		{Bounds: image.Rect(70, 47, 94, 73), Node: compose.Chord{Size: image.Pt(24, 26), Start: 20, Sweep: 210, Ink: display.InkBlack}},
+		{Bounds: image.Rect(4, 66, 82, 95), Node: compose.Path{Size: image.Pt(78, 29), Path: landscape, Fill: compose.Ink(display.InkBlack)}},
+		{Bounds: image.Rect(77, 67, 97, 95), Node: compose.Circle{Center: image.Pt(10, 14), Radius: 10, Stroke: compose.Stroke(stroke(display.InkRed, 3))}},
+	}}
 }
 
-func (s showcase) label(bounds image.Rectangle, value string) error {
-	return s.text(bounds, 12, display.AlignStart, run(value, "monaco", 10, display.InkBlack))
+func typeAndColor() compose.Node {
+	return compose.Absolute{Size: image.Pt(92, 95), Clip: true, Children: []compose.Placed{
+		{Bounds: image.Rect(0, 0, 92, 95), Node: compose.Rectangle{Size: image.Pt(92, 95), Radius: 5, Stroke: compose.Stroke(stroke(display.InkBlack, 1))}},
+		{Bounds: image.Rect(5, 3, 87, 15), Node: label("TYPE / COLOR")},
+		{Bounds: image.Rect(5, 15, 87, 34), Node: compose.Text{Size: image.Pt(82, 19), Runs: []display.TextRun{run("中文", "hzk", 16, display.InkBlack), run("16", "monaco", 16, display.InkRed)}}},
+		{Bounds: image.Rect(5, 34, 87, 50), Node: compose.Text{Size: image.Pt(82, 16), Runs: []display.TextRun{run("图元", "hzk", 14, display.InkBlack), run("14", "monaco", 14, display.InkRed)}}},
+		{Bounds: image.Rect(5, 50, 88, 65), Node: compose.Text{Size: image.Pt(83, 15), Runs: []display.TextRun{run("中文12 ", "ui", 12, display.InkBlack), run("ABC", "monaco", 12, display.InkRed)}}},
+		{Bounds: image.Rect(5, 66, 87, 80), Node: compose.Text{Size: image.Pt(82, 14), Align: display.AlignCenter, Runs: []display.TextRun{run("MONACO10 23.5", "monaco", 10, display.InkBlack)}}},
+		{Bounds: image.Rect(4, 81, 88, 93), Node: compose.Rectangle{Size: image.Pt(84, 12), Radius: 3, Fill: compose.Ink(display.InkBlack)}},
+		{Bounds: image.Rect(7, 81, 85, 93), Node: compose.Text{Size: image.Pt(78, 12), Align: display.AlignCenter, Runs: []display.TextRun{run("WHITE", "monaco", 10, display.InkWhite), run(" / RED", "monaco", 10, display.InkRed)}}},
+	}}
 }
 
-func (s showcase) text(bounds image.Rectangle, lineHeight int, align display.HorizontalAlign, runs ...display.TextRun) error {
-	layout, err := s.list.DrawTextBox(s.fonts, display.TextBox{
-		Bounds: bounds, Runs: runs, Align: align, LineHeight: lineHeight,
-	})
-	if err != nil {
-		return err
-	}
-	if missing := layout.MissingRunes(); len(missing) != 0 {
-		return fmt.Errorf("missing showcase glyphs: %q", string(missing))
-	}
-	return nil
+func label(value string) compose.Node {
+	return compose.Text{Runs: []display.TextRun{run(value, "monaco", 10, display.InkBlack)}}
+}
+
+func stroke(ink display.Ink, width int) display.StrokeStyle {
+	return display.StrokeStyle{Ink: ink, Width: width}
 }
 
 func run(text, font string, size int, ink display.Ink) display.TextRun {

@@ -1,11 +1,13 @@
 package main
 
 import (
+	"image"
 	"image/color"
 	"image/png"
 	"os"
 	"testing"
 
+	"github.com/xwvike/inkwire/internal/compose"
 	"github.com/xwvike/inkwire/internal/display"
 )
 
@@ -19,11 +21,7 @@ func TestRenderContactSheet(t *testing.T) {
 	if len(entries) < 5 {
 		t.Fatalf("only %d assets embedded; the sample is meant to be varied", len(entries))
 	}
-	fonts, err := display.NewBuiltinFontRegistry()
-	if err != nil {
-		t.Fatal(err)
-	}
-	sheet, err := renderSheet(entries, fonts)
+	sheet, err := renderSheet(entries, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,13 +35,9 @@ func TestEveryAssetFitsAPanel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fonts, err := display.NewBuiltinFontRegistry()
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, entry := range entries {
 		t.Run(entry.name, func(t *testing.T) {
-			frame, err := renderCard(entry, fonts)
+			frame, err := renderCard(entry, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -68,15 +62,28 @@ func TestSuggestionsAvoidTheKnownFailures(t *testing.T) {
 	}
 	for _, entry := range entries {
 		t.Run(entry.name, func(t *testing.T) {
-			frame, err := display.NewFrame(88, 88, display.InkWhite)
+			target := image.Rect(0, 0, 88, 88)
+			prepared, options, err := prepare(entry, target)
 			if err != nil {
 				t.Fatal(err)
 			}
-			prepared, options, err := prepare(entry, frame.Bounds())
+			compiler, err := compose.NewDefaultCompiler()
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := display.NewCanvas(frame).DrawImage(prepared, frame.Bounds(), options); err != nil {
+			compiled, report, err := compiler.Compile(compose.Document{
+				Size:       image.Pt(88, 88),
+				Background: compose.Value(display.InkWhite),
+				Root:       compose.Image{Size: image.Pt(88, 88), Source: prepared, Processing: compose.ImageManual, Options: options},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(report.Warnings) != 0 || len(report.MissingRunes) != 0 {
+				t.Fatalf("unexpected compose report: %+v", report)
+			}
+			frame, err := compiled.Render()
+			if err != nil {
 				t.Fatal(err)
 			}
 			ink := 88*88 - countInk(frame, display.InkWhite)
