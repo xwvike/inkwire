@@ -694,3 +694,11 @@ Data URL 写法：
     <td><img src="examples/gallery/gallery.png" alt="图片处理 Gallery"></td>
   </tr>
 </table>
+
+## 参考
+
+- 协议逆向与参考实现：https://github.com/atc1441/ATC_GICISKY_ESL
+- 在线上传工具（源码即页面，可直接 curl）：https://atc1441.github.io/ATC_GICISKY_Paper_Image_Upload.html
+- Go BLE 库：https://github.com/tinygo-org/bluetooth
+- 另一 Python 实现（仅在 250×122 BWR 上测过）：https://github.com/fpoli/gicisky-tag
+- Home Assistant 集成：https://github.com/eigger/hass-gicisky
