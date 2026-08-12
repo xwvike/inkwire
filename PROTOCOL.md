@@ -267,6 +267,8 @@ glyph = hzk12_bytes[offset : offset + 24]  # MSB first，逐行取位
 - `StrokeStyle.Dash` 以栅格像素数交替描述开/关段，`DashOffset` 控制起点；虚线状态沿整条折线和闭合轮廓连续，不在拐点重新开始。奇数项 pattern 会按标准做法重复一遍后循环，非正数 pattern 视为无效描边。
 - 通用 `Path` 支持 `MoveTo`、`LineTo`、`QuadraticTo`、`CubicTo`、椭圆弧和 `Close`。曲线绘制时按最多 1px 步长压平到整数网格；多个轮廓统一使用 even-odd 规则填充，因此可以直接形成孔洞。
 - 标准圆和圆环必须优先使用专用 `FillCircle` / `StrokeCircle`：`StrokeCircle` 支持任意正整数像素宽度，1–6px 已逐级做连通性和轴向厚度测试。Path 的多轮廓孔洞用于任意复杂轮廓，不用它代替精确圆栅格。
+- **圆和椭圆用两套度量，这是刻意的，不是不一致。** 「圆心 + 半径」的圆在**像素中心之间**度量，关于中心像素对称、直径 `2r+1`，所以半径 1 是经典的五像素十字；「包围盒」定义的椭圆按**整像素**度量，因此偶数边长时仍能碰到盒子的四条边。于是 `FillEllipse(circleBounds(c, r))` 的半径是 `r+0.5`，比 `FillCircle(c, r)` 略大，圆完整包含在椭圆内。
+  统一试过并已回退：把圆改成盒子度量会让半径 1 变成 3×3 实心方块；把椭圆改成像素中心度量会让 8×5 的盒子只画出 3 行（丢掉上下两行）。两套度量各自在自己的参数化下正确，强行合并的代价大于收益。理由由 `TestCircleAndEllipseAreDifferentParameterisations` 钉住。
 - 圆弧角度遵循屏幕坐标：0° 向右，正角度顺时针；绝对值达到 360° 的 sweep 视为完整椭圆。图元不做抗锯齿，只生成确定性的黑、白、红像素；粗线固定使用方形笔刷、方形端点和实心连接。
 - 图元层明确不承担灰度、渐变、阴影、模糊、任意浮点变换或通用矢量排版。需要的新轮廓由 `Path` 表达，裁剪后的子 Canvas 与父 Canvas 共享同一个 Frame。
 - 每个图片节点独立选择 `stretch` / `contain` / `cover`、nearest / bilinear，以及 threshold / Floyd–Steinberg / ordered Dithering，不存在强制全局开关。

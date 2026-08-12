@@ -72,10 +72,14 @@ func TestFillAndStrokeAgreeOnTheEdge(t *testing.T) {
 			func(c *Canvas) { c.FillEllipse(box, InkBlack) },
 			func(c *Canvas) { c.DrawArc(box, 0, 360, thin) }},
 
-		// What is left here is not an alignment defect: DrawArc now agrees
-		// exactly with FillEllipse over the same box, and the overshoot is the
-		// separate half-pixel gap between FillCircle's radius r and the r+0.5
-		// the ellipse family reads out of the same bounding box.
+		// Not an alignment defect and not a defect at all: DrawArc agrees
+		// exactly with FillEllipse over this box, and comparing it against
+		// FillCircle compares two parameterisations. A circle given as a centre
+		// and a radius is measured between pixel centres; a shape given as a
+		// box is measured across whole pixels, which over a (2r+1) box means a
+		// radius of r+0.5. Forcing either onto the other's measure costs more
+		// than it saves, so the gap is recorded rather than removed. See
+		// TestCircleAndEllipseAreDifferentParameterisations.
 		{"Circle vs DrawArc", 92,
 			func(c *Canvas) { c.FillCircle(center, radius, InkBlack) },
 			func(c *Canvas) { c.DrawArc(circleBounds(center, radius), 0, 360, thin) }},
@@ -135,11 +139,14 @@ func TestFillAndStrokeAgreeOnTheEdge(t *testing.T) {
 	}
 }
 
-// FillEllipse over a square box and FillCircle describe the same circle but do
-// not agree: expanding pointInEllipse for a (2r+1)-wide box gives a radius of
-// r+0.5, while pointInCircle uses r. The ellipse is the one that matches the
-// box it was given.
-func TestCircleIsHalfAPixelSmallerThanItsBoundingBox(t *testing.T) {
+// A circle given as a centre and a radius, and an ellipse given as a box, are
+// measured differently on purpose, and each measure is the right one for its
+// own parameterisation. Unifying them was tried and reverted: pushing circles
+// onto the box measure turns a radius of one into a filled 3x3 square, and
+// pushing ellipses onto the pixel-centre measure leaves an even-sided ellipse a
+// whole row short of the box it was handed. This test pins both reasons so the
+// trade is not quietly re-litigated.
+func TestCircleAndEllipseAreDifferentParameterisations(t *testing.T) {
 	center := image.Pt(30, 30)
 	for _, radius := range []int{3, 8, 20} {
 		byCircle := newTestFrame(t, 64, 64)
@@ -147,6 +154,8 @@ func TestCircleIsHalfAPixelSmallerThanItsBoundingBox(t *testing.T) {
 		NewCanvas(byCircle).FillCircle(center, radius, InkBlack)
 		NewCanvas(byEllipse).FillEllipse(circleBounds(center, radius), InkBlack)
 
+		// The circle is the smaller shape and sits wholly inside the ellipse,
+		// so the two never disagree about a pixel, only about how far to reach.
 		for y := 0; y < 64; y++ {
 			for x := 0; x < 64; x++ {
 				inCircle, _ := byCircle.InkAt(x, y)
@@ -156,11 +165,26 @@ func TestCircleIsHalfAPixelSmallerThanItsBoundingBox(t *testing.T) {
 				}
 			}
 		}
-		circlePixels := countInk(byCircle, InkBlack)
-		ellipsePixels := countInk(byEllipse, InkBlack)
-		if ellipsePixels <= circlePixels {
-			t.Fatalf("radius %d: expected the ellipse to be the larger shape, got %d vs %d",
-				radius, ellipsePixels, circlePixels)
+		if circle, ellipse := countInk(byCircle, InkBlack), countInk(byEllipse, InkBlack); ellipse <= circle {
+			t.Fatalf("radius %d: expected the ellipse to be the larger shape, got %d vs %d", radius, ellipse, circle)
+		}
+	}
+
+	// Why circles keep the pixel-centre measure.
+	cross := newTestFrame(t, 5, 5)
+	NewCanvas(cross).FillCircle(image.Pt(2, 2), 1, InkBlack)
+	if got := countInk(cross, InkBlack); got != 5 {
+		t.Fatalf("a radius of one covered %d pixels, want the 5-pixel cross", got)
+	}
+
+	// Why ellipses keep the whole-pixel measure: an even-sided box still has to
+	// be touched on all four edges.
+	box := image.Rect(1, 1, 9, 6) // 8x5, both centres between pixels on one axis
+	even := newTestFrame(t, 10, 7)
+	NewCanvas(even).FillEllipse(box, InkBlack)
+	for _, edge := range []image.Point{{X: 4, Y: 1}, {X: 4, Y: 5}, {X: 1, Y: 3}, {X: 8, Y: 3}} {
+		if ink, _ := even.InkAt(edge.X, edge.Y); ink != InkBlack {
+			t.Fatalf("an 8x5 ellipse does not reach %v on the edge of its own box", edge)
 		}
 	}
 }
