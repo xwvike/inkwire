@@ -132,13 +132,35 @@ func (f *BitmapFace) Glyph(r rune) (Glyph, bool) {
 	}
 	start := f.spec.DataOffset + index*f.recordSize
 	end := start + f.recordSize
+	data := f.spec.Data[start:end]
+	// An index can be in range and still address an unassigned slot: the HZK
+	// files disagree about which GBK extensions beyond GB2312 they fill, and
+	// the ASCII strikes leave the control range empty. Reporting those as
+	// missing keeps MissingRunes honest instead of drawing nothing at all.
+	if !blankByDesign(r) && isBlankRecord(data) {
+		return Glyph{}, false
+	}
 	return Glyph{
 		Width:    f.spec.Width,
 		Height:   f.spec.Height,
 		RowBytes: f.spec.RowBytes,
 		Advance:  f.spec.Advance,
-		Data:     f.spec.Data[start:end],
+		Data:     data,
 	}, true
+}
+
+// blankByDesign reports the runes whose correct bitmap is empty.
+func blankByDesign(r rune) bool {
+	return r == ' ' || r == '　'
+}
+
+func isBlankRecord(data []byte) bool {
+	for _, b := range data {
+		if b != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func (f *BitmapFace) glyphIndex(r rune) (int, bool) {
