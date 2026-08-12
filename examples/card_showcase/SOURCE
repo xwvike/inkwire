@@ -1,12 +1,14 @@
-mascot.png is the card's portrait artwork.
+portrait.png is the card's portrait photograph.
 
-Supplied by the repository owner for this example on 2026-08-12 and reduced
-from a 1254x1254 original to 256x256 with a box filter. Only the head is used;
-the example crops before it scales.
+Supplied by the repository owner on 2026-08-12 and reduced from a 1024x1024
+original to 256x256 with a box filter. The example crops to the head before it
+scales, and lifts local contrast before dithering.
 
-SHA-256  e06a238e5e3ae3ead19b2b3c4c4e1d93ece149e27d7b70614d5a6337f8089c04
+SHA-256  001be0a97a79a623a6e34a0300410be6561ea60b5a8693e50225c2fe7a15ab1d
 
-Provenance beyond "the owner supplied it" has not been recorded. The repository
-is GPL-3.0-or-later, so if this artwork is not the owner's to relicense it
-should be replaced with something that is; the example reads any square PNG at
-this path and needs no other change.
+The original file was named generated_image.png, so it is presumably machine
+generated; who holds rights in it has not been established. The repository is
+GPL-3.0-or-later, so if this is not the owner's to relicense it should be
+replaced. The example reads any square PNG at this path and needs no other
+change, though a dark subject needs the contrast pass and a line drawing does
+not.

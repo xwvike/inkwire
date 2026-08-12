@@ -27,9 +27,10 @@ func TestRenderCardShowcase(t *testing.T) {
 	assertMatchesReferencePNG(t, "card_showcase.png", frame)
 }
 
-// The card is the only example that puts all three inks on the panel, and the
-// red comes out of the artwork rather than being drawn: the mascot's mouth is
-// warm enough to pass the red test while its outlines and face do not.
+// The card is the only example that puts all three inks on the panel. Red is
+// reserved for the interface here: the photograph is a room with warm wood and
+// beige in it, which would otherwise reach the red plane and scatter red
+// through a subject that has none, so the portrait disables red on purpose.
 func TestCardUsesAllThreeInks(t *testing.T) {
 	frame, err := renderCardShowcase()
 	if err != nil {
@@ -50,17 +51,17 @@ func TestCardUsesAllThreeInks(t *testing.T) {
 		}
 	}
 
-	// Red inside the portrait can only have come from the image itself.
+	// Well inside the portrait circle, away from the red dial that rings it.
 	portrait := 0
-	for y := 40; y < 95; y++ {
-		for x := 25; x < 80; x++ {
+	for y := 45; y < 90; y++ {
+		for x := 30; x < 74; x++ {
 			if ink, _ := frame.InkAt(x, y); ink == display.InkRed {
 				portrait++
 			}
 		}
 	}
-	if portrait == 0 {
-		t.Error("no red inside the portrait: the mouth should reach the red plane")
+	if portrait != 0 {
+		t.Errorf("%d red pixels inside the portrait: the photograph should not reach the red plane", portrait)
 	}
 }
 

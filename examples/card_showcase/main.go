@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"image"
+	"image/color"
 	"image/png"
 	"math"
 	"os"
@@ -13,8 +14,8 @@ import (
 	"github.com/xwvike/inkwire/internal/display"
 )
 
-//go:embed mascot.png
-var mascotPNG []byte
+//go:embed portrait.png
+var portraitPNG []byte
 
 func main() {
 	pngPath := flag.String("png", "card_showcase.png", "PNG preview output path")
@@ -52,15 +53,15 @@ func renderCardShowcase() (*display.Frame, error) {
 	if err != nil {
 		return nil, err
 	}
-	mascot, err := png.Decode(bytes.NewReader(mascotPNG))
+	photo, err := png.Decode(bytes.NewReader(portraitPNG))
 	if err != nil {
-		return nil, fmt.Errorf("decode mascot: %w", err)
+		return nil, fmt.Errorf("decode portrait: %w", err)
 	}
 
 	// Recorded first, then replayed, so the card exercises the display list on
 	// the way to the panel exactly as a real screen would.
 	list := &display.DisplayList{}
-	card := cardShowcase{list: list, fonts: fonts, mascot: mascot}
+	card := cardShowcase{list: list, fonts: fonts, photo: photo}
 	if err := card.draw(); err != nil {
 		return nil, err
 	}
@@ -71,9 +72,9 @@ func renderCardShowcase() (*display.Frame, error) {
 }
 
 type cardShowcase struct {
-	list   *display.DisplayList
-	fonts  *display.FontRegistry
-	mascot image.Image
+	list  *display.DisplayList
+	fonts *display.FontRegistry
+	photo image.Image
 }
 
 var (
@@ -101,7 +102,7 @@ func (c cardShowcase) header() error {
 	); err != nil {
 		return err
 	}
-	// A star lifted off the mascot's shirt, drawn as a filled polygon.
+	// A filled polygon, kept as the one purely decorative mark on the card.
 	c.list.FillPolygon(starPoints(image.Pt(212, 10), 7, 3), display.InkRed)
 	return c.text(image.Rect(222, 3, 292, 18), 14, display.AlignEnd,
 		run("296x128 BWR", "monaco", 10, display.InkRed),
@@ -113,13 +114,16 @@ func (c cardShowcase) header() error {
 // The ring around it doubles as the battery dial, drawn as a partial arc, which
 // is an open curve and so stays centred on its own path.
 func (c cardShowcase) portrait(fraction float64) error {
-	center, radius := image.Pt(51, 66), 36
+	center, radius := image.Pt(51, 67), 41
 	c.list.Save()
 	c.list.ClipPath(circlePath(center, radius))
-	if err := c.list.DrawImage(cropToPortrait(c.mascot), circleRect(center, radius+1), display.ImageOptions{
+	if err := c.list.DrawImage(preparePortrait(c.photo), circleRect(center, radius+1), display.ImageOptions{
 		Fit:      display.FitCover,
 		Sampling: display.SampleBilinear,
-		Dither:   display.DitherThreshold,
+		Dither:   display.DitherFloydSteinberg,
+		// The room behind the subject is warm enough to reach the red plane,
+		// which would scatter red through a photograph that has none in it.
+		RedThreshold: 255,
 	}); err != nil {
 		c.list.Restore()
 		return err
@@ -127,20 +131,27 @@ func (c cardShowcase) portrait(fraction float64) error {
 	c.list.Restore()
 	c.list.StrokeCircle(center, radius, black1)
 
-	dial := circleRect(center, radius+5)
+	dial := circleRect(center, radius+4)
 	c.list.DrawArc(dial, 0, 360, display.StrokeStyle{Ink: display.InkBlack, Width: 1, Dash: []int{2, 4}})
 	c.list.DrawArc(dial, -90, 360*fraction, display.StrokeStyle{Ink: display.InkRed, Width: 2})
 
-	return c.text(image.Rect(6, 112, 96, 126), 13, display.AlignCenter,
-		run("MASCOT ", "monaco", 10, display.InkBlack),
-		run("吉祥物", "hzk", 12, display.InkBlack),
+	return c.text(image.Rect(4, 114, 98, 127), 13, display.AlignCenter,
+		run("PET ", "monaco", 10, display.InkBlack),
+		run("宠物", "hzk", 12, display.InkBlack),
 	)
 }
 
-// The source is a full figure; the card wants the head and raised arms, so it
-// is cropped before it is scaled rather than shrinking the whole body into a
-// circle where nothing would be legible.
-func cropToPortrait(source image.Image) image.Image {
+// preparePortrait crops to the head and then lifts local contrast. A
+// photograph of a dark subject is the hard case for this panel: at portrait
+// size the head thresholds to one flat black mass and the eyes, which are
+// mid-tone against dark fur, disappear into it. Boosting local contrast first
+// pulls them back out. Line art needs none of this, which is why the encoder
+// alone was enough for the previous artwork.
+func preparePortrait(source image.Image) image.Image {
+	return unsharpMask(cropToHead(source), 10, 2.4)
+}
+
+func cropToHead(source image.Image) image.Image {
 	cropper, ok := source.(interface {
 		SubImage(image.Rectangle) image.Image
 	})
@@ -149,19 +160,78 @@ func cropToPortrait(source image.Image) image.Image {
 	}
 	bounds := source.Bounds()
 	crop := image.Rect(
-		bounds.Min.X+bounds.Dx()*24/100,
-		bounds.Min.Y+bounds.Dy()*2/100,
-		bounds.Min.X+bounds.Dx()*74/100,
-		bounds.Min.Y+bounds.Dy()*52/100,
+		bounds.Min.X+bounds.Dx()*31/100,
+		bounds.Min.Y+bounds.Dy()*6/100,
+		bounds.Min.X+bounds.Dx()*81/100,
+		bounds.Min.Y+bounds.Dy()*56/100,
 	)
 	return cropper.SubImage(crop)
+}
+
+// unsharpMask returns src + amount*(src - blur(src)) in grayscale. Flat areas
+// keep their tone while edges and texture pull apart.
+func unsharpMask(source image.Image, radius int, amount float64) image.Image {
+	bounds := source.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+	gray := make([]float64, width*height)
+	for y := range height {
+		for x := range width {
+			c := color.NRGBAModel.Convert(source.At(bounds.Min.X+x, bounds.Min.Y+y)).(color.NRGBA)
+			gray[y*width+x] = 0.2126*float64(c.R) + 0.7152*float64(c.G) + 0.0722*float64(c.B)
+		}
+	}
+	blurred := boxBlur(boxBlurRows(gray, width, height, radius), width, height, radius)
+
+	out := image.NewNRGBA(image.Rect(0, 0, width, height))
+	for y := range height {
+		for x := range width {
+			value := gray[y*width+x] + amount*(gray[y*width+x]-blurred[y*width+x])
+			level := uint8(min(255, max(0, int(value))))
+			out.SetNRGBA(x, y, color.NRGBA{R: level, G: level, B: level, A: 0xff})
+		}
+	}
+	return out
+}
+
+func boxBlurRows(values []float64, width, height, radius int) []float64 {
+	out := make([]float64, len(values))
+	for y := range height {
+		for x := range width {
+			sum, count := 0.0, 0
+			for d := -radius; d <= radius; d++ {
+				if x+d >= 0 && x+d < width {
+					sum += values[y*width+x+d]
+					count++
+				}
+			}
+			out[y*width+x] = sum / float64(count)
+		}
+	}
+	return out
+}
+
+func boxBlur(values []float64, width, height, radius int) []float64 {
+	out := make([]float64, len(values))
+	for y := range height {
+		for x := range width {
+			sum, count := 0.0, 0
+			for d := -radius; d <= radius; d++ {
+				if y+d >= 0 && y+d < height {
+					sum += values[(y+d)*width+x]
+					count++
+				}
+			}
+			out[y*width+x] = sum / float64(count)
+		}
+	}
+	return out
 }
 
 func (c cardShowcase) details() error {
 	c.list.DrawLine(image.Pt(101, 24), image.Pt(101, 122), black1)
 
 	if err := c.text(image.Rect(108, 24, 200, 44), 20, display.AlignStart,
-		run("小星", "hzk", 16, display.InkBlack),
+		run("小黑", "hzk", 16, display.InkBlack),
 	); err != nil {
 		return err
 	}
