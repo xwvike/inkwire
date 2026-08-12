@@ -30,13 +30,19 @@ const (
 	DitherOrdered
 )
 
+// ImageOptions controls how a source image is reduced to three inks. The three
+// integer limits treat zero as "use the default", so a caller cannot ask for a
+// limit of exactly zero; those values are degenerate anyway, except that
+// RedMaxGreen of zero is the natural way to say "no red", which is what
+// DisableRed exists for.
 type ImageOptions struct {
 	Fit          ImageFit
 	Sampling     SamplingMode
 	Dither       DitherMode
-	Threshold    int
-	RedThreshold int
-	RedMaxGreen  int
+	Threshold    int  // luminance above which a pixel is white; 0 means 128
+	RedThreshold int  // red channel above which a pixel may be red; 0 means 170
+	RedMaxGreen  int  // green channel below which a pixel may be red; 0 means 170
+	DisableRed   bool // keep the red plane empty whatever the source contains
 }
 
 type imageWindow struct {
@@ -84,7 +90,8 @@ func (c *Canvas) DrawImage(source image.Image, destination image.Rectangle, opti
 			sample = compositeOverInk(sample, ink)
 			index := (y-drawRect.Min.Y)*drawRect.Dx() + x - drawRect.Min.X
 			luminance[index] = 0.2126*sample.r + 0.7152*sample.g + 0.0722*sample.b
-			redPixels[index] = sample.r > float64(options.RedThreshold) && sample.g < float64(options.RedMaxGreen)
+			redPixels[index] = !options.DisableRed &&
+				sample.r > float64(options.RedThreshold) && sample.g < float64(options.RedMaxGreen)
 		}
 	}
 
