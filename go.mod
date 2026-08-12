@@ -1,4 +1,4 @@
-module inkwire
+module github.com/xwvike/inkwire
 
 go 1.23.8
 

@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"inkwire/internal/display"
+	"github.com/xwvike/inkwire/internal/display"
 )
 
 func TestRenderShowcase(t *testing.T) {

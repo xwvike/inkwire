@@ -6,7 +6,7 @@ import (
 	"image"
 	"os"
 
-	"inkwire/internal/display"
+	"github.com/xwvike/inkwire/internal/display"
 )
 
 func main() {

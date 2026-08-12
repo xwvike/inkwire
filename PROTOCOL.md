@@ -24,7 +24,7 @@
 
 ### 构建与运行
 
-项目使用 Go 1.23.8 或更高版本和 `tinygo.org/x/bluetooth`，不需要 Python 环境：
+项目使用 Go 1.23.8 或更高版本和 `tinygo.org/x/bluetooth`，不需要 Python 环境。Module path 为 `github.com/xwvike/inkwire`：
 
 ```bash
 go test ./...
@@ -98,7 +98,7 @@ Service 00010203-0405-0607-0809-0a0b0c0d1912
 ### 关键行为
 
 - **块大小由标签决定**，不要写死，也不要按 MTU 推算。从 stage 1 响应读取。
-- **严格 ACK 驱动**。标签回哪一块号就发哪一块。若 ACK 与本地计数器不符，**原样重发上一块**，不要前进。禁止流水线并发。
+- **严格 ACK 驱动**。ACK 与本地计数器一致时才前进到下一块；不一致时**原样重发上一块**，既不前进，也不跳到 ACK 指定的块号。禁止流水线并发。
 - **末块允许不足长**。9472 ÷ 240 = 39 块整 + 112 字节，共 40 块（0x00–0x27）。
 - **数据发完不代表结束**。最后一块送出后继续等待，直到收到 `05 08`。
 - **收到 `05 08` 后标签主动断开连接**，这是正常流程，不是错误。
@@ -224,7 +224,7 @@ offset = index * 24                        # 12×12，每行 2 字节 × 12 行
 glyph = hzk12_bytes[offset : offset + 24]  # MSB first，逐行取位
 ```
 
-文件来自 GitHub `aguegu/BitmapFont` 仓库的 `font/HZK12`（196,272 字节 = 87 区 × 94 位 × 24 字节，无文件头）。此前使用的 `zfj-hash/BitmapFont` 镜像与其 Git blob SHA 完全一致：`877acf27cf08376ec3635c9f9603554d70d67734`。项目接受上游 GPL-3.0-or-later 及历史字体来源风险，选中的字体文件、上游 `COPYING`、固定提交与来源记录由 `internal/display/fonts` 保存。
+文件来自 GitHub `aguegu/BitmapFont` 仓库的 `font/HZK12`（196,272 字节 = 87 区 × 94 位 × 24 字节，无文件头）。此前使用的 `zfj-hash/BitmapFont` 镜像与其 Git blob SHA 完全一致：`877acf27cf08376ec3635c9f9603554d70d67734`。项目接受上游 GPL-3.0-or-later 及历史字体来源风险，选中的字体文件、上游 `COPYING`、固定提交与来源记录由 `internal/display/fonts` 保存；这一选择对整个项目许可的影响见第 8 节。
 
 **已知坑**：半角 `¥`（U+00A5）不在 GB2312 字符集里，`encode("gb2312")` 会直接报错；必须用全角 `￥`（U+FFE5）取字，否则容错逻辑可能悄悄换成空白字形，价格符号会无声消失，不是渲染 bug。
 
@@ -307,11 +307,12 @@ Mirror:       ✗
 - 14px `Hiragino Sans GB W3` 单色栅格化已真机验证：18px 行高可排 7 行；默认正文已改为真机验证过的 HZK12 + Monaco 10（见 4.7）
 - 10px `Monaco` 单色栅格化已真机验证：14px 行高适合作为英文和数字的默认正文配置
 
+- 源码已发布到 `github.com/xwvike/inkwire`，module path 与仓库地址一致，根目录 `LICENSE` 为 GPL-3.0-or-later（见第 8 节）
+
 **待办（按优先级）**
-1. 将当前源码提交到个人 GitHub 仓库。
-2. 肉眼确认标准 HZK16 与 Monaco 14、独立 Monaco 16 的基线和建议行高。
-3. 在当前 `Canvas + TextLayout + DisplayList` 底层之上实现布局树、序列化接口和调度层。
-4. 准备迁移主机时，在 Linux/BlueZ 上验证固定 MAC 直连与 Notify 行为。
+1. 肉眼确认标准 HZK16 与 Monaco 14、独立 Monaco 16 的基线和建议行高。
+2. 在当前 `Canvas + TextLayout + DisplayList` 底层之上实现布局树、序列化接口和调度层。
+3. 准备迁移主机时，在 Linux/BlueZ 上验证固定 MAC 直连与 Notify 行为。
 
 **未尝试**
 - 读取 `FEF3` 完整值确认面板型号
@@ -320,7 +321,20 @@ Mirror:       ✗
 
 ---
 
-## 8. 参考
+## 8. 许可证
+
+本项目整体按 **GPL-3.0-or-later** 分发，根目录 `LICENSE` 为 GPL-3.0 官方全文。
+
+选择 copyleft 的原因是字体：`internal/display/fonts` 下的 HZK12/14/16 取自 `aguegu/BitmapFont`，上游声明 GPL-3.0-or-later，而这些数据通过 `go:embed` 直接编进了 inkwire 二进制。为了保住「单二进制、运行时零外部依赖」这条设计线，选择让整个项目跟随上游许可，而不是把字体拆成运行时加载的外部文件。
+
+- 根目录 `LICENSE` 与 `internal/display/fonts/COPYING` 是同一份 GPL-3.0 文本，sha256 `8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903`。
+- `internal/display/fonts/SOURCE` 记录每个字体文件的上游仓库、固定 commit 与 SHA-256。
+
+**未清理的风险**：MONACO10/12/14/16 是从 macOS `/System/Library/Fonts/Monaco.ttf` 生成的 1-bit ASCII strike，属于 Apple 系统字体的衍生数据，随本仓库一起分发的许可状态**没有核实过**，和 4.7 记录的 HZK 历史来源风险是两件独立的事。若要正经分发，替换为明确可再分发的等宽点阵字体（例如 Terminus）是更干净的做法，这件事也和第 7 节里 Linux 迁移那条待办撞在一起。
+
+---
+
+## 9. 参考
 
 - 协议逆向与参考实现：https://github.com/atc1441/ATC_GICISKY_ESL
 - 在线上传工具（源码即页面，可直接 curl）：https://atc1441.github.io/ATC_GICISKY_Paper_Image_Upload.html

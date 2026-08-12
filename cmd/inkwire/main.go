@@ -7,7 +7,7 @@ import (
 	"os"
 	"os/signal"
 
-	"inkwire/internal/gicisky"
+	"github.com/xwvike/inkwire/internal/gicisky"
 	"tinygo.org/x/bluetooth"
 )
 

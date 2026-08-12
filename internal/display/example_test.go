@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"image"
 
-	"inkwire/internal/display"
+	"github.com/xwvike/inkwire/internal/display"
 )
 
 func ExampleLayoutText() {
