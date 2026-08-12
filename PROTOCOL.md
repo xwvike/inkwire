@@ -224,7 +224,7 @@ offset = index * 24                        # 12×12，每行 2 字节 × 12 行
 glyph = hzk12_bytes[offset : offset + 24]  # MSB first，逐行取位
 ```
 
-文件来自 GitHub `aguegu/BitmapFont` 仓库的 `font/HZK12`（196,272 字节 = 87 区 × 94 位 × 24 字节，无文件头）。此前使用的 `zfj-hash/BitmapFont` 镜像与其 Git blob SHA 完全一致：`877acf27cf08376ec3635c9f9603554d70d67734`。项目接受上游 GPL-3.0-or-later 及历史字体来源风险，选中的字体文件、上游 `COPYING`、固定提交与来源记录由 `internal/display/fonts` 保存；这一选择对整个项目许可的影响见第 8 节。
+文件来自 GitHub `aguegu/BitmapFont` 仓库的 `font/HZK12`（196,272 字节 = 87 区 × 94 位 × 24 字节，无文件头）。此前使用的 `zfj-hash/BitmapFont` 镜像与其 Git blob SHA 完全一致：`877acf27cf08376ec3635c9f9603554d70d67734`。项目接受上游 GPL-3.0-or-later 及历史字体来源风险，选中的字体文件、上游 `COPYING`、固定提交与来源记录由 `internal/display/fonts` 保存；七个内嵌字体文件的摘要记在 `fonts/SOURCE` 并由 `TestEmbeddedFontsMatchRecordedDigests` 强制校验，新增文件未登记摘要会直接测试失败。这一选择对整个项目许可的影响见第 8 节。
 
 **已知坑**：半角 `¥`（U+00A5）不在 GB2312 字符集里，`encode("gb2312")` 会直接报错；必须用全角 `￥`（U+FFE5）取字，否则容错逻辑可能悄悄换成空白字形，价格符号会无声消失，不是渲染 bug。
 
