@@ -83,10 +83,12 @@ func TestFillAndStrokeAgreeOnTheEdge(t *testing.T) {
 		{"Polygon dashed", 0,
 			func(c *Canvas) { c.FillPolygon(poly, InkBlack) },
 			func(c *Canvas) { c.StrokePolygon(poly, dashed) }},
-		{"Path", 40,
+		// A closed contour is a region, so it strokes inward like a polygon.
+		// It was straddling by 40 of 130 pixels solid and 23 of 78 dashed.
+		{"Path", 0,
 			func(c *Canvas) { c.FillPath(contour, InkBlack) },
 			func(c *Canvas) { c.StrokePath(contour, thin) }},
-		{"Path dashed", 23,
+		{"Path dashed", 0,
 			func(c *Canvas) { c.FillPath(contour, InkBlack) },
 			func(c *Canvas) { c.StrokePath(contour, dashed) }},
 	} {

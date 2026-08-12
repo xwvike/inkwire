@@ -10,14 +10,14 @@ import (
 // shape at two sizes; the ones here have no such test, so the band is built by
 // eroding a mask of the fill instead. Either way the stroke is a subset of the
 // fill by construction.
-func (c *Canvas) strokeInward(shape image.Rectangle, inside func(x, y int) bool, outline []image.Point, stroke StrokeStyle) {
+func (c *Canvas) strokeInward(shape image.Rectangle, inside func(x, y int) bool, outlines [][]image.Point, stroke StrokeStyle) {
 	bounds := strokeMaskBounds(shape, c.logicalClip(), stroke.Width)
 	if bounds.Empty() {
 		return
 	}
 	band := rasterizeMask(bounds, inside).innerBand(stroke.Width)
 	if pattern := newDashPattern(stroke); pattern != nil {
-		band.intersect(dashRegion(bounds, outline, pattern))
+		band.intersect(dashRegion(bounds, outlines, pattern))
 	}
 	band.each(func(x, y int) {
 		c.Set(x, y, stroke.Ink)
@@ -72,33 +72,42 @@ func (d *dashPattern) on(position float64) bool {
 	return true
 }
 
-// dashRegion marks every pixel of bounds whose nearest point on the outline
+// dashRegion marks every pixel of bounds whose nearest point on any outline
 // lands in an on-run of the pattern. Intersecting the inward band with this is
 // what dashes a closed shape without moving where the band sits.
-func dashRegion(bounds image.Rectangle, outline []image.Point, pattern *dashPattern) *mask {
+//
+// Each outline is measured from its own origin, so a shape with several
+// contours restarts the pattern on each of them, and a pixel is dashed by
+// whichever contour it is actually closest to.
+func dashRegion(bounds image.Rectangle, outlines [][]image.Point, pattern *dashPattern) *mask {
 	region := newMask(bounds)
-	if len(outline) < 2 {
-		return region
-	}
-	starts := make([]float64, len(outline))
-	position := 0.0
-	for i := range outline {
-		starts[i] = position
-		next := outline[(i+1)%len(outline)]
-		position += math.Hypot(float64(next.X-outline[i].X), float64(next.Y-outline[i].Y))
+	starts := make([][]float64, len(outlines))
+	for index, outline := range outlines {
+		starts[index] = make([]float64, len(outline))
+		position := 0.0
+		for i := range outline {
+			starts[index][i] = position
+			next := outline[(i+1)%len(outline)]
+			position += math.Hypot(float64(next.X-outline[i].X), float64(next.Y-outline[i].Y))
+		}
 	}
 
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			best, at := math.Inf(1), 0.0
-			for i, from := range outline {
-				to := outline[(i+1)%len(outline)]
-				distance, along := distanceToSegment(x, y, from, to)
-				if distance < best {
-					best, at = distance, starts[i]+along
+			best, at, found := math.Inf(1), 0.0, false
+			for index, outline := range outlines {
+				if len(outline) < 2 {
+					continue
+				}
+				for i, from := range outline {
+					to := outline[(i+1)%len(outline)]
+					distance, along := distanceToSegment(x, y, from, to)
+					if distance < best {
+						best, at, found = distance, starts[index][i]+along, true
+					}
 				}
 			}
-			if pattern.on(at) {
+			if found && pattern.on(at) {
 				region.set(x, y, true)
 			}
 		}

@@ -53,7 +53,7 @@ func (c *Canvas) StrokePolygon(points []image.Point, stroke StrokeStyle) {
 	}
 	c.strokeInward(polygonBounds(points), func(x, y int) bool {
 		return pointInPolygon(image.Pt(x, y), points)
-	}, points, stroke)
+	}, [][]image.Point{points}, stroke)
 }
 
 // FillPolygon fills a simple polygon using the even-odd rule.

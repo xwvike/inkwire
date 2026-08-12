@@ -174,16 +174,36 @@ func (p Path) flatten() []pathContour {
 	return contours
 }
 
-// StrokePath draws every contour in path, closing contours that end with Close.
+// StrokePath draws every contour in path. Contours that end with Close are
+// closed regions, so they are stroked inward and stay inside the area the
+// matching FillPath covers; open contours have no inside and stay centred on
+// the line, which is also what DrawLine and DrawPolyline do.
 func (c *Canvas) StrokePath(path Path, stroke StrokeStyle) {
 	if !stroke.valid() {
 		return
 	}
+	var closed []pathContour
 	for _, contour := range path.flatten() {
-		if len(contour.points) >= 2 {
-			c.strokePoints(contour.points, contour.closed, stroke)
+		switch {
+		case len(contour.points) < 2:
+		case contour.closed && len(contour.points) >= 3:
+			closed = append(closed, contour)
+		default:
+			c.strokePoints(contour.points, false, stroke)
 		}
 	}
+	if len(closed) == 0 {
+		return
+	}
+	outlines := make([][]image.Point, len(closed))
+	for index, contour := range closed {
+		outlines[index] = contour.points
+	}
+	// Nesting is resolved together under the even-odd rule, so a contour inside
+	// another strokes into the ring between them rather than across the hole.
+	c.strokeInward(contourBounds(closed), func(x, y int) bool {
+		return pointInPath(image.Pt(x, y), closed)
+	}, outlines, stroke)
 }
 
 // FillPath fills all contours together using the even-odd rule. Open contours
