@@ -37,6 +37,17 @@ const (
 	defaultRedMaxGreen  = 170
 )
 
+// DefaultImageOptions returns the concrete values used when ImageOptions
+// leaves its numeric thresholds unset. Callers that analyse an image before
+// drawing can use the same device conversion limits without duplicating them.
+func DefaultImageOptions() ImageOptions {
+	return ImageOptions{
+		Threshold:    defaultThreshold,
+		RedThreshold: defaultRedThreshold,
+		RedMaxGreen:  defaultRedMaxGreen,
+	}
+}
+
 // ImageOptions controls how a source image is reduced to three inks. The three
 // integer limits treat zero as "use the default", so a caller cannot ask for a
 // limit of exactly zero; those values are degenerate anyway, except that
@@ -123,14 +134,15 @@ func normalizeImageOptions(options ImageOptions) (ImageOptions, error) {
 	if options.Dither > DitherOrdered {
 		return options, fmt.Errorf("invalid dither mode %d", options.Dither)
 	}
+	defaults := DefaultImageOptions()
 	if options.Threshold == 0 {
-		options.Threshold = defaultThreshold
+		options.Threshold = defaults.Threshold
 	}
 	if options.RedThreshold == 0 {
-		options.RedThreshold = defaultRedThreshold
+		options.RedThreshold = defaults.RedThreshold
 	}
 	if options.RedMaxGreen == 0 {
-		options.RedMaxGreen = defaultRedMaxGreen
+		options.RedMaxGreen = defaults.RedMaxGreen
 	}
 	for name, value := range map[string]int{
 		"threshold": options.Threshold, "red threshold": options.RedThreshold, "red max green": options.RedMaxGreen,

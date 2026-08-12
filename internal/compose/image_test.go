@@ -1,10 +1,33 @@
-package display
+package compose
 
 import (
 	"image"
 	"image/color"
 	"testing"
+
+	"github.com/xwvike/inkwire/internal/display"
 )
+
+func newTestFrame(t *testing.T, width, height int) *display.Frame {
+	t.Helper()
+	frame, err := display.NewFrame(width, height, display.InkWhite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return frame
+}
+
+func countInk(frame *display.Frame, target display.Ink) int {
+	count := 0
+	for y := 0; y < frame.Height(); y++ {
+		for x := 0; x < frame.Width(); x++ {
+			if ink, _ := frame.InkAt(x, y); ink == target {
+				count++
+			}
+		}
+	}
+	return count
+}
 
 func solidImage(width, height int, shade func(x, y int) color.NRGBA) *image.NRGBA {
 	img := image.NewNRGBA(image.Rect(0, 0, width, height))
@@ -41,7 +64,7 @@ func TestProfileSeparatesFlatArtworkFromContinuousTone(t *testing.T) {
 	if artProfile.Photographic {
 		t.Errorf("flat artwork read as photographic at %.2f mid-tone", artProfile.MidToneFraction)
 	}
-	if got := artProfile.SuggestOptions().Dither; got != DitherThreshold {
+	if got := artProfile.SuggestOptions().Dither; got != display.DitherThreshold {
 		t.Errorf("flat artwork suggested dither %d, want threshold", got)
 	}
 
@@ -56,7 +79,7 @@ func TestProfileSeparatesFlatArtworkFromContinuousTone(t *testing.T) {
 	if !gradientProfile.Photographic {
 		t.Errorf("a gradient read as flat artwork at %.2f mid-tone", gradientProfile.MidToneFraction)
 	}
-	if got := gradientProfile.SuggestOptions().Dither; got != DitherFloydSteinberg {
+	if got := gradientProfile.SuggestOptions().Dither; got != display.DitherFloydSteinberg {
 		t.Errorf("continuous tone suggested dither %d, want Floyd-Steinberg", got)
 	}
 }
@@ -78,14 +101,14 @@ func TestOtsuRescuesArtworkLighterThanTheFixedCut(t *testing.T) {
 		t.Fatalf("Otsu threshold = %d, want a cut between the mark and the paper", profile.Threshold)
 	}
 
-	ink := func(options ImageOptions) int {
+	ink := func(options display.ImageOptions) int {
 		frame := newTestFrame(t, 48, 48)
-		if err := NewCanvas(frame).DrawImage(light, frame.Bounds(), options); err != nil {
+		if err := display.NewCanvas(frame).DrawImage(light, frame.Bounds(), options); err != nil {
 			t.Fatal(err)
 		}
-		return countInk(frame, InkBlack)
+		return countInk(frame, display.InkBlack)
 	}
-	if got := ink(ImageOptions{Dither: DitherThreshold}); got != 0 {
+	if got := ink(display.ImageOptions{Dither: display.DitherThreshold}); got != 0 {
 		t.Fatalf("the fixed cut painted %d pixels; this case exists because it paints none", got)
 	}
 	if got := ink(profile.SuggestOptions()); got == 0 {
@@ -136,30 +159,6 @@ func TestProfileFlattensAlphaAgainstWhite(t *testing.T) {
 	}
 }
 
-func TestDisableRedKeepsTheRedPlaneEmpty(t *testing.T) {
-	source := solidImage(8, 8, func(x, y int) color.NRGBA {
-		return color.NRGBA{R: 0xff, G: 0x20, B: 0x20, A: 0xff}
-	})
-	for _, test := range []struct {
-		name    string
-		options ImageOptions
-		wantRed bool
-	}{
-		{"red allowed", ImageOptions{}, true},
-		{"red disabled", ImageOptions{DisableRed: true}, false},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			frame := newTestFrame(t, 8, 8)
-			if err := NewCanvas(frame).DrawImage(source, frame.Bounds(), test.options); err != nil {
-				t.Fatal(err)
-			}
-			if got := countInk(frame, InkRed) > 0; got != test.wantRed {
-				t.Fatalf("red present = %v, want %v", got, test.wantRed)
-			}
-		})
-	}
-}
-
 func TestEnhanceContrastRejectsBadInput(t *testing.T) {
 	if _, err := EnhanceContrast(nil, 4, 1); err == nil {
 		t.Fatal("EnhanceContrast accepted a nil image")
@@ -186,10 +185,10 @@ func TestEnhanceContrastLiftsDetailOutOfADarkField(t *testing.T) {
 
 	// Both are dark, so both threshold to black and the feature is lost.
 	before := newTestFrame(t, size, size)
-	if err := NewCanvas(before).DrawImage(source, before.Bounds(), ImageOptions{Dither: DitherThreshold}); err != nil {
+	if err := display.NewCanvas(before).DrawImage(source, before.Bounds(), display.ImageOptions{Dither: display.DitherThreshold}); err != nil {
 		t.Fatal(err)
 	}
-	if countInk(before, InkWhite) != 0 {
+	if countInk(before, display.InkWhite) != 0 {
 		t.Fatal("the unenhanced source already separates; the case proves nothing")
 	}
 
@@ -198,10 +197,10 @@ func TestEnhanceContrastLiftsDetailOutOfADarkField(t *testing.T) {
 		t.Fatal(err)
 	}
 	after := newTestFrame(t, size, size)
-	if err := NewCanvas(after).DrawImage(enhanced, after.Bounds(), ImageOptions{Dither: DitherThreshold}); err != nil {
+	if err := display.NewCanvas(after).DrawImage(enhanced, after.Bounds(), display.ImageOptions{Dither: display.DitherThreshold}); err != nil {
 		t.Fatal(err)
 	}
-	if countInk(after, InkWhite) == 0 {
+	if countInk(after, display.InkWhite) == 0 {
 		t.Fatal("the feature is still lost after the contrast pass")
 	}
 }
@@ -240,10 +239,10 @@ func TestEnhanceContrastDiscardsColour(t *testing.T) {
 		t.Fatal(err)
 	}
 	frame := newTestFrame(t, 16, 16)
-	if err := NewCanvas(frame).DrawImage(enhanced, frame.Bounds(), ImageOptions{}); err != nil {
+	if err := display.NewCanvas(frame).DrawImage(enhanced, frame.Bounds(), display.ImageOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if countInk(frame, InkRed) != 0 {
+	if countInk(frame, display.InkRed) != 0 {
 		t.Fatal("red survived the contrast pass, so its documented limit is wrong")
 	}
 }
@@ -276,12 +275,12 @@ func TestColourCarriesStructureIsDetectedAndAnswered(t *testing.T) {
 		t.Fatalf("colour structure not detected; only %.1f%% counted as lost", 100*profile.LostToLuminance)
 	}
 
-	painted := func(img image.Image, options ImageOptions) int {
+	painted := func(img image.Image, options display.ImageOptions) int {
 		frame := newTestFrame(t, 60, 60)
-		if err := NewCanvas(frame).DrawImage(img, frame.Bounds(), options); err != nil {
+		if err := display.NewCanvas(frame).DrawImage(img, frame.Bounds(), options); err != nil {
 			t.Fatal(err)
 		}
-		return 60*60 - countInk(frame, InkWhite)
+		return 60*60 - countInk(frame, display.InkWhite)
 	}
 	byBrightness := painted(source, profile.SuggestOptions())
 
@@ -349,13 +348,13 @@ func TestToneByColourDistanceKeepsRed(t *testing.T) {
 		t.Fatal(err)
 	}
 	frame := newTestFrame(t, 30, 30)
-	if err := NewCanvas(frame).DrawImage(toned, frame.Bounds(), options); err != nil {
+	if err := display.NewCanvas(frame).DrawImage(toned, frame.Bounds(), options); err != nil {
 		t.Fatal(err)
 	}
-	if countInk(frame, InkRed) == 0 {
+	if countInk(frame, display.InkRed) == 0 {
 		t.Error("red was flattened away by the tone pass")
 	}
-	if countInk(frame, InkBlack) == 0 {
+	if countInk(frame, display.InkBlack) == 0 {
 		t.Error("the light yellow half did not become ink")
 	}
 }

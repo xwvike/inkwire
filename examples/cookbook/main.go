@@ -30,6 +30,7 @@ import (
 	"os"
 	"path"
 
+	"github.com/xwvike/inkwire/internal/compose"
 	"github.com/xwvike/inkwire/internal/display"
 )
 
@@ -410,7 +411,7 @@ func images(c *display.Canvas, fonts *display.FontRegistry) error {
 
 	// ProfileImage measures the source as the panel will see it, alpha flattened
 	// against white. SuggestOptions turns that into a starting point.
-	profile, err := display.ProfileImage(icon)
+	profile, err := compose.ProfileImage(icon)
 	if err != nil {
 		return err
 	}
@@ -428,7 +429,7 @@ func images(c *display.Canvas, fonts *display.FontRegistry) error {
 	prepared := image.Image(icon)
 	options := profile.SuggestOptions()
 	if profile.ColourCarriesStructure {
-		if prepared, err = display.ToneByColourDistance(icon); err != nil {
+		if prepared, err = compose.ToneByColourDistance(icon); err != nil {
 			return err
 		}
 		if options, err = profile.SuggestOptionsFor(prepared); err != nil {
@@ -443,7 +444,7 @@ func images(c *display.Canvas, fonts *display.FontRegistry) error {
 	// needs first, and its radius is in source pixels so it has to be scaled to
 	// however far the image is about to be reduced.
 	gradient := gradientImage(120, 120)
-	gradientProfile, err := display.ProfileImage(gradient)
+	gradientProfile, err := compose.ProfileImage(gradient)
 	if err != nil {
 		return err
 	}

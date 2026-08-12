@@ -1,10 +1,16 @@
-package display
+// Package compose turns explicit user input into display-layer drawing
+// parameters and commands. It may suggest how lossy content such as an RGB
+// image should be reduced for the panel, but it does not infer or decorate the
+// user's content.
+package compose
 
 import (
 	"fmt"
 	"image"
 	"image/color"
 	"math"
+
+	"github.com/xwvike/inkwire/internal/display"
 )
 
 // A one-bit panel wants opposite treatment for the two kinds of source it
@@ -73,6 +79,7 @@ func ProfileImage(src image.Image) (ImageProfile, error) {
 		return ImageProfile{}, fmt.Errorf("source image bounds must not be empty")
 	}
 
+	defaults := display.DefaultImageOptions()
 	var histogram [256]int
 	// separations counts, for each distance between the red and green
 	// channels, how many pixels that would reach the red plane show it.
@@ -82,7 +89,7 @@ func ProfileImage(src image.Image) (ImageProfile, error) {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			r, g, b := channelsOverWhite(src.At(x, y))
 			histogram[int(0.2126*r+0.7152*g+0.0722*b)]++
-			if r > defaultRedThreshold && g < defaultRedMaxGreen {
+			if r > float64(defaults.RedThreshold) && g < float64(defaults.RedMaxGreen) {
 				separations[int(max(0, min(255, r-g)))]++
 				redCandidates++
 			}
@@ -141,21 +148,21 @@ func medianOf(counts []int, total int) int {
 // SuggestOptions turns a measurement into a starting point. It is a
 // suggestion, not a decision: DrawImage never profiles anything on its own,
 // because a wrong guess buried inside drawing is one the caller cannot see.
-func (p ImageProfile) SuggestOptions() ImageOptions {
-	options := ImageOptions{
-		Fit:      FitContain,
-		Sampling: SampleBilinear,
+func (p ImageProfile) SuggestOptions() display.ImageOptions {
+	options := display.ImageOptions{
+		Fit:      display.FitContain,
+		Sampling: display.SampleBilinear,
 		// Warmth is not red. Leaving the plane on for an image whose reds are
 		// skin or wood floods it with colour the image does not contain.
 		DisableRed: !p.RedIsMeaningful,
 	}
 	if p.Photographic {
 		// Error diffusion holds the tone a photograph is made of.
-		options.Dither = DitherFloydSteinberg
+		options.Dither = display.DitherFloydSteinberg
 		return options
 	}
 	// Flat artwork wants a hard edge, cut where its own histogram divides.
-	options.Dither = DitherThreshold
+	options.Dither = display.DitherThreshold
 	options.Threshold = p.Threshold
 	return options
 }
@@ -308,11 +315,12 @@ func ToneByColourDistance(src image.Image) (image.Image, error) {
 	if bounds.Empty() {
 		return nil, fmt.Errorf("source image bounds must not be empty")
 	}
+	defaults := display.DefaultImageOptions()
 	out := image.NewNRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
 	for y := range bounds.Dy() {
 		for x := range bounds.Dx() {
 			r, g, b := channelsOverWhite(src.At(bounds.Min.X+x, bounds.Min.Y+y))
-			if r > defaultRedThreshold && g < defaultRedMaxGreen {
+			if r > float64(defaults.RedThreshold) && g < float64(defaults.RedMaxGreen) {
 				// Passed through unchanged rather than replaced with pure red:
 				// the colour already satisfies the red test, and substituting
 				// a saturated one would drag its luminance to 54 and skew any
@@ -340,9 +348,9 @@ func paperDistance(r, g, b float64) float64 {
 // pixels that no longer exist; the cut is taken from the drawn image while
 // every other decision stays with the original measurement, because those
 // decisions are about what the picture is and that has not changed.
-func (p ImageProfile) SuggestOptionsFor(drawn image.Image) (ImageOptions, error) {
+func (p ImageProfile) SuggestOptionsFor(drawn image.Image) (display.ImageOptions, error) {
 	options := p.SuggestOptions()
-	if options.Dither != DitherThreshold {
+	if options.Dither != display.DitherThreshold {
 		return options, nil
 	}
 	redrawn, err := ProfileImage(drawn)

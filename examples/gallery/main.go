@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/xwvike/inkwire/internal/compose"
 	"github.com/xwvike/inkwire/internal/display"
 )
 
@@ -95,7 +96,7 @@ func main() {
 type asset struct {
 	name    string
 	image   image.Image
-	profile display.ImageProfile
+	profile compose.ImageProfile
 }
 
 func loadAssets() ([]asset, error) {
@@ -115,7 +116,7 @@ func loadAssets() ([]asset, error) {
 		if err != nil {
 			return nil, fmt.Errorf("decode %s: %w", file.Name(), err)
 		}
-		profile, err := display.ProfileImage(decoded)
+		profile, err := compose.ProfileImage(decoded)
 		if err != nil {
 			return nil, fmt.Errorf("profile %s: %w", file.Name(), err)
 		}
@@ -140,7 +141,7 @@ func findAsset(entries []asset, name string) (asset, bool) {
 	return asset{}, false
 }
 
-func treatmentOf(profile display.ImageProfile) string {
+func treatmentOf(profile compose.ImageProfile) string {
 	if profile.Photographic {
 		return "diffusion"
 	}
@@ -160,7 +161,7 @@ func prepare(entry asset, target image.Rectangle) (image.Image, display.ImageOpt
 		// Brightness would throw this drawing away; measure it against the
 		// paper instead. That moves the tone, so the cut has to be taken again
 		// from what is actually going to be drawn.
-		toned, err := display.ToneByColourDistance(entry.image)
+		toned, err := compose.ToneByColourDistance(entry.image)
 		if err != nil {
 			return nil, display.ImageOptions{}, err
 		}
@@ -176,11 +177,11 @@ func prepare(entry asset, target image.Rectangle) (image.Image, display.ImageOpt
 	// single example of each.
 	const featureSizeOnPanel, contrastAmount = 7, 1.4
 	reduction := max(1, entry.image.Bounds().Dx()/max(1, target.Dx()))
-	sharpened, err := display.EnhanceContrast(entry.image, featureSizeOnPanel*reduction, contrastAmount)
+	sharpened, err := compose.EnhanceContrast(entry.image, featureSizeOnPanel*reduction, contrastAmount)
 	return sharpened, entry.profile.SuggestOptions(), err
 }
 
-func redVerdict(profile display.ImageProfile) string {
+func redVerdict(profile compose.ImageProfile) string {
 	if profile.RedIsMeaningful {
 		return fmt.Sprintf("%d KEEP", profile.RedSeparation)
 	}

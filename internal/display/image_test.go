@@ -41,6 +41,33 @@ func TestDrawImageDetectsRedBeforeGrayscale(t *testing.T) {
 	assertInk(t, frame, 2, 0, InkWhite)
 }
 
+func TestDisableRedKeepsTheRedPlaneEmpty(t *testing.T) {
+	source := image.NewNRGBA(image.Rect(0, 0, 8, 8))
+	for y := range 8 {
+		for x := range 8 {
+			source.SetNRGBA(x, y, color.NRGBA{R: 0xff, G: 0x20, B: 0x20, A: 0xff})
+		}
+	}
+	for _, test := range []struct {
+		name    string
+		options ImageOptions
+		wantRed bool
+	}{
+		{"red allowed", ImageOptions{}, true},
+		{"red disabled", ImageOptions{DisableRed: true}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			frame := newTestFrame(t, 8, 8)
+			if err := NewCanvas(frame).DrawImage(source, frame.Bounds(), test.options); err != nil {
+				t.Fatal(err)
+			}
+			if got := countInk(frame, InkRed) > 0; got != test.wantRed {
+				t.Fatalf("red present = %v, want %v", got, test.wantRed)
+			}
+		})
+	}
+}
+
 func TestDrawImageFloydSteinbergProducesBothTones(t *testing.T) {
 	source := image.NewGray(image.Rect(0, 0, 16, 2))
 	for i := range source.Pix {
