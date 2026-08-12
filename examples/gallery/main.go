@@ -155,9 +155,20 @@ func treatmentOf(profile display.ImageProfile) string {
 // Whether every photograph wants this is not settled. It rescues a dark
 // subject, and the sample here contains exactly one photograph, so the rule is
 // applied where it is known to help and left visible rather than buried.
-func prepare(entry asset, target image.Rectangle) (image.Image, error) {
+func prepare(entry asset, target image.Rectangle) (image.Image, display.ImageOptions, error) {
+	if entry.profile.ColourCarriesStructure {
+		// Brightness would throw this drawing away; measure it against the
+		// paper instead. That moves the tone, so the cut has to be taken again
+		// from what is actually going to be drawn.
+		toned, err := display.ToneByColourDistance(entry.image)
+		if err != nil {
+			return nil, display.ImageOptions{}, err
+		}
+		options, err := entry.profile.SuggestOptionsFor(toned)
+		return toned, options, err
+	}
 	if !entry.profile.Photographic {
-		return entry.image, nil
+		return entry.image, entry.profile.SuggestOptions(), nil
 	}
 	// A very dark subject wants more than this and cel-shaded artwork wants
 	// less; no measurement in the profile separates those two cases, so one
@@ -165,7 +176,8 @@ func prepare(entry asset, target image.Rectangle) (image.Image, error) {
 	// single example of each.
 	const featureSizeOnPanel, contrastAmount = 7, 1.4
 	reduction := max(1, entry.image.Bounds().Dx()/max(1, target.Dx()))
-	return display.EnhanceContrast(entry.image, featureSizeOnPanel*reduction, contrastAmount)
+	sharpened, err := display.EnhanceContrast(entry.image, featureSizeOnPanel*reduction, contrastAmount)
+	return sharpened, entry.profile.SuggestOptions(), err
 }
 
 func redVerdict(profile display.ImageProfile) string {
@@ -193,11 +205,11 @@ func renderCard(entry asset, fonts *display.FontRegistry) (*display.Frame, error
 
 	frameBox := image.Rect(6, 24, 110, 122)
 	canvas.StrokeRoundRect(frameBox, 4, display.StrokeStyle{Ink: display.InkBlack, Width: 1})
-	prepared, err := prepare(entry, frameBox.Inset(4))
+	prepared, options, err := prepare(entry, frameBox.Inset(4))
 	if err != nil {
 		return nil, err
 	}
-	if err := canvas.DrawImage(prepared, frameBox.Inset(4), entry.profile.SuggestOptions()); err != nil {
+	if err := canvas.DrawImage(prepared, frameBox.Inset(4), options); err != nil {
 		return nil, err
 	}
 
@@ -258,11 +270,11 @@ func renderSheet(entries []asset, fonts *display.FontRegistry) (*display.Frame, 
 			gap+column*(cell+gap), gap+row*(cell+gap+caption),
 			gap+column*(cell+gap)+cell, gap+row*(cell+gap+caption)+cell,
 		)
-		prepared, err := prepare(entry, box)
+		prepared, options, err := prepare(entry, box)
 		if err != nil {
 			return nil, err
 		}
-		if err := canvas.DrawImage(prepared, box, entry.profile.SuggestOptions()); err != nil {
+		if err := canvas.DrawImage(prepared, box, options); err != nil {
 			return nil, err
 		}
 		canvas.StrokeRect(box, display.StrokeStyle{Ink: display.InkBlack, Width: 1})

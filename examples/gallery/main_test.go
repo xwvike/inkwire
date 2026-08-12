@@ -72,11 +72,11 @@ func TestSuggestionsAvoidTheKnownFailures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			prepared, err := prepare(entry, frame.Bounds())
+			prepared, options, err := prepare(entry, frame.Bounds())
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := display.NewCanvas(frame).DrawImage(prepared, frame.Bounds(), entry.profile.SuggestOptions()); err != nil {
+			if err := display.NewCanvas(frame).DrawImage(prepared, frame.Bounds(), options); err != nil {
 				t.Fatal(err)
 			}
 			ink := 88*88 - countInk(frame, display.InkWhite)

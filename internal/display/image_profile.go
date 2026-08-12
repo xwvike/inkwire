@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"math"
 )
 
 // A one-bit panel wants opposite treatment for the two kinds of source it
@@ -27,11 +28,19 @@ type ImageProfile struct {
 	// carries meaning measured 122 and above while incidental warmth reached
 	// 72 at most. Zero when nothing would reach the plane at all.
 	RedSeparation int
+	// LostToLuminance is the share of the image that is plainly not paper and
+	// yet lands on the paper side of Threshold, because its colour is light
+	// even though it is vivid. Artwork whose shapes differ in hue at one
+	// brightness disappears this way; ToneByColourDistance is the answer.
+	LostToLuminance float64
 	// Photographic reports whether the image reads as continuous tone.
 	Photographic bool
 	// RedIsMeaningful reports whether the red plane carries signal rather than
 	// a warm cast.
 	RedIsMeaningful bool
+	// ColourCarriesStructure reports that reducing this image by brightness
+	// would throw away much of what is in it.
+	ColourCarriesStructure bool
 }
 
 // photographicMidTone separates the two kinds. Measured across a sample of
@@ -44,6 +53,13 @@ const (
 	// across the sample: real red measured 122 to 186, incidental warmth 9 to
 	// 72, so the cut sits in the gap rather than being tuned to either side.
 	meaningfulRedSeparation = 100
+	// structuralColourLoss is how much an image may lose to a brightness cut
+	// before that cut is the wrong tool. Across the sample every drawing lost
+	// under 6% except the one built from pastel wedges, which lost 32%.
+	structuralColourLoss = 0.15
+	// paperMargin is how far from white a pixel must sit to count as ink at
+	// all, rather than as a tint of the page.
+	paperMargin = 60
 )
 
 // ProfileImage measures src as the panel will see it: alpha composited over
@@ -85,6 +101,26 @@ func ProfileImage(src image.Image) (ImageProfile, error) {
 	}
 	profile.Photographic = profile.MidToneFraction > photographicMidTone
 	profile.RedIsMeaningful = profile.RedSeparation >= meaningfulRedSeparation
+
+	// How much a brightness cut would discard can only be counted once that
+	// cut is known, so it takes a second pass.
+	lost := 0
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			r, g, b := channelsOverWhite(src.At(x, y))
+			if paperDistance(r, g, b) <= paperMargin {
+				continue // this really is paper
+			}
+			if 0.2126*r+0.7152*g+0.0722*b > float64(profile.Threshold) {
+				lost++
+			}
+		}
+	}
+	profile.LostToLuminance = float64(lost) / float64(total)
+	// A photograph is made of brightness, so losing some of it to the cut is
+	// expected and error diffusion is what answers it, not a different tone.
+	profile.ColourCarriesStructure = !profile.Photographic &&
+		profile.LostToLuminance > structuralColourLoss
 	return profile, nil
 }
 
@@ -240,4 +276,79 @@ func otsuThreshold(histogram []int, total int) int {
 		}
 	}
 	return min(254, max(1, best))
+}
+
+// ToneByColourDistance rewrites an image so that tone means "how far this pixel
+// is from the paper" rather than "how bright it is".
+//
+// Flat artwork often carries its structure in hue: the shapes differ in colour
+// while sitting at much the same brightness. Reduced by luminance, a yellow
+// shape at 218 and a cyan one at 197 are both simply lighter than the cut and
+// vanish into the page, taking the drawing with them. Measured as distance from
+// white instead, both are plainly ink.
+//
+// This is wrong for a photograph, where brightness is the subject; it is meant
+// for artwork whose colours sit on a light ground, which is what
+// ImageProfile.ColourCarriesStructure identifies.
+//
+// Pixels that would reach the red plane are passed through as red rather than
+// flattened to grey. Every other pass that rewrites tone has quietly emptied
+// the red plane on the way, because grey cannot satisfy a test that wants red
+// above green; there is no reason to throw away an ink the panel has. Whether
+// the red is actually drawn remains ImageOptions.DisableRed's decision.
+//
+// The result carries a different distribution of tone from the original, so a
+// threshold measured before this runs no longer describes it. Profile the
+// result to get the cut, as SuggestOptionsFor does.
+func ToneByColourDistance(src image.Image) (image.Image, error) {
+	if src == nil {
+		return nil, fmt.Errorf("source image must not be nil")
+	}
+	bounds := src.Bounds()
+	if bounds.Empty() {
+		return nil, fmt.Errorf("source image bounds must not be empty")
+	}
+	out := image.NewNRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
+	for y := range bounds.Dy() {
+		for x := range bounds.Dx() {
+			r, g, b := channelsOverWhite(src.At(bounds.Min.X+x, bounds.Min.Y+y))
+			if r > defaultRedThreshold && g < defaultRedMaxGreen {
+				// Passed through unchanged rather than replaced with pure red:
+				// the colour already satisfies the red test, and substituting
+				// a saturated one would drag its luminance to 54 and skew any
+				// threshold measured from the result.
+				out.SetNRGBA(x, y, color.NRGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 0xff})
+				continue
+			}
+			level := uint8(min(255, max(0, 255-int(paperDistance(r, g, b)))))
+			out.SetNRGBA(x, y, color.NRGBA{R: level, G: level, B: level, A: 0xff})
+		}
+	}
+	return out, nil
+}
+
+// paperDistance is how far a colour sits from white, on the same 0..255 scale
+// as a channel so it can stand in for tone.
+func paperDistance(r, g, b float64) float64 {
+	dr, dg, db := 255-r, 255-g, 255-b
+	return math.Sqrt((dr*dr + dg*dg + db*db) / 3)
+}
+
+// SuggestOptionsFor is SuggestOptions for an image that has been rewritten
+// since it was profiled. A pass such as ToneByColourDistance or
+// EnhanceContrast moves tone around, which leaves the measured cut describing
+// pixels that no longer exist; the cut is taken from the drawn image while
+// every other decision stays with the original measurement, because those
+// decisions are about what the picture is and that has not changed.
+func (p ImageProfile) SuggestOptionsFor(drawn image.Image) (ImageOptions, error) {
+	options := p.SuggestOptions()
+	if options.Dither != DitherThreshold {
+		return options, nil
+	}
+	redrawn, err := ProfileImage(drawn)
+	if err != nil {
+		return options, err
+	}
+	options.Threshold = redrawn.Threshold
+	return options, nil
 }

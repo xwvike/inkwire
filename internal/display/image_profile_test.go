@@ -247,3 +247,124 @@ func TestEnhanceContrastDiscardsColour(t *testing.T) {
 		t.Fatal("red survived the contrast pass, so its documented limit is wrong")
 	}
 }
+
+// The failure this exists for: an icon whose shapes differ in hue and whose
+// brightness straddles the cut, so some shapes land on the paper side and
+// disappear. Measured against the paper instead, they are all ink.
+func TestColourCarriesStructureIsDetectedAndAnswered(t *testing.T) {
+	source := solidImage(60, 60, func(x, y int) color.NRGBA {
+		switch {
+		case y < 16:
+			return color.NRGBA{R: 0xd8, G: 0x50, B: 0x40, A: 0xff} // vermilion
+		case y < 32:
+			return color.NRGBA{R: 0xf2, G: 0xe1, B: 0x4f, A: 0xff} // yellow
+		case y < 48:
+			return color.NRGBA{R: 0x5f, G: 0xe0, B: 0xe8, A: 0xff} // cyan
+		default:
+			return color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff} // paper
+		}
+	})
+
+	profile, err := ProfileImage(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.Photographic {
+		t.Fatal("flat wedges read as a photograph")
+	}
+	if !profile.ColourCarriesStructure {
+		t.Fatalf("colour structure not detected; only %.1f%% counted as lost", 100*profile.LostToLuminance)
+	}
+
+	painted := func(img image.Image, options ImageOptions) int {
+		frame := newTestFrame(t, 60, 60)
+		if err := NewCanvas(frame).DrawImage(img, frame.Bounds(), options); err != nil {
+			t.Fatal(err)
+		}
+		return 60*60 - countInk(frame, InkWhite)
+	}
+	byBrightness := painted(source, profile.SuggestOptions())
+
+	toned, err := ToneByColourDistance(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options, err := profile.SuggestOptionsFor(toned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byDistance := painted(toned, options)
+
+	if byDistance <= byBrightness {
+		t.Fatalf("colour distance painted %d pixels against brightness %d; it is meant to recover shapes, not lose them",
+			byDistance, byBrightness)
+	}
+}
+
+// A drawing that is dark where it is inked has nothing to gain here, and must
+// not be dragged onto the other path.
+func TestPlainArtworkDoesNotNeedColourDistance(t *testing.T) {
+	source := solidImage(40, 40, func(x, y int) color.NRGBA {
+		if x >= 10 && x < 30 {
+			return color.NRGBA{A: 0xff}
+		}
+		return color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+	})
+	profile, err := ProfileImage(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.ColourCarriesStructure {
+		t.Errorf("black on white was sent down the colour path, losing %.1f%%", 100*profile.LostToLuminance)
+	}
+}
+
+// Rewriting tone has emptied the red plane every other time; this pass keeps
+// it, and keeps the original colour rather than substituting a saturated red,
+// which would drag the luminance of those pixels to 54 and skew any cut
+// measured from the result.
+func TestToneByColourDistanceKeepsRed(t *testing.T) {
+	// Paper has to be present for "the yellow becomes ink" to mean anything:
+	// with only two colours the cut simply lands between them.
+	source := solidImage(30, 30, func(x, y int) color.NRGBA {
+		switch {
+		case x < 10:
+			return color.NRGBA{R: 0xd8, G: 0x50, B: 0x40, A: 0xff} // convincingly red
+		case x < 20:
+			return color.NRGBA{R: 0xf2, G: 0xe1, B: 0x4f, A: 0xff} // light yellow
+		default:
+			return color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff} // paper
+		}
+	})
+	profile, err := ProfileImage(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	toned, err := ToneByColourDistance(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options, err := profile.SuggestOptionsFor(toned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame := newTestFrame(t, 30, 30)
+	if err := NewCanvas(frame).DrawImage(toned, frame.Bounds(), options); err != nil {
+		t.Fatal(err)
+	}
+	if countInk(frame, InkRed) == 0 {
+		t.Error("red was flattened away by the tone pass")
+	}
+	if countInk(frame, InkBlack) == 0 {
+		t.Error("the light yellow half did not become ink")
+	}
+}
+
+func TestToneByColourDistanceRejectsBadInput(t *testing.T) {
+	if _, err := ToneByColourDistance(nil); err == nil {
+		t.Fatal("ToneByColourDistance accepted a nil image")
+	}
+	if _, err := ToneByColourDistance(image.NewNRGBA(image.Rectangle{})); err == nil {
+		t.Fatal("ToneByColourDistance accepted an empty image")
+	}
+}
