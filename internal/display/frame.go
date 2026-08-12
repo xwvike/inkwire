@@ -109,8 +109,14 @@ type Canvas struct {
 	stack []canvasState
 }
 
+// mask is nil whenever the clip is still a plain rectangle, which is the common
+// case. Once a path narrows it, the mask holds the exact region in frame
+// coordinates and clip stays as its bounding rectangle, so primitives can go on
+// using clip to bound their loops. A mask is never modified after it is
+// installed, so saved states and child canvases can share one.
 type canvasState struct {
 	clip   image.Rectangle
+	mask   *mask
 	offset image.Point
 }
 
@@ -152,6 +158,26 @@ func (c *Canvas) ClipRect(rect image.Rectangle) {
 	c.state.clip = c.state.clip.Intersect(c.deviceRect(rect))
 }
 
+// ClipPath intersects the current clip with the region path covers under the
+// even-odd rule, so nested contours cut holes out of the visible area. Like
+// ClipRect the region is fixed in frame coordinates once established, and
+// translating afterwards moves what is drawn rather than where it is allowed.
+func (c *Canvas) ClipPath(path Path) {
+	contours := path.flatten()
+	offset := c.state.offset
+	region := rasterizeMask(c.deviceRect(contourBounds(contours)), func(x, y int) bool {
+		return pointInPath(image.Pt(x-offset.X, y-offset.Y), contours)
+	})
+	c.state.clip = c.state.clip.Intersect(region.bounds)
+	if c.state.mask == nil {
+		c.state.mask = region
+		return
+	}
+	narrowed := c.state.mask.clone()
+	narrowed.intersect(region)
+	c.state.mask = narrowed
+}
+
 // Translate moves the origin for subsequent drawing by an integer offset.
 func (c *Canvas) Translate(offset image.Point) {
 	c.state.offset = c.state.offset.Add(offset)
@@ -159,9 +185,13 @@ func (c *Canvas) Translate(offset image.Point) {
 
 func (c *Canvas) Set(x, y int, ink Ink) {
 	point := c.devicePoint(image.Pt(x, y))
-	if point.In(c.state.clip) {
-		c.frame.Set(point.X, point.Y, ink)
+	if !point.In(c.state.clip) {
+		return
 	}
+	if c.state.mask != nil && !c.state.mask.at(point.X, point.Y) {
+		return
+	}
+	c.frame.Set(point.X, point.Y, ink)
 }
 
 func (c *Canvas) FillRect(rect image.Rectangle, ink Ink) {

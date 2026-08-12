@@ -30,6 +30,7 @@ const (
 	commandSave commandKind = iota
 	commandRestore
 	commandClipRect
+	commandClipPath
 	commandTranslate
 	commandSet
 	commandFillRect
@@ -150,6 +151,21 @@ func (d *DisplayList) ClipRect(rect image.Rectangle) {
 		d.state.hasClip = true
 	}
 	d.commands = append(d.commands, displayCommand{kind: commandClipRect, rect: rect})
+}
+
+// ClipPath records a clip to the region path covers under the even-odd rule.
+// Recorded bounds narrow only to the path's bounding rectangle, which stays a
+// safe over-estimate of what replay can paint.
+func (d *DisplayList) ClipPath(path Path) {
+	path = path.Clone()
+	deviceRect := path.Bounds().Add(d.state.offset)
+	if d.state.hasClip {
+		d.state.clip = d.state.clip.Intersect(deviceRect)
+	} else {
+		d.state.clip = deviceRect
+		d.state.hasClip = true
+	}
+	d.commands = append(d.commands, displayCommand{kind: commandClipPath, path: path})
 }
 
 // Translate records an integer origin offset for subsequent commands.
@@ -427,6 +443,8 @@ func (c displayCommand) replay(canvas *Canvas) error {
 		}
 	case commandClipRect:
 		canvas.ClipRect(c.rect)
+	case commandClipPath:
+		canvas.ClipPath(c.path)
 	case commandTranslate:
 		canvas.Translate(c.point)
 	case commandSet:
