@@ -679,6 +679,9 @@ Data URL 写法：
 - [裁剪、图案和虚线](examples/paint_showcase/page.json)
 - [布局和状态](examples/state_showcase/page.json)
 - [名片页面](examples/card_showcase/page.json)
+- [纯文本效果](examples/text_showcase/page.json)
+- [display API Cookbook](examples/cookbook/main.go)
+
 
 <table>
   <tr>
@@ -691,7 +694,11 @@ Data URL 写法：
   </tr>
   <tr>
     <td><a href="examples/state_showcase/page.json"><img src="examples/state_showcase/state_showcase.png" alt="布局和状态"></a></td>
-    <td><img src="examples/gallery/gallery.png" alt="图片处理 Gallery"></td>
+    <td><a href="examples/text_showcase/page.json"><img src="examples/text_showcase/text_showcase.png" alt="纯文本效果"></a></td>
+  </tr>
+  <tr>
+      <td><img src="examples/gallery/gallery.png" alt="图片处理 Gallery"></td>
+    <td><a href="examples/cookbook/main.go"><img src="examples/cookbook/cookbook.png" alt="底层 API Cookbook"></a></td>
   </tr>
 </table>
 
