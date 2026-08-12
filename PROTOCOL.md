@@ -277,6 +277,7 @@ glyph = hzk12_bytes[offset : offset + 24]  # MSB first，逐行取位
 - 横屏逻辑画布为 296×128；竖屏为 128×296，可明确选择顺时针或逆时针映射到物理面板。设备编码器仍统一执行协议所需的逆时针旋转和位打包。
 - 字体、文字、图元、图像、Canvas 状态和 DisplayList 都有 Go 单元测试；测试覆盖直接绘制与重放逐像素一致、可变输入快照、Clone 独立性、边界计算及状态下溢。运行时不调用 Python 或浏览器。任意角度旋转、缩放和通用布局树仍不属于这一层。
 - `examples/showcase/showcase.png` 是 296×128 图元与文字综合展示图；生成器现通过 DisplayList 重放产生画面，并逐字节比对已真机确认的基准 PNG。运行 `go run ./examples/showcase -png examples/showcase/showcase.png -payload /tmp/inkwire-showcase.bin` 可重新生成 PNG 和真机 payload。
+- `examples/cookbook/` 是给上层抽象用的**完整用法索引**：七张面板逐一走过全部绘图调用（填充、描边、Path、文字、状态栈、图像、DisplayList），代码注释写的是**契约**而不是函数说明——层保证什么、代价是什么、哪里会让人意外。适合在设计布局层之前通读一遍。每张面板都是真实的 296×128 payload，`go run ./examples/cookbook` 生成 `out/` 和联系表。**尚未上真机确认。**
 - `examples/gallery/` 回答「上层随手丢一张图进来怎么办」。`ProfileImage` 测量三个量——中间调占比、Otsu 阈值、彩色像素占比——`SuggestOptions` 据此给出建议；`DrawImage` **不会自己去测**，判错藏在绘制里没法排查。测量与决定分开，是为了让判错可见。
   - **中间调占比** 分「连续调」与「平面图形」。九张实测素材（二维码、带 alpha 的图标、品牌标、线稿、一张照片）里图形最高 44%，照片 80%，中间空 36 个百分点。规则是照片走误差扩散、图形走阈值。
   - **Otsu 阈值** 取代写死的 128。这是必需的：`sparkle.png` 整体亮于 128，固定阈值下**整块变白**，Otsu 切在 194 才把图形救回来。
