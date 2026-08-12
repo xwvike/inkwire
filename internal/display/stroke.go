@@ -1,14 +1,18 @@
 package display
 
-import "image"
+import (
+	"image"
+	"math"
+)
 
 // StrokeStyle describes an opaque, integer-aligned outline. Dash alternates
-// on/off lengths in raster pixels; an odd-length pattern repeats before
-// cycling. Non-positive widths or dash lengths make the stroke a no-op.
+// on and off runs measured as distance along the outline, so a run keeps its
+// length whatever angle the line is drawn at; an odd-length pattern repeats
+// before cycling. Non-positive widths or dash lengths make the stroke a no-op.
 type StrokeStyle struct {
 	Ink        Ink   // Ink is the physical color written by the stroke.
 	Width      int   // Width is the square brush size in pixels.
-	Dash       []int // Dash contains alternating on/off lengths in pixels.
+	Dash       []int // Dash holds alternating on and off lengths along the outline.
 	DashOffset int   // DashOffset advances into Dash before drawing.
 }
 
@@ -30,17 +34,25 @@ func (c *Canvas) fillBrush(center image.Point, stroke StrokeStyle) {
 	c.FillRect(image.Rectangle{Min: minPoint, Max: minPoint.Add(image.Pt(stroke.Width, stroke.Width))}, stroke.Ink)
 }
 
+// The dash is measured as real distance travelled along the outline, not as a
+// count of raster steps. A Bresenham step is 1px along an axis but sqrt(2)
+// diagonally, so counting steps stretches a dash by up to 41% as a line tilts;
+// accumulating the true step length keeps a run the length it was asked for at
+// every angle. Closed shapes reach the same measure through dashRegion.
 func (c *Canvas) strokePoints(points []image.Point, closed bool, stroke StrokeStyle) {
 	if !stroke.valid() || len(points) == 0 {
 		return
 	}
-	dash := newDashCursor(stroke)
+	pattern := newDashPattern(stroke)
 	if len(points) == 1 {
-		if dash == nil || dash.on {
+		if pattern == nil || pattern.on(0) {
 			c.fillBrush(points[0], stroke)
 		}
 		return
 	}
+
+	travelled := 0.0
+	previous := points[0]
 	segmentCount := len(points) - 1
 	if closed {
 		segmentCount++
@@ -48,71 +60,20 @@ func (c *Canvas) strokePoints(points []image.Point, closed bool, stroke StrokeSt
 	for segment := 0; segment < segmentCount; segment++ {
 		from := points[segment%len(points)]
 		to := points[(segment+1)%len(points)]
-		skipFirst := segment > 0
+		// The first point of a segment repeats the previous segment's last one.
+		skipShared := segment > 0
 		drawBresenham(from, to, func(point image.Point) {
-			if skipFirst {
-				skipFirst = false
+			if skipShared {
+				skipShared = false
 				return
 			}
-			if dash == nil || dash.on {
+			travelled += math.Hypot(float64(point.X-previous.X), float64(point.Y-previous.Y))
+			previous = point
+			if pattern == nil || pattern.on(travelled) {
 				c.fillBrush(point, stroke)
-			}
-			if dash != nil {
-				dash.advance()
 			}
 		})
 	}
-}
-
-type dashCursor struct {
-	pattern    []int
-	virtualLen int
-	index      int
-	remaining  int
-	on         bool
-}
-
-func newDashCursor(stroke StrokeStyle) *dashCursor {
-	if len(stroke.Dash) == 0 {
-		return nil
-	}
-	virtualLen := len(stroke.Dash)
-	if virtualLen%2 != 0 {
-		virtualLen *= 2
-	}
-	total := 0
-	for i := 0; i < virtualLen; i++ {
-		total += stroke.Dash[i%len(stroke.Dash)]
-	}
-	offset := stroke.DashOffset % total
-	if offset < 0 {
-		offset += total
-	}
-	cursor := &dashCursor{
-		pattern:    stroke.Dash,
-		virtualLen: virtualLen,
-		remaining:  stroke.Dash[0],
-		on:         true,
-	}
-	for offset >= cursor.remaining {
-		offset -= cursor.remaining
-		cursor.next()
-	}
-	cursor.remaining -= offset
-	return cursor
-}
-
-func (d *dashCursor) advance() {
-	d.remaining--
-	if d.remaining == 0 {
-		d.next()
-	}
-}
-
-func (d *dashCursor) next() {
-	d.index = (d.index + 1) % d.virtualLen
-	d.remaining = d.pattern[d.index%len(d.pattern)]
-	d.on = d.index%2 == 0
 }
 
 func drawBresenham(from, to image.Point, draw func(image.Point)) {
