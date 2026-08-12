@@ -7,11 +7,18 @@ Supplied by the repository owner on 2026-08-12 from a working assets directory.
 mascot.png was reduced from 1254x1254 and kitten.png from 1024x1024, both with
 a box filter; the rest are unchanged. Original names, where they differed:
 
-  mascot.png   general_image_0_clean-d9u1947ivfoc7388o8qg.png
-  kitten.png   generated_image.png
-  sparkle.png  svgviewer-png-output.png
-  moments.png  朋友圈.png
-  button.png   Button.png
+  mascot.png         general_image_0_clean-d9u1947ivfoc7388o8qg.png
+  kitten.png         generated_image.png
+  sparkle.png        svgviewer-png-output.png
+  moments.png        朋友圈.png
+  button.png         Button.png
+  anime-wide.jpeg    GpCskchaoAAjOre.jpeg          reduced from 1920x1080
+  anime-face.png     Gr2U811WcAA8k-I.png           reduced from 400x400
+  anime-closeup.png  微信图片_20251120141330_33_45.png  reduced from 405x454
+
+anime-wide.jpeg is kept as JPEG rather than converted: the gallery decodes
+whatever it is handed, and having one asset that is not a PNG is the only
+thing checking that.
 
 loader.svg is kept here but not used: the embed pattern only takes PNGs and
 nothing in this repository rasterises SVG. It is present so the sample stays
@@ -23,6 +30,8 @@ these may need replacing before it is relied on. The gallery reads whatever
 PNGs sit in this directory, so swapping them needs no code change.
 
 SHA-256:
+  2c3200892ecd8f5e5bad1a2a74992876d094da461e797fb85988da1afcd7fcb0  anime-closeup.png
+  9a33a9904f31b808ea9787a97e80147500787cf9d7d1286d678e921ecbc8f69e  anime-face.png
   ce2bf2faa2595ed8380e5fbf6a4db477052ded9bf975a39b269061c229f3beba  article.png
   8ff448085f7921560a887307b16081c1b328e8e6ec0910d26611e80a3b27bc7f  button.png
   53e93accacb7584f493afde84d9c32bed229879ea2ff26dca346856be8ba93a1  github.png
@@ -32,3 +41,4 @@ SHA-256:
   3429f2a83179583b34afe63efe9eee79174916470be0ced34817bf2400d8058c  search-icon.png
   9622825b0c5895da759a0d221bb3c7532a8c97f851825f88d539ee1bac039d46  sparkle.png
   6cd8066601c975eba06a0a295089cb771895efb07435d9ef64e7db16b7eb1d50  tiktok.png
+  f355d4c732f07e1fea90855ce2c3c2b0642f24c749342d8881c1f559d82b4b8e  anime-wide.jpeg

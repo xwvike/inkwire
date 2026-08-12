@@ -6,7 +6,8 @@ import (
 	"flag"
 	"fmt"
 	"image"
-	"image/png"
+	_ "image/jpeg"
+	_ "image/png"
 	"os"
 	"path"
 	"sort"
@@ -15,7 +16,7 @@ import (
 	"github.com/xwvike/inkwire/internal/display"
 )
 
-//go:embed assets/*.png
+//go:embed assets/*.png assets/*.jpeg
 var assets embed.FS
 
 // The gallery answers one question: what happens when a caller hands over an
@@ -108,7 +109,9 @@ func loadAssets() ([]asset, error) {
 		if err != nil {
 			return nil, err
 		}
-		decoded, err := png.Decode(bytes.NewReader(data))
+		// image.Decode rather than png.Decode: the point of the gallery is
+		// that a caller hands over whatever they have.
+		decoded, _, err := image.Decode(bytes.NewReader(data))
 		if err != nil {
 			return nil, fmt.Errorf("decode %s: %w", file.Name(), err)
 		}
@@ -117,7 +120,7 @@ func loadAssets() ([]asset, error) {
 			return nil, fmt.Errorf("profile %s: %w", file.Name(), err)
 		}
 		entries = append(entries, asset{
-			name:    strings.TrimSuffix(file.Name(), ".png"),
+			name:    strings.TrimSuffix(strings.TrimSuffix(file.Name(), ".png"), ".jpeg"),
 			image:   decoded,
 			profile: profile,
 		})
@@ -156,9 +159,20 @@ func prepare(entry asset, target image.Rectangle) (image.Image, error) {
 	if !entry.profile.Photographic {
 		return entry.image, nil
 	}
-	const featureSizeOnPanel = 7
+	// A very dark subject wants more than this and cel-shaded artwork wants
+	// less; no measurement in the profile separates those two cases, so one
+	// moderate amount is used for both rather than a rule invented from a
+	// single example of each.
+	const featureSizeOnPanel, contrastAmount = 7, 1.4
 	reduction := max(1, entry.image.Bounds().Dx()/max(1, target.Dx()))
-	return display.EnhanceContrast(entry.image, featureSizeOnPanel*reduction, 2.4)
+	return display.EnhanceContrast(entry.image, featureSizeOnPanel*reduction, contrastAmount)
+}
+
+func redVerdict(profile display.ImageProfile) string {
+	if profile.RedIsMeaningful {
+		return fmt.Sprintf("%d KEEP", profile.RedSeparation)
+	}
+	return fmt.Sprintf("%d OFF", profile.RedSeparation)
 }
 
 // One asset on one panel, with the measurement beside it.
@@ -199,9 +213,10 @@ func renderCard(entry asset, fonts *display.FontRegistry) (*display.Frame, error
 	rows := []struct{ label, value string }{
 		{"中间调", fmt.Sprintf("%.1f%%", 100*entry.profile.MidToneFraction)},
 		{"OTSU", fmt.Sprintf("%d", entry.profile.Threshold)},
+		{"红色", redVerdict(entry.profile)},
 	}
 	for index, row := range rows {
-		top := 52 + index*18
+		top := 50 + index*17
 		if err := text(canvas, fonts, image.Rect(120, top, 176, top+14), 14, display.AlignStart,
 			run(row.label, "ui", 12, display.InkBlack),
 		); err != nil {
@@ -218,7 +233,7 @@ func renderCard(entry asset, fonts *display.FontRegistry) (*display.Frame, error
 	if entry.profile.Photographic {
 		verdict, ink = "误差扩散 · 照片", display.InkRed
 	}
-	badge := image.Rect(120, 92, 290, 112)
+	badge := image.Rect(120, 102, 290, 121)
 	canvas.StrokeRoundRect(badge, 3, display.StrokeStyle{Ink: ink, Width: 1})
 	return frame, text(canvas, fonts, badge.Inset(3), 14, display.AlignCenter,
 		run(verdict, "ui", 12, ink),

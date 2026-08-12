@@ -19,16 +19,19 @@ type ImageProfile struct {
 	// Threshold is the cut Otsu's method finds in the image's own histogram.
 	// A fixed cut at 128 erases artwork that happens to sit entirely above it.
 	Threshold int
-	// ChromaticFraction is the share of pixels with a noticeable colour cast.
-	// The red plane fires on anything merely warm, so a photograph of a room
-	// full of wood and beige scatters red through a subject that has none;
-	// this is what tells such an image apart from one that is actually red.
-	ChromaticFraction float64
+	// RedSeparation is how convincingly red the pixels are that would reach the
+	// red plane: the median distance between their red and green channels.
+	// The plane's test admits anything merely warm, so skin, pink hair and
+	// wood all qualify and can flood a picture with red that is not in it.
+	// Genuine red sits far from that: across the sample, images whose red
+	// carries meaning measured 122 and above while incidental warmth reached
+	// 72 at most. Zero when nothing would reach the plane at all.
+	RedSeparation int
 	// Photographic reports whether the image reads as continuous tone.
 	Photographic bool
-	// Monochrome reports that the image carries too little colour for the red
-	// plane to mean anything.
-	Monochrome bool
+	// RedIsMeaningful reports whether the red plane carries signal rather than
+	// a warm cast.
+	RedIsMeaningful bool
 }
 
 // photographicMidTone separates the two kinds. Measured across a sample of
@@ -37,13 +40,10 @@ type ImageProfile struct {
 // than tuned. It is one sample of each extreme, not a validated constant.
 const (
 	photographicMidTone = 0.60
-	// monochromeChroma separates images whose colour is incidental from those
-	// where it carries meaning. Across the sample, a nearly grey photograph
-	// reached 3% while every image with real colour in it exceeded 12%.
-	monochromeChroma = 0.05
-	// chromaticSpread is how far apart a pixel's channels must sit before it
-	// counts as coloured rather than as a warm or cool grey.
-	chromaticSpread = 40
+	// meaningfulRedSeparation is where genuine red parts from warmth. Measured
+	// across the sample: real red measured 122 to 186, incidental warmth 9 to
+	// 72, so the cut sits in the gap rather than being tuned to either side.
+	meaningfulRedSeparation = 100
 )
 
 // ProfileImage measures src as the panel will see it: alpha composited over
@@ -58,13 +58,17 @@ func ProfileImage(src image.Image) (ImageProfile, error) {
 	}
 
 	var histogram [256]int
-	total, chromatic := 0, 0
+	// separations counts, for each distance between the red and green
+	// channels, how many pixels that would reach the red plane show it.
+	var separations [256]int
+	total, redCandidates := 0, 0
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			r, g, b := channelsOverWhite(src.At(x, y))
 			histogram[int(0.2126*r+0.7152*g+0.0722*b)]++
-			if max(r, max(g, b))-min(r, min(g, b)) > chromaticSpread {
-				chromatic++
+			if r > defaultRedThreshold && g < defaultRedMaxGreen {
+				separations[int(max(0, min(255, r-g)))]++
+				redCandidates++
 			}
 			total++
 		}
@@ -75,13 +79,27 @@ func ProfileImage(src image.Image) (ImageProfile, error) {
 		midTone += histogram[level]
 	}
 	profile := ImageProfile{
-		MidToneFraction:   float64(midTone) / float64(total),
-		Threshold:         otsuThreshold(histogram[:], total),
-		ChromaticFraction: float64(chromatic) / float64(total),
+		MidToneFraction: float64(midTone) / float64(total),
+		Threshold:       otsuThreshold(histogram[:], total),
+		RedSeparation:   medianOf(separations[:], redCandidates),
 	}
 	profile.Photographic = profile.MidToneFraction > photographicMidTone
-	profile.Monochrome = profile.ChromaticFraction < monochromeChroma
+	profile.RedIsMeaningful = profile.RedSeparation >= meaningfulRedSeparation
 	return profile, nil
+}
+
+func medianOf(counts []int, total int) int {
+	if total == 0 {
+		return 0
+	}
+	seen := 0
+	for value, count := range counts {
+		seen += count
+		if seen*2 >= total {
+			return value
+		}
+	}
+	return 0
 }
 
 // SuggestOptions turns a measurement into a starting point. It is a
@@ -91,9 +109,9 @@ func (p ImageProfile) SuggestOptions() ImageOptions {
 	options := ImageOptions{
 		Fit:      FitContain,
 		Sampling: SampleBilinear,
-		// An image with no real colour in it has no business reaching the red
-		// plane, which fires on anything merely warm.
-		DisableRed: p.Monochrome,
+		// Warmth is not red. Leaving the plane on for an image whose reds are
+		// skin or wood floods it with colour the image does not contain.
+		DisableRed: !p.RedIsMeaningful,
 	}
 	if p.Photographic {
 		// Error diffusion holds the tone a photograph is made of.

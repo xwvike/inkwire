@@ -83,8 +83,9 @@ func TestSuggestionsAvoidTheKnownFailures(t *testing.T) {
 			if ink == 0 {
 				t.Fatal("the suggested options rendered nothing at all")
 			}
-			if entry.profile.Monochrome && countInk(frame, display.InkRed) != 0 {
-				t.Error("a monochrome source reached the red plane")
+			if !entry.profile.RedIsMeaningful && countInk(frame, display.InkRed) != 0 {
+				t.Errorf("red reached the panel from a source whose reds are only warm (separation %d)",
+					entry.profile.RedSeparation)
 			}
 		})
 	}
