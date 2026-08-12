@@ -1,0 +1,12 @@
+mascot.png is the card's portrait artwork.
+
+Supplied by the repository owner for this example on 2026-08-12 and reduced
+from a 1254x1254 original to 256x256 with a box filter. Only the head is used;
+the example crops before it scales.
+
+SHA-256  e06a238e5e3ae3ead19b2b3c4c4e1d93ece149e27d7b70614d5a6337f8089c04
+
+Provenance beyond "the owner supplied it" has not been recorded. The repository
+is GPL-3.0-or-later, so if this artwork is not the owner's to relicense it
+should be replaced with something that is; the example reads any square PNG at
+this path and needs no other change.

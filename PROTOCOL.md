@@ -277,6 +277,8 @@ glyph = hzk12_bytes[offset : offset + 24]  # MSB first，逐行取位
 - 横屏逻辑画布为 296×128；竖屏为 128×296，可明确选择顺时针或逆时针映射到物理面板。设备编码器仍统一执行协议所需的逆时针旋转和位打包。
 - 字体、文字、图元、图像、Canvas 状态和 DisplayList 都有 Go 单元测试；测试覆盖直接绘制与重放逐像素一致、可变输入快照、Clone 独立性、边界计算及状态下溢。运行时不调用 Python 或浏览器。任意角度旋转、缩放和通用布局树仍不属于这一层。
 - `examples/showcase/showcase.png` 是 296×128 图元与文字综合展示图；生成器现通过 DisplayList 重放产生画面，并逐字节比对已真机确认的基准 PNG。运行 `go run ./examples/showcase -png examples/showcase/showcase.png -payload /tmp/inkwire-showcase.bin` 可重新生成 PNG 和真机 payload。
+- `examples/card_showcase/card_showcase.png` 是把全部能力组合成一张实际界面的样例：头像用 `ClipPath` 裁成圆形（圆角来自裁剪而非事后覆盖），外圈用不足 360° 的圆弧当电量表盘（开放曲线，居中对齐），电量条的填充部分是裁进圆角里的斜纹图案，页脚是点阵图案中挖出白底文字，另有星形多边形、虚线分隔、中英混排多字号文字。整张图经 `DisplayList` 记录后重放。**这是三张图里唯一同时用满黑/白/红三色的**——红色不是画上去的，是源图里嘴部的红橙色命中了 4.2 节的红平面判定。
+  素材是线稿，因此图片用 `DitherThreshold` 而非误差扩散：Floyd–Steinberg 会把抗锯齿边缘的误差扩散到本该纯白的大面积皮肤上，实测糊成噪点，与 4.4 节的记录一致。素材来源与许可风险见 `examples/card_showcase/SOURCE`。**尚未上真机确认。**
 - `examples/paint_showcase/paint_showcase.png` 是路径裁剪、图案填充与虚线三项的专项展示图：左侧把一张程序生成的渐变照片经 Floyd–Steinberg 抖动裁进圆角卡片（圆角由 `ClipPath` 而非事后覆盖得到），右上是两块图案色板加一个由裁剪成形的点阵圆盘，右下是五条等长、同一 `[4,3]` 虚线、角度从 0° 到 90° 的线段——五条的实线段数一致即说明虚线按弧长计量。运行 `go run ./examples/paint_showcase -png examples/paint_showcase/paint_showcase.png -payload /tmp/inkwire-paint.bin` 重新生成。**尚未上真机确认。**
 - `examples/state_showcase/state_showcase.png` 是 Canvas 状态和 DisplayList 专项展示图：画面直接标出 `CLIP RECT`、`TRANSLATE`、`SAVE / RESTORE`、命令数与逻辑边界，生成过程还实际执行 `Clone`、`Reset` 和 `Replay`。2026-08-12 已通过 Go 驱动上传真机，9472 字节 payload 完成 40/40 分块并进入刷新。
 
