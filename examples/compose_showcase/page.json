@@ -1,0 +1,158 @@
+{
+  "version": 1,
+  "orientation": "landscape",
+  "background": "white",
+  "root": {
+    "type": "absolute",
+    "clip": true,
+    "children": [
+      {
+        "bounds": {"x": 0, "y": 0, "width": 296, "height": 20},
+        "node": {"type": "rectangle", "radius": 4, "fill": "black"}
+      },
+      {
+        "bounds": {"x": 7, "y": 2, "width": 282, "height": 16},
+        "node": {
+          "type": "text",
+          "runs": [
+            {"text": "INKWIRE ", "font": "monaco", "size": 12, "ink": "white"},
+            {"text": "COMPOSE", "font": "monaco", "size": 12, "ink": "red"},
+            {"text": " / 296x128", "font": "monaco", "size": 12, "ink": "white"}
+          ]
+        }
+      },
+      {
+        "bounds": {"x": 4, "y": 24, "width": 74, "height": 102},
+        "node": {
+          "type": "absolute",
+          "clip": true,
+          "children": [
+            {
+              "bounds": {"x": 0, "y": 0, "width": 74, "height": 102},
+              "node": {"type": "rectangle", "radius": 4, "stroke": {"ink": "black", "width": 1}}
+            },
+            {
+              "bounds": {"x": 5, "y": 5, "width": 64, "height": 64},
+              "node": {
+                "type": "clipPath",
+                "path": {
+                  "commands": [
+                    {"op": "arc", "bounds": {"x": 0, "y": 0, "width": 64, "height": 64}, "start": 0, "sweep": 360},
+                    {"op": "close"}
+                  ]
+                },
+                "child": {
+                  "type": "image",
+                  "source": "portrait.png",
+                  "processing": "auto",
+                  "overrides": {"fit": "cover", "sampling": "bilinear", "dither": "floydSteinberg", "disableRed": true},
+                  "contrast": {"radius": 4, "amount": 1.3}
+                }
+              }
+            },
+            {
+              "bounds": {"x": 5, "y": 5, "width": 64, "height": 64},
+              "node": {"type": "circle", "center": {"x": 32, "y": 32}, "radius": 32, "stroke": {"ink": "red", "width": 1}}
+            },
+            {
+              "bounds": {"x": 7, "y": 74, "width": 60, "height": 14},
+              "node": {"type": "text", "runs": [
+                {"text": "PHOTO / ", "font": "monaco", "size": 10, "ink": "black"},
+                {"text": "人像", "font": "hzk", "size": 12, "ink": "red"}
+              ]}
+            },
+            {
+              "bounds": {"x": 7, "y": 89, "width": 60, "height": 12},
+              "node": {"type": "text", "runs": [{"text": "AUTO IMAGE", "font": "monaco", "size": 10, "ink": "black"}]}
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {"x": 82, "y": 24, "width": 124, "height": 102},
+        "node": {
+          "type": "absolute",
+          "clip": true,
+          "children": [
+            {
+              "bounds": {"x": 0, "y": 0, "width": 124, "height": 102},
+              "node": {"type": "rectangle", "radius": 4, "stroke": {"ink": "black", "width": 1}}
+            },
+            {
+              "bounds": {"x": 4, "y": 3, "width": 116, "height": 13},
+              "node": {"type": "text", "runs": [
+                {"text": "DISPLAY LIST  ", "font": "monaco", "size": 10, "ink": "black"},
+                {"text": "图形", "font": "hzk", "size": 12, "ink": "red"}
+              ]}
+            },
+            {
+              "bounds": {"x": 4, "y": 18, "width": 116, "height": 57},
+              "node": {
+                "type": "stack",
+                "children": [
+                  {"type": "rectangle", "radius": 3, "fill": "white", "stroke": {"ink": "black", "width": 1}},
+                  {"type": "pattern", "rows": ["x...", "....", "....", "...."], "inks": {"x": "black"}},
+                  {"type": "path", "commands": [
+                    {"op": "move", "to": {"x": 5, "y": 41}},
+                    {"op": "cubic", "control1": {"x": 20, "y": 10}, "control2": {"x": 30, "y": 61}, "to": {"x": 45, "y": 31}},
+                    {"op": "quadratic", "control": {"x": 58, "y": 9}, "to": {"x": 73, "y": 34}},
+                    {"op": "cubic", "control1": {"x": 88, "y": 58}, "control2": {"x": 97, "y": 15}, "to": {"x": 111, "y": 27}}
+                  ], "stroke": {"ink": "black", "width": 1, "dash": [4, 2]}},
+                  {"type": "path", "commands": [
+                    {"op": "move", "to": {"x": 6, "y": 55}},
+                    {"op": "line", "to": {"x": 21, "y": 35}},
+                    {"op": "line", "to": {"x": 34, "y": 50}},
+                    {"op": "quadratic", "control": {"x": 48, "y": 24}, "to": {"x": 61, "y": 49}},
+                    {"op": "line", "to": {"x": 75, "y": 34}},
+                    {"op": "line", "to": {"x": 91, "y": 55}},
+                    {"op": "close"}
+                  ], "fill": "black"},
+                  {"type": "circle", "center": {"x": 101, "y": 15}, "radius": 7, "fill": "red", "stroke": {"ink": "red", "width": 1}}
+                ]
+              }
+            },
+            {
+              "bounds": {"x": 4, "y": 78, "width": 116, "height": 20},
+              "node": {"type": "row", "gap": 2, "crossAlign": "center", "children": [
+                {"node": {"type": "text", "size": {"width": 42, "height": 14}, "runs": [{"text": "R 87%", "font": "monaco", "size": 10, "ink": "black"}]}},
+                {"node": {"type": "text", "size": {"width": 70, "height": 14}, "runs": [{"text": "TEMP 23.5", "font": "monaco", "size": 10, "ink": "red"}]}}
+              ]}
+            },
+            {
+              "bounds": {"x": 4, "y": 98, "width": 116, "height": 4},
+              "node": {"type": "clipRect", "rect": {"x": 0, "y": 0, "width": 116, "height": 4}, "child": {
+                "type": "pattern", "rows": ["x...", "..x.", "....", ".x.."], "inks": {"x": "red"}
+              }}
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {"x": 210, "y": 24, "width": 82, "height": 102},
+        "node": {
+          "type": "absolute",
+          "clip": true,
+          "children": [
+            {"bounds": {"x": 0, "y": 0, "width": 82, "height": 102}, "node": {"type": "rectangle", "radius": 4, "stroke": {"ink": "black", "width": 1}}},
+            {"bounds": {"x": 5, "y": 4, "width": 72, "height": 28}, "node": {"type": "column", "children": [
+              {"node": {"type": "text", "size": {"width": 72, "height": 13}, "runs": [{"text": "PRIMITIVES", "font": "monaco", "size": 10, "ink": "black"}]}},
+              {"node": {"type": "text", "size": {"width": 72, "height": 13}, "runs": [
+                {"text": "图元", "font": "hzk", "size": 12, "ink": "red"},
+                {"text": " / COLOR", "font": "monaco", "size": 10, "ink": "red"}
+              ]}}
+            ]}},
+            {"bounds": {"x": 6, "y": 36, "width": 22, "height": 22}, "node": {"type": "arc", "start": 25, "sweep": 290, "stroke": {"ink": "red", "width": 2}}},
+            {"bounds": {"x": 31, "y": 37, "width": 21, "height": 21}, "node": {"type": "pie", "start": -90, "sweep": 120, "ink": "red"}},
+            {"bounds": {"x": 55, "y": 37, "width": 21, "height": 21}, "node": {"type": "chord", "start": 20, "sweep": 220, "ink": "black"}},
+            {"bounds": {"x": 7, "y": 65, "width": 22, "height": 16}, "node": {"type": "ellipse", "stroke": {"ink": "black", "width": 3}}},
+            {"bounds": {"x": 34, "y": 65, "width": 21, "height": 16}, "node": {"type": "polygon", "points": [{"x":10,"y":0},{"x":20,"y":8},{"x":10,"y":16},{"x":0,"y":8}], "fill": "red"}},
+            {"bounds": {"x": 61, "y": 66, "width": 14, "height": 14}, "node": {"type": "pixel", "at": {"x": 3, "y": 3}, "ink": "black"}},
+            {"bounds": {"x": 6, "y": 85, "width": 70, "height": 13}, "node": {"type": "line", "from": {"x":0,"y":12}, "to": {"x":70,"y":0}, "stroke": {"ink":"red","width":2,"dash":[3,2]}}},
+            {"bounds": {"x": 8, "y": 87, "width": 16, "height": 9}, "node": {"type": "rectangle", "fill": "black", "stroke": {"ink": "red", "width": 1}}},
+            {"bounds": {"x": 50, "y": 86, "width": 24, "height": 11}, "node": {"type": "polyline", "points": [{"x":0,"y":8},{"x":6,"y":2},{"x":12,"y":8},{"x":18,"y":3},{"x":24,"y":8}], "stroke": {"ink":"black","width":1}}}
+          ]
+        }
+      }
+    ]
+  }
+}

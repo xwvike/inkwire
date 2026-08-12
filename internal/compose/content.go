@@ -8,18 +8,6 @@ import (
 	"github.com/xwvike/inkwire/internal/display"
 )
 
-// Run is the concise, explicit form of a styled text run.
-func Run(text, font string, size int, ink display.Ink) display.TextRun {
-	return display.TextRun{
-		Text: text,
-		Style: display.TextStyle{
-			Font: font,
-			Size: size,
-			Ink:  ink,
-		},
-	}
-}
-
 // Text paints exactly the supplied runs. Size is its preferred size in flow
 // layout; zero axes use the measured text size within the available space.
 type Text struct {

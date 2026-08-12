@@ -100,51 +100,6 @@ func TestDocumentSizeSupportsNonDevicePreviews(t *testing.T) {
 	}
 }
 
-func TestPlaceHelpersPreserveExplicitAllocation(t *testing.T) {
-	node := Rectangle{Fill: Ink(display.InkBlack)}
-	want := image.Rect(4, 7, 19, 23)
-	if got := Place(want, node); got.Bounds != want || got.Node != node {
-		t.Fatalf("Place = %#v, want bounds %v and node", got, want)
-	}
-	if got := PlaceAt(4, 7, 15, 16, node); got.Bounds != want || got.Node != node {
-		t.Fatalf("PlaceAt = %#v, want bounds %v and node", got, want)
-	}
-}
-
-func TestPlaceAtDoesNotHideNegativeDimensions(t *testing.T) {
-	_, _, err := testCompiler(t).Compile(Document{Root: Absolute{Children: []Placed{
-		PlaceAt(20, 10, -4, 8, Rectangle{Fill: Ink(display.InkBlack)}),
-	}}})
-	if err == nil {
-		t.Fatal("PlaceAt normalized a negative width instead of rejecting it")
-	}
-}
-
-func TestRenderUsesBundledFontsAndReturnsReport(t *testing.T) {
-	frame, report, err := Render(Document{Root: Absolute{Children: []Placed{
-		PlaceAt(3, 4, 20, 14, Text{Runs: []display.TextRun{{
-			Text: "OK", Style: display.TextStyle{Font: "monaco", Size: 10, Ink: display.InkBlack},
-		}}}),
-	}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if frame.Bounds().Size() != image.Pt(296, 128) {
-		t.Fatalf("Render frame size = %v", frame.Bounds().Size())
-	}
-	if report.Bounds.Empty() || len(report.MissingRunes) != 0 || len(report.Warnings) != 0 {
-		t.Fatalf("Render report = %#v", report)
-	}
-}
-
-func TestRunPreservesEveryExplicitStyleField(t *testing.T) {
-	got := Run("23.5", "monaco", 14, display.InkRed)
-	want := display.TextRun{Text: "23.5", Style: display.TextStyle{Font: "monaco", Size: 14, Ink: display.InkRed}}
-	if got != want {
-		t.Fatalf("Run = %#v, want %#v", got, want)
-	}
-}
-
 func TestRowAllocatesIntegerGrowthWithoutChangingOrder(t *testing.T) {
 	frame, _ := compileAndRender(t, Document{Root: Row{
 		Gap: 2,

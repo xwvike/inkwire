@@ -54,19 +54,6 @@ type Placed struct {
 	Node   Node
 }
 
-// Place assigns a node an explicit allocation in its parent's coordinates.
-// The rectangle is the single source of truth for position and size; node
-// Size fields can stay zero when the caller already knows the allocation.
-func Place(bounds image.Rectangle, node Node) Placed {
-	return Placed{Bounds: bounds, Node: node}
-}
-
-// PlaceAt is the numeric form of Place for callers that do not already have
-// an image.Rectangle. Width and height are explicit to keep layout deterministic.
-func PlaceAt(x, y, width, height int, node Node) Placed {
-	return Place(image.Rectangle{Min: image.Pt(x, y), Max: image.Pt(x+width, y+height)}, node)
-}
-
 // Absolute places children at explicit rectangles relative to its own origin.
 // Size is its preferred size in a flow layout; zero axes are inferred from the
 // placed rectangles. Clip explicitly clips children to the allocated box.

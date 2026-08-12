@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "orientation": "landscape",
+  "background": "white",
+  "root": {
+    "type": "absolute",
+    "clip": true,
+    "children": [
+      {"bounds":{"x":1,"y":1,"width":294,"height":126},"node":{"type":"rectangle","radius":6,"stroke":{"ink":"black","width":1}}},
+      {"bounds":{"x":3,"y":3,"width":290,"height":23},"node":{"type":"rectangle","radius":5,"fill":"black"}},
+      {"bounds":{"x":8,"y":5,"width":280,"height":19},"node":{"type":"text","runs":[
+        {"text":"INKWIRE  ","font":"monaco","size":14,"ink":"white"},
+        {"text":"图元与文字展示","font":"ui","size":14,"ink":"white"},
+        {"text":"  RBW","font":"monaco","size":14,"ink":"red"}
+      ]}},
+      {"bounds":{"x":4,"y":29,"width":95,"height":95},"node":{"type":"absolute","clip":true,"children":[
+        {"bounds":{"x":0,"y":0,"width":95,"height":95},"node":{"type":"rectangle","radius":5,"stroke":{"ink":"black","width":1}}},
+        {"bounds":{"x":5,"y":3,"width":85,"height":12},"node":{"type":"text","runs":[{"text":"BASIC / SHAPES","font":"monaco","size":10,"ink":"black"}]}},
+        {"bounds":{"x":5,"y":18,"width":35,"height":2},"node":{"type":"line","from":{"x":0,"y":1},"to":{"x":35,"y":1},"stroke":{"ink":"black","width":1}}},
+        {"bounds":{"x":48,"y":18,"width":42,"height":4},"node":{"type":"line","from":{"x":0,"y":2},"to":{"x":42,"y":2},"stroke":{"ink":"red","width":2,"dash":[3,2],"dashOffset":1}}},
+        {"bounds":{"x":5,"y":25,"width":25,"height":20},"node":{"type":"rectangle","stroke":{"ink":"black","width":1}}},
+        {"bounds":{"x":35,"y":25,"width":23,"height":20},"node":{"type":"rectangle","fill":"red"}},
+        {"bounds":{"x":63,"y":25,"width":27,"height":20},"node":{"type":"rectangle","radius":4,"stroke":{"ink":"black","width":2}}},
+        {"bounds":{"x":5,"y":49,"width":18,"height":18},"node":{"type":"circle","center":{"x":9,"y":9},"radius":7,"stroke":{"ink":"black","width":1}}},
+        {"bounds":{"x":28,"y":49,"width":16,"height":18},"node":{"type":"circle","center":{"x":8,"y":9},"radius":7,"fill":"red"}},
+        {"bounds":{"x":49,"y":47,"width":20,"height":21},"node":{"type":"ellipse","stroke":{"ink":"red","width":1}}},
+        {"bounds":{"x":74,"y":47,"width":20,"height":21},"node":{"type":"ellipse","fill":"black"}},
+        {"bounds":{"x":5,"y":72,"width":40,"height":16},"node":{"type":"polyline","points":[{"x":0,"y":15},{"x":9,"y":6},{"x":18,"y":15},{"x":27,"y":6},{"x":36,"y":15}],"stroke":{"ink":"red","width":1}}},
+        {"bounds":{"x":50,"y":65,"width":28,"height":30},"node":{"type":"polygon","points":[{"x":2,"y":29},{"x":8,"y":9},{"x":18,"y":5},{"x":27,"y":17},{"x":20,"y":29}],"stroke":{"ink":"black","width":1}}},
+        {"bounds":{"x":75,"y":65,"width":20,"height":30},"node":{"type":"polygon","points":[{"x":2,"y":29},{"x":11,"y":7},{"x":19,"y":29}],"fill":"red"}}
+      ]}},
+      {"bounds":{"x":101,"y":29,"width":97,"height":95},"node":{"type":"absolute","clip":true,"children":[
+        {"bounds":{"x":0,"y":0,"width":97,"height":95},"node":{"type":"rectangle","radius":5,"stroke":{"ink":"black","width":1}}},
+        {"bounds":{"x":5,"y":3,"width":87,"height":12},"node":{"type":"text","runs":[{"text":"PATH / ARC","font":"monaco","size":10,"ink":"black"}]}},
+        {"bounds":{"x":4,"y":18,"width":90,"height":27},"node":{"type":"path","commands":[
+          {"op":"move","to":{"x":6,"y":23}},
+          {"op":"cubic","control1":{"x":23,"y":6},"control2":{"x":42,"y":38},"to":{"x":58,"y":22}},
+          {"op":"quadratic","control":{"x":75,"y":9},"to":{"x":91,"y":23}}
+        ],"stroke":{"ink":"black","width":1}}},
+        {"bounds":{"x":5,"y":46,"width":32,"height":30},"node":{"type":"arc","start":140,"sweep":260,"stroke":{"ink":"red","width":2,"dash":[4,2]}}},
+        {"bounds":{"x":41,"y":48,"width":25,"height":25},"node":{"type":"pie","start":-90,"sweep":125,"ink":"red"}},
+        {"bounds":{"x":70,"y":47,"width":24,"height":26},"node":{"type":"chord","start":20,"sweep":210,"ink":"black"}},
+        {"bounds":{"x":4,"y":66,"width":78,"height":29},"node":{"type":"path","commands":[
+          {"op":"move","to":{"x":5,"y":89}},
+          {"op":"line","to":{"x":15,"y":69}},
+          {"op":"line","to":{"x":26,"y":81}},
+          {"op":"quadratic","control":{"x":38,"y":59},"to":{"x":50,"y":81}},
+          {"op":"cubic","control1":{"x":61,"y":73},"control2":{"x":72,"y":62},"to":{"x":82,"y":89}},
+          {"op":"close"}
+        ],"fill":"black"}},
+        {"bounds":{"x":77,"y":67,"width":20,"height":28},"node":{"type":"circle","center":{"x":10,"y":14},"radius":10,"stroke":{"ink":"red","width":3}}}
+      ]}},
+      {"bounds":{"x":200,"y":29,"width":92,"height":95},"node":{"type":"absolute","clip":true,"children":[
+        {"bounds":{"x":0,"y":0,"width":92,"height":95},"node":{"type":"rectangle","radius":5,"stroke":{"ink":"black","width":1}}},
+        {"bounds":{"x":5,"y":3,"width":82,"height":12},"node":{"type":"text","runs":[{"text":"TYPE / COLOR","font":"monaco","size":10,"ink":"black"}]}},
+        {"bounds":{"x":5,"y":15,"width":82,"height":19},"node":{"type":"text","runs":[{"text":"中文","font":"hzk","size":16,"ink":"black"},{"text":"16","font":"monaco","size":16,"ink":"red"}]}},
+        {"bounds":{"x":5,"y":34,"width":82,"height":16},"node":{"type":"text","runs":[{"text":"图元","font":"hzk","size":14,"ink":"black"},{"text":"14","font":"monaco","size":14,"ink":"red"}]}},
+        {"bounds":{"x":5,"y":50,"width":83,"height":15},"node":{"type":"text","runs":[{"text":"中文12 ","font":"ui","size":12,"ink":"black"},{"text":"ABC","font":"monaco","size":12,"ink":"red"}]}},
+        {"bounds":{"x":5,"y":66,"width":82,"height":14},"node":{"type":"text","align":"center","runs":[{"text":"MONACO10 23.5","font":"monaco","size":10,"ink":"black"}]}},
+        {"bounds":{"x":4,"y":81,"width":84,"height":12},"node":{"type":"rectangle","radius":3,"fill":"black"}},
+        {"bounds":{"x":7,"y":81,"width":78,"height":12},"node":{"type":"text","align":"center","runs":[{"text":"WHITE","font":"monaco","size":10,"ink":"white"},{"text":" / RED","font":"monaco","size":10,"ink":"red"}]}}
+      ]}}
+    ]
+  }
+}

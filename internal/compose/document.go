@@ -108,25 +108,6 @@ func NewDefaultCompiler() (*Compiler, error) {
 	return NewCompiler(fonts)
 }
 
-// Render compiles a document with the bundled fonts and renders it in one
-// call. Use Compiler directly when supplying a custom font registry or when
-// the compiled display list needs to be retained.
-func Render(document Document) (*display.Frame, Report, error) {
-	compiler, err := NewDefaultCompiler()
-	if err != nil {
-		return nil, Report{}, err
-	}
-	compiled, report, err := compiler.Compile(document)
-	if err != nil {
-		return nil, Report{}, err
-	}
-	frame, err := compiled.Render()
-	if err != nil {
-		return nil, report, err
-	}
-	return frame, report, nil
-}
-
 func (c *Compiler) Compile(document Document) (*CompiledDocument, Report, error) {
 	if c == nil || c.Fonts == nil {
 		return nil, Report{}, fmt.Errorf("compiler font registry must not be nil")
