@@ -100,3 +100,62 @@ func TestDisplayListBoundsContainEveryPaintedPixel(t *testing.T) {
 		})
 	}
 }
+
+// A display list must not drop a draw the canvas would perform. Recording
+// guards that duplicate a primitive's internal early-return go stale the moment
+// that primitive changes: a dashed round rectangle wider than its own box
+// became a silent no-op on replay while the canvas still painted it, because
+// the guard still described a stroker the canvas no longer used.
+func TestDisplayListRecordsWhateverTheCanvasPaints(t *testing.T) {
+	const size = 24
+	rect := image.Rect(4, 4, 16, 16)
+	wide := StrokeStyle{Ink: InkBlack, Width: 20, Dash: []int{3, 2}}
+	huge := StrokeStyle{Ink: InkBlack, Width: 40}
+
+	for _, test := range []struct {
+		name   string
+		draw   func(*Canvas)
+		record func(*DisplayList)
+	}{
+		{"round rect, dash wider than the box",
+			func(c *Canvas) { c.StrokeRoundRect(rect, 4, wide) },
+			func(d *DisplayList) { d.StrokeRoundRect(rect, 4, wide) }},
+		{"round rect, stroke wider than the box",
+			func(c *Canvas) { c.StrokeRoundRect(rect, 4, huge) },
+			func(d *DisplayList) { d.StrokeRoundRect(rect, 4, huge) }},
+		{"ellipse, dash wider than the box",
+			func(c *Canvas) { c.StrokeEllipse(rect, wide) },
+			func(d *DisplayList) { d.StrokeEllipse(rect, wide) }},
+		{"rect, dash wider than the box",
+			func(c *Canvas) { c.StrokeRect(rect, wide) },
+			func(d *DisplayList) { d.StrokeRect(rect, wide) }},
+		{"circle, dash wider than the radius",
+			func(c *Canvas) { c.StrokeCircle(image.Pt(12, 12), 5, wide) },
+			func(d *DisplayList) { d.StrokeCircle(image.Pt(12, 12), 5, wide) }},
+		{"full arc, dash wider than the box",
+			func(c *Canvas) { c.DrawArc(rect, 0, 360, wide) },
+			func(d *DisplayList) { d.DrawArc(rect, 0, 360, wide) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			direct := newTestFrame(t, size, size)
+			test.draw(NewCanvas(direct))
+
+			list := &DisplayList{}
+			test.record(list)
+			replayed := newTestFrame(t, size, size)
+			if err := list.Replay(NewCanvas(replayed)); err != nil {
+				t.Fatal(err)
+			}
+			for y := 0; y < size; y++ {
+				for x := 0; x < size; x++ {
+					want, _ := direct.InkAt(x, y)
+					got, _ := replayed.InkAt(x, y)
+					if got != want {
+						t.Fatalf("pixel (%d,%d): replay = %d, canvas = %d (recorded %d commands)",
+							x, y, got, want, list.Len())
+					}
+				}
+			}
+		})
+	}
+}

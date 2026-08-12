@@ -16,12 +16,30 @@ func (c *Canvas) strokeInward(shape image.Rectangle, inside func(x, y int) bool,
 		return
 	}
 	band := rasterizeMask(bounds, inside).innerBand(stroke.Width)
-	if pattern := newDashPattern(stroke); pattern != nil {
-		band.intersect(dashRegion(bounds, outlines, pattern))
+	c.strokeBand(bounds, band.at, outlines, stroke)
+}
+
+// strokeBand paints a band the caller has already defined and applies the dash
+// along outlines. Shapes that can test their own inside at two sizes describe
+// the band directly and need no mask; the clip can bound the work for them,
+// because their test knows the geometry with or without it.
+func (c *Canvas) strokeBand(bounds image.Rectangle, inBand func(x, y int) bool, outlines [][]image.Point, stroke StrokeStyle) {
+	bounds = bounds.Intersect(c.logicalClip())
+	if bounds.Empty() {
+		return
 	}
-	band.each(func(x, y int) {
-		c.Set(x, y, stroke.Ink)
-	})
+	var dashed *mask
+	if pattern := newDashPattern(stroke); pattern != nil {
+		dashed = dashRegion(bounds, outlines, pattern)
+	}
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			if !inBand(x, y) || (dashed != nil && !dashed.at(x, y)) {
+				continue
+			}
+			c.Set(x, y, stroke.Ink)
+		}
+	}
 }
 
 // dashPattern evaluates a dash by arc length rather than by counting raster

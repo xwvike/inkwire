@@ -7,17 +7,20 @@ import (
 
 // DrawArc strokes an elliptical arc. Zero degrees points right and positive
 // sweeps move clockwise, matching screen coordinates.
+// A sweep that closes the ellipse describes a region, not a line, so it is
+// stroked inside bounds like StrokeEllipse. A partial sweep is an open curve
+// with no inside and stays centred on the arc.
 func (c *Canvas) DrawArc(bounds image.Rectangle, startDegrees, sweepDegrees float64, stroke StrokeStyle) {
 	if !stroke.valid() {
 		return
 	}
 	points, closed := ellipseArcPoints(bounds, startDegrees, sweepDegrees)
-	if len(points) == 1 {
-		c.strokePoints(points, false, stroke)
+	if closed {
+		c.StrokeEllipse(bounds, stroke)
 		return
 	}
-	if len(points) >= 2 {
-		c.strokePoints(points, closed, stroke)
+	if len(points) >= 1 {
+		c.strokePoints(points, false, stroke)
 	}
 }
 

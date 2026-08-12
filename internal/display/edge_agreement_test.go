@@ -57,22 +57,28 @@ func TestFillAndStrokeAgreeOnTheEdge(t *testing.T) {
 			func(c *Canvas) { c.FillEllipse(box, InkBlack) },
 			func(c *Canvas) { c.StrokeEllipse(box, thin) }},
 
-		// Dashing a closed shape reroutes it through the brush stroker.
-		{"Circle dashed", 46,
+		// Dashing used to reroute a closed shape through the brush stroker,
+		// putting 46 of 86 circle pixels outside the fill. It now only selects
+		// which parts of the same band are painted.
+		{"Circle dashed", 0,
 			func(c *Canvas) { c.FillCircle(center, radius, InkBlack) },
 			func(c *Canvas) { c.StrokeCircle(center, radius, dashed) }},
-		{"Ellipse dashed", 1,
+		{"Ellipse dashed", 0,
 			func(c *Canvas) { c.FillEllipse(box, InkBlack) },
 			func(c *Canvas) { c.StrokeEllipse(box, dashed) }},
 
-		// DrawArc samples the outline parametrically and rounds, so it does not
-		// land on the implicit shape the matching fill uses.
+		// A full sweep closes the ellipse, so DrawArc strokes it as a region.
+		{"Ellipse vs DrawArc", 0,
+			func(c *Canvas) { c.FillEllipse(box, InkBlack) },
+			func(c *Canvas) { c.DrawArc(box, 0, 360, thin) }},
+
+		// What is left here is not an alignment defect: DrawArc now agrees
+		// exactly with FillEllipse over the same box, and the overshoot is the
+		// separate half-pixel gap between FillCircle's radius r and the r+0.5
+		// the ellipse family reads out of the same bounding box.
 		{"Circle vs DrawArc", 92,
 			func(c *Canvas) { c.FillCircle(center, radius, InkBlack) },
 			func(c *Canvas) { c.DrawArc(circleBounds(center, radius), 0, 360, thin) }},
-		{"Ellipse vs DrawArc", 2,
-			func(c *Canvas) { c.FillEllipse(box, InkBlack) },
-			func(c *Canvas) { c.DrawArc(box, 0, 360, thin) }},
 
 		// Polygons have no implicit stroker, so they build the inward band by
 		// eroding a mask of the fill instead. Both forms were straddling the

@@ -253,9 +253,6 @@ func (d *DisplayList) StrokeEllipse(bounds image.Rectangle, stroke StrokeStyle) 
 	if bounds.Empty() || !stroke.valid() {
 		return
 	}
-	if len(stroke.Dash) > 0 && insetRect(bounds, stroke.Width/2).Empty() {
-		return
-	}
 	d.appendDraw(displayCommand{kind: commandStrokeEllipse, rect: bounds, stroke: cloneStroke(stroke)}, bounds)
 }
 
@@ -270,9 +267,6 @@ func (d *DisplayList) FillRoundRect(rect image.Rectangle, radius int, ink Ink) {
 // StrokeRoundRect records a rounded rectangle outline.
 func (d *DisplayList) StrokeRoundRect(rect image.Rectangle, radius int, stroke StrokeStyle) {
 	if rect.Empty() || !stroke.valid() {
-		return
-	}
-	if len(stroke.Dash) > 0 && strokeCenterRect(rect, stroke.Width).Empty() {
 		return
 	}
 	d.appendDraw(displayCommand{kind: commandStrokeRoundRect, rect: rect, radius: radius, stroke: cloneStroke(stroke)}, rect)

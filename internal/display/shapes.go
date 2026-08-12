@@ -86,26 +86,18 @@ func (c *Canvas) FillCircle(center image.Point, radius int, ink Ink) {
 	}
 }
 
-// StrokeCircle draws the stroke inside the circle's bounding box.
+// StrokeCircle draws the stroke inside the circle's bounding box. Dashing only
+// selects which parts of that band are painted, so it does not move the ring.
 func (c *Canvas) StrokeCircle(center image.Point, radius int, stroke StrokeStyle) {
 	if radius < 0 || !stroke.valid() {
 		return
 	}
-	if len(stroke.Dash) > 0 {
-		centerRadius := max(0, radius-stroke.Width/2)
-		c.DrawArc(circleBounds(center, centerRadius), 0, 360, stroke)
-		return
-	}
+	bounds := circleBounds(center, radius)
 	innerRadius := radius - stroke.Width
-	drawBounds := circleBounds(center, radius).Intersect(c.logicalClip())
-	for y := drawBounds.Min.Y; y < drawBounds.Max.Y; y++ {
-		for x := drawBounds.Min.X; x < drawBounds.Max.X; x++ {
-			if pointInCircle(x, y, center, radius) &&
-				(innerRadius < 0 || !pointInCircle(x, y, center, innerRadius)) {
-				c.Set(x, y, stroke.Ink)
-			}
-		}
-	}
+	c.strokeBand(bounds, func(x, y int) bool {
+		return pointInCircle(x, y, center, radius) &&
+			(innerRadius < 0 || !pointInCircle(x, y, center, innerRadius))
+	}, closedOutline(bounds), stroke)
 }
 
 // FillEllipse fills the pixels whose centers lie inside bounds' ellipse.
@@ -128,22 +120,10 @@ func (c *Canvas) StrokeEllipse(bounds image.Rectangle, stroke StrokeStyle) {
 	if !stroke.valid() || bounds.Empty() {
 		return
 	}
-	if len(stroke.Dash) > 0 {
-		centerBounds := insetRect(bounds, stroke.Width/2)
-		if !centerBounds.Empty() {
-			c.DrawArc(centerBounds, 0, 360, stroke)
-		}
-		return
-	}
 	inner := insetRect(bounds, stroke.Width)
-	drawBounds := bounds.Intersect(c.logicalClip())
-	for y := drawBounds.Min.Y; y < drawBounds.Max.Y; y++ {
-		for x := drawBounds.Min.X; x < drawBounds.Max.X; x++ {
-			if pointInEllipse(x, y, bounds) && (inner.Empty() || !pointInEllipse(x, y, inner)) {
-				c.Set(x, y, stroke.Ink)
-			}
-		}
-	}
+	c.strokeBand(bounds, func(x, y int) bool {
+		return pointInEllipse(x, y, bounds) && (inner.Empty() || !pointInEllipse(x, y, inner))
+	}, closedOutline(bounds), stroke)
 }
 
 // FillRoundRect fills rect with radius applied to all four corners.
@@ -168,23 +148,19 @@ func (c *Canvas) StrokeRoundRect(rect image.Rectangle, radius int, stroke Stroke
 		return
 	}
 	radius = clampRadius(rect, radius)
-	if len(stroke.Dash) > 0 {
-		centerRect := strokeCenterRect(rect, stroke.Width)
-		if centerRect.Empty() {
-			return
-		}
-		centerRadius := max(0, radius-stroke.Width/2)
-		c.strokePoints(roundRectPoints(centerRect, centerRadius), true, stroke)
-		return
-	}
 	inner := insetRect(rect, stroke.Width)
 	innerRadius := max(0, radius-stroke.Width)
-	drawBounds := rect.Intersect(c.logicalClip())
-	for y := drawBounds.Min.Y; y < drawBounds.Max.Y; y++ {
-		for x := drawBounds.Min.X; x < drawBounds.Max.X; x++ {
-			if pointInRoundRect(x, y, rect, radius) && (inner.Empty() || !pointInRoundRect(x, y, inner, innerRadius)) {
-				c.Set(x, y, stroke.Ink)
-			}
-		}
+	c.strokeBand(rect, func(x, y int) bool {
+		return pointInRoundRect(x, y, rect, radius) && (inner.Empty() || !pointInRoundRect(x, y, inner, innerRadius))
+	}, [][]image.Point{roundRectPoints(rect, radius)}, stroke)
+}
+
+// closedOutline is the perimeter of an ellipse as a polyline, used only to
+// measure how far along the edge a pixel sits when applying a dash.
+func closedOutline(bounds image.Rectangle) [][]image.Point {
+	points, _ := ellipseArcPoints(bounds, 0, 360)
+	if len(points) < 2 {
+		return nil
 	}
+	return [][]image.Point{points}
 }
