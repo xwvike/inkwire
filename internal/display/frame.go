@@ -165,10 +165,11 @@ func (c *Canvas) ClipRect(rect image.Rectangle) {
 func (c *Canvas) ClipPath(path Path) {
 	contours := path.flatten()
 	offset := c.state.offset
-	region := rasterizeMask(c.deviceRect(contourBounds(contours)), func(x, y int) bool {
+	bounds := c.deviceRect(contourBounds(contours)).Intersect(c.state.clip)
+	region := rasterizeMask(bounds, func(x, y int) bool {
 		return pointInPath(image.Pt(x-offset.X, y-offset.Y), contours)
 	})
-	c.state.clip = c.state.clip.Intersect(region.bounds)
+	c.state.clip = bounds
 	if c.state.mask == nil {
 		c.state.mask = region
 		return

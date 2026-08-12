@@ -127,9 +127,8 @@ func fills(c *display.Canvas, fonts *display.FontRegistry) error {
 
 	// A circle is centre plus radius and is measured between pixel centres:
 	// 2*radius+1 across, symmetric about the centre pixel. An ellipse is a box
-	// and is measured across whole pixels so it touches all four sides. The two
-	// therefore disagree by half a pixel over the same nominal geometry, on
-	// purpose; see PROTOCOL.md 4.9.
+	// and is measured across whole pixels so it touches all four sides. They
+	// therefore intentionally differ by half a pixel over the same geometry.
 	c.FillCircle(image.Pt(96, 38), 10, display.InkBlack)
 	c.FillEllipse(image.Rect(112, 28, 146, 48), display.InkRed)
 

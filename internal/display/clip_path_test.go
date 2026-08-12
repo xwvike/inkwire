@@ -153,6 +153,56 @@ func TestClipPathWithNoContoursDrawsNothing(t *testing.T) {
 	}
 }
 
+func TestClipPathOnlyAllocatesInsideCurrentClip(t *testing.T) {
+	frame := newTestFrame(t, 16, 16)
+	canvas := NewCanvas(frame)
+	wantBounds := image.Rect(3, 4, 9, 9)
+	canvas.ClipRect(wantBounds)
+
+	var huge Path
+	huge.MoveTo(image.Pt(-1_000_000, -1_000_000))
+	huge.LineTo(image.Pt(1_000_000, -1_000_000))
+	huge.LineTo(image.Pt(1_000_000, 1_000_000))
+	huge.LineTo(image.Pt(-1_000_000, 1_000_000))
+	huge.Close()
+	canvas.ClipPath(huge)
+
+	if got := canvas.state.mask.bounds; got != wantBounds {
+		t.Fatalf("mask bounds = %v, want %v", got, wantBounds)
+	}
+	if got, want := len(canvas.state.mask.bits), wantBounds.Dx()*wantBounds.Dy(); got != want {
+		t.Fatalf("mask allocation = %d pixels, want %d", got, want)
+	}
+	canvas.FillRect(frame.Bounds(), InkBlack)
+	if got, want := countInk(frame, InkBlack), wantBounds.Dx()*wantBounds.Dy(); got != want {
+		t.Fatalf("clipped fill painted %d pixels, want %d", got, want)
+	}
+}
+
+func TestClipPathOutsideCurrentClipAllocatesNothing(t *testing.T) {
+	frame := newTestFrame(t, 16, 16)
+	canvas := NewCanvas(frame)
+
+	var outside Path
+	outside.MoveTo(image.Pt(1_000_000, 1_000_000))
+	outside.LineTo(image.Pt(1_000_100, 1_000_000))
+	outside.LineTo(image.Pt(1_000_100, 1_000_100))
+	outside.LineTo(image.Pt(1_000_000, 1_000_100))
+	outside.Close()
+	canvas.ClipPath(outside)
+
+	if got := len(canvas.state.mask.bits); got != 0 {
+		t.Fatalf("off-screen clip allocated %d mask pixels", got)
+	}
+	if !canvas.state.clip.Empty() {
+		t.Fatalf("off-screen clip bounds = %v, want empty", canvas.state.clip)
+	}
+	canvas.FillRect(frame.Bounds(), InkBlack)
+	if got := countInk(frame, InkBlack); got != 0 {
+		t.Fatalf("off-screen clip painted %d pixels", got)
+	}
+}
+
 func TestDisplayListReplaysClipPath(t *testing.T) {
 	const size = 40
 	ring := ringPath(image.Rect(6, 6, 34, 34), image.Rect(14, 14, 26, 26))

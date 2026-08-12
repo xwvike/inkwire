@@ -118,15 +118,12 @@ func (c cardShowcase) portrait(fraction float64) error {
 	c.list.Save()
 	c.list.ClipPath(circlePath(center, radius))
 	if err := c.list.DrawImage(preparePortrait(c.photo), circleRect(center, radius+1), display.ImageOptions{
-		Fit:      display.FitCover,
-		Sampling: display.SampleBilinear,
-		Dither:   display.DitherFloydSteinberg,
+		Fit:        display.FitCover,
+		Sampling:   display.SampleBilinear,
+		Dither:     display.DitherFloydSteinberg,
+		DisableRed: true,
 		// The room behind the subject is warm enough to reach the red plane,
 		// which would scatter red through a photograph that has none in it.
-		// This is belt and braces today: the contrast pass works on luminance
-		// and hands back a grey image, and red can never fire when R equals G.
-		// It matters the moment a caller keeps the colour.
-		RedThreshold: 255,
 	}); err != nil {
 		c.list.Restore()
 		return err

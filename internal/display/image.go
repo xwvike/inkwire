@@ -30,8 +30,7 @@ const (
 	DitherOrdered
 )
 
-// The encoder's own limits, verified against the panel and recorded in
-// PROTOCOL.md section 4.2.
+// Defaults verified against the target panel.
 const (
 	defaultThreshold    = 128
 	defaultRedThreshold = 170
