@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "orientation": "landscape",
+  "background": "white",
+  "root": {
+    "type": "absolute",
+    "clip": true,
+    "children": [
+      {
+        "bounds": {"x": 4, "y": 4, "width": 288, "height": 24},
+        "node": {
+          "type": "rectangle",
+          "radius": 4,
+          "fill": "black"
+        }
+      },
+      {
+        "bounds": {"x": 10, "y": 8, "width": 276, "height": 16},
+        "node": {
+          "type": "text",
+          "runs": [
+            {"text": "INKWIRE ", "font": "monaco", "size": 12, "ink": "white"},
+            {"text": "23.5℃", "font": "ui", "size": 14, "ink": "red"}
+          ]
+        }
+      },
+      {
+        "bounds": {"x": 12, "y": 42, "width": 272, "height": 72},
+        "node": {
+          "type": "text",
+          "wrap": "runes",
+          "lineHeight": 16,
+          "runs": [
+            {"text": "今天的电子纸页面由 JSON 直接生成。", "font": "ui", "size": 14, "ink": "black"}
+          ]
+        }
+      }
+    ]
+  }
+}
