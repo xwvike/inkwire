@@ -1,0 +1,263 @@
+{
+ "version": 1,
+ "orientation": "landscape",
+ "background": "white",
+ "root": {
+  "type": "column",
+  "crossAlign": "stretch",
+  "children": [
+   {
+    "basis": 18,
+    "node": {
+     "type": "stack",
+     "children": [
+      {
+       "type": "rectangle",
+       "fill": "black"
+      },
+      {
+       "type": "padding",
+       "insets": {
+        "top": 0,
+        "right": 5,
+        "bottom": 0,
+        "left": 5
+       },
+       "child": {
+        "type": "row",
+        "crossAlign": "center",
+        "children": [
+         {
+          "node": {
+           "type": "text",
+           "runs": [
+            {
+             "text": "BTC / USD",
+             "font": "ui",
+             "size": 12,
+             "ink": "white"
+            }
+           ],
+           "verticalAlign": "middle"
+          }
+         },
+         {
+          "node": {
+           "type": "spacer"
+          },
+          "grow": 1
+         },
+         {
+          "node": {
+           "type": "text",
+           "runs": [
+            {
+             "text": "09:42:15",
+             "font": "monaco",
+             "size": 12,
+             "ink": "white"
+            }
+           ],
+           "align": "end",
+           "verticalAlign": "middle"
+          }
+         }
+        ]
+       }
+      }
+     ]
+    }
+   },
+   {
+    "grow": 1,
+    "node": {
+     "type": "padding",
+     "insets": {
+      "top": 3,
+      "right": 4,
+      "bottom": 3,
+      "left": 4
+     },
+     "child": {
+      "type": "column",
+      "gap": 3,
+      "crossAlign": "stretch",
+      "children": [
+       {
+        "node": {
+         "type": "row",
+         "crossAlign": "stretch",
+         "children": [
+          {
+           "node": {
+            "type": "text",
+            "runs": [
+             {
+              "text": "$",
+              "font": "monaco",
+              "size": 16,
+              "ink": "red"
+             },
+             {
+              "text": "94,318",
+              "font": "monaco",
+              "size": 48,
+              "ink": "red"
+             }
+            ],
+            "verticalAlign": "middle"
+           },
+           "grow": 1
+          },
+          {
+           "node": {
+            "type": "column",
+            "gap": 2,
+            "crossAlign": "stretch",
+            "children": [
+             {
+              "basis": 20,
+              "node": {
+               "type": "stack",
+               "children": [
+                {
+                 "type": "rectangle",
+                 "radius": 2,
+                 "fill": "red"
+                },
+                {
+                 "type": "text",
+                 "runs": [
+                  {
+                   "text": "+2.41%",
+                   "font": "monaco",
+                   "size": 14,
+                   "ink": "white"
+                  }
+                 ],
+                 "align": "center",
+                 "verticalAlign": "middle"
+                }
+               ]
+              }
+             },
+             {
+              "basis": 14,
+              "node": {
+               "type": "text",
+               "runs": [
+                {
+                 "text": "24h 高 ",
+                 "font": "ui",
+                 "size": 12,
+                 "ink": "black"
+                },
+                {
+                 "text": "95,102",
+                 "font": "monaco",
+                 "size": 12,
+                 "ink": "black"
+                }
+               ],
+               "align": "end"
+              }
+             },
+             {
+              "basis": 14,
+              "node": {
+               "type": "text",
+               "runs": [
+                {
+                 "text": "24h 低 ",
+                 "font": "ui",
+                 "size": 12,
+                 "ink": "black"
+                },
+                {
+                 "text": "91,760",
+                 "font": "monaco",
+                 "size": 12,
+                 "ink": "black"
+                }
+               ],
+               "align": "end"
+              }
+             }
+            ]
+           },
+           "basis": 96
+          }
+         ]
+        },
+        "grow": 1
+       },
+       {
+        "node": {
+         "type": "rectangle",
+         "fill": "black"
+        },
+        "basis": 1
+       },
+       {
+        "node": {
+         "type": "row",
+         "crossAlign": "center",
+         "children": [
+          {
+           "node": {
+            "type": "text",
+            "runs": [
+             {
+              "text": "持仓 ",
+              "font": "ui",
+              "size": 12,
+              "ink": "black"
+             },
+             {
+              "text": "0.0428 BTC",
+              "font": "monaco",
+              "size": 12,
+              "ink": "black"
+             }
+            ]
+           },
+           "grow": 1
+          },
+          {
+           "node": {
+            "type": "text",
+            "runs": [
+             {
+              "text": "$4,036",
+              "font": "monaco",
+              "size": 12,
+              "ink": "black"
+             },
+             {
+              "text": "  今日 ",
+              "font": "ui",
+              "size": 12,
+              "ink": "black"
+             },
+             {
+              "text": "+$95",
+              "font": "monaco",
+              "size": 12,
+              "ink": "red"
+             }
+            ],
+            "align": "end"
+           },
+           "grow": 1
+          }
+         ]
+        },
+        "basis": 14
+       }
+      ]
+     }
+    }
+   }
+  ]
+ }
+}
