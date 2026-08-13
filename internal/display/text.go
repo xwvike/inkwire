@@ -185,13 +185,6 @@ func (l *TextLayout) MissingRunes() []rune {
 	return slices.Clone(l.missing)
 }
 
-// Overflow reports how far the laid-out text exceeds the box it was given, in
-// pixels on each axis, and the zero point when it fits.
-func (l *TextLayout) Overflow() image.Point {
-	available := l.box.Bounds.Size()
-	return image.Pt(max(0, l.width-available.X), max(0, l.height-available.Y))
-}
-
 // Clipped reports whether drawing will actually lose content, which is not the
 // same as overflowing the box.
 //

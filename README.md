@@ -99,6 +99,21 @@ curl \
 
 响应报告位于 `X-Inkwire-Warnings`、`X-Inkwire-Missing-Runes` 和 `X-Inkwire-Image-Decisions` 响应头中。
 
+### 渲染警告
+
+警告不会阻止渲染，但每一条都表示**画出来的东西和文档要求的不一样**。`render`、`encode`、`push` 会把它们打到标准输出，HTTP 的条数在 `X-Inkwire-Warnings` 里。
+
+| `code` | 含义 |
+|---|---|
+| `text-clipped` | 文字放不进它的框，字符或整行被裁掉 |
+| `layout-overflow` | 子节点在主轴上需要的空间超过容器 |
+| `empty-layout` | 内边距或尺寸使可绘制区域为零，该节点没有画出任何东西 |
+| `missing-runes` | 字库里没有这些字符 |
+
+`text-clipped` 值得单独说：**被裁掉的数字仍然是一个合法数字**。`3260` 少一位变成 `260`，屏幕上看不出任何异常。散文被裁看得出来，数字和标识符看不出来，所以这条警告出现时应该当作错误处理。
+
+判据是字形本体（ascent）放不放得下，而不是排版行盒。按行盒判断会把「框按字高裁剪、下伸部和行距溢出」也算成裁剪——在本仓库的场景里这类占 56/59，全部是误报，会把真正的 3 处淹没。
+
 ### 错误码
 
 所有失败响应都带 `code` 字段，可以直接分支判断，不需要匹配 `error` 文本。
@@ -499,11 +514,15 @@ curl \
 
 可用字体和字号：
 
-| 字体 | 字号 | 用途 |
-|---|---|---|
-| `ui` | `12`、`14`、`16` | 中英文、数字和常用符号混排 |
-| `hzk` | `12`、`14`、`16` | 中文点阵字 |
-| `monaco` | `10`、`12`、`14`、`16` | 英文、数字和 ASCII 符号 |
+| 字体 | 内置字号 | 整数倍放大 | 用途 |
+|---|---|---|---|
+| `ui` | `12`、`14`、`16` | `24`、`28`、`32`、`36`、`42`、`48` | 中英文、数字和常用符号混排 |
+| `hzk` | `12`、`14`、`16` | `24`、`28`、`32`、`36`、`42`、`48` | 中文点阵字 |
+| `monaco` | `10`、`12`、`14`、`16` | `20`、`24`、`28`、`30`、`32`、`36`、`42`、`48` | 英文、数字和 ASCII 符号 |
+
+**字号是枚举，不是范围。** 表里没有的值（例如 `13`）会直接报错，不会四舍五入。
+
+大于内置字号的部分由点阵字形按整数倍最近邻放大得到，不需要额外字库。这块屏没有灰阶，字形本身就是「亮/不亮」的位图，所以整数倍放大得到的正是原字形的形状，一个像素不多一个不少。放大倍数必须是整数：1.5 倍要处理半个像素，任何处理方式都会让笔画消失或不均匀变粗。
 
 字体中不存在的字符会出现在渲染报告和 HTTP 响应头计数中。
 
@@ -742,6 +761,29 @@ Data URL 写法：
 `clipRect` 使用 `rect`，`clipPath` 使用 `path`；两者都需要一个 `child`，也都可以设置可选的 `size`。
 
 ## 示例
+
+### 桌面标签
+
+一块标签一个固定用途，所以版面是照着 296x128 写死的，不做运行时适配。
+
+- [Claude 用量](examples/desk/claude.json)、[磁盘用量](examples/desk/disk.json)、[当日任务](examples/desk/tasks.json)、[BTC 价格](examples/desk/btc.json)、[分时图](examples/desk/chart.json)
+
+<table>
+  <tr>
+    <td><a href="examples/desk/btc.json"><img src="examples/desk/btc.png" alt="BTC 价格"></a></td>
+    <td><a href="examples/desk/chart.json"><img src="examples/desk/chart.png" alt="分时图"></a></td>
+  </tr>
+  <tr>
+    <td><a href="examples/desk/disk.json"><img src="examples/desk/disk.png" alt="磁盘用量"></a></td>
+    <td><a href="examples/desk/tasks.json"><img src="examples/desk/tasks.png" alt="当日任务"></a></td>
+  </tr>
+</table>
+
+**`chart.json` 里没有「图表」这个节点**，只有一条 polyline 的 96 个点。值域映射、留边、刻度全部由生成场景的那一方算好——需要知道坐标轴和值域的是映射，画线的不需要。K 线同理，不需要新图元。
+
+BTC 那页的价格用 48px，来自点阵字形的整数倍放大。16px 在这块屏上跟脚注一样大，隔着桌子读不了。
+
+### 能力展示
 
 完整 JSON：
 

@@ -96,17 +96,22 @@ func TestWrappedLinesThatDoNotFitAreCounted(t *testing.T) {
 	}
 }
 
-func TestOverflowAndClippedDisagreeOnPurpose(t *testing.T) {
-	fonts, _ := NewBuiltinFontRegistry()
+// A box shorter than the full line still shows the line, which is what
+// TestABoxSizedToTheLettersIsNotClipped asserts. Measuring the raw difference
+// between content and box would report those, so no such accessor is exported:
+// the only question worth answering from outside is whether content was lost.
+func TestTheLayoutExposesLossRatherThanOverflow(t *testing.T) {
+	fonts, err := NewBuiltinFontRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
 	set, _ := fonts.Match("monaco", 12)
 	metrics := set.Metrics()
-
-	// Sized to the ascent: overflowing on the raw measurement, losing nothing.
 	result := layout(t, image.Rect(0, 0, 200, metrics.Ascent), NoWrap, mono("ok", 12))
-	if over := result.Overflow(); over.Y == 0 {
-		t.Fatal("the sample does not overflow, so it cannot show the difference")
+	if result.Size().Y <= metrics.Ascent {
+		t.Fatal("the sample does not exceed its box, so it cannot show the difference")
 	}
 	if _, lines := result.Clipped(); lines != 0 {
-		t.Errorf("Clipped agreed with Overflow; the point of it is that it does not")
+		t.Errorf("a box shorter than the line box reported %d lines lost", lines)
 	}
 }
