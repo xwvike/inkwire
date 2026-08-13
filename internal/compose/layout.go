@@ -3,6 +3,7 @@ package compose
 import (
 	"fmt"
 	"image"
+	"slices"
 
 	"github.com/xwvike/inkwire/internal/display"
 )
@@ -40,13 +41,85 @@ const (
 	MainEnd
 )
 
-// LayoutChild wraps one child in a Row or Column. Basis overrides the child's
-// measured main-axis size when positive. Grow divides remaining pixels by
-// integer weight after every base size and Gap has been allocated.
+// LayoutChild wraps one child in a Row or Column.
+//
+// The sizes here are lengths rather than pixel counts because a percentage
+// only becomes a number once the container has one, and that is not until the
+// layout runs. Resolving them here rather than earlier is what lets Basis,
+// Cross and the four limits all be stated the same way and mean the same
+// thing, whichever axis they land on.
 type LayoutChild struct {
-	Node  Node
-	Basis int
-	Grow  int
+	Node Node
+	// Basis overrides the child's measured size along the container's axis.
+	Basis Length
+	// Cross overrides it across the container's axis. A child with one is
+	// never stretched, because stretching is what fills a size nobody stated.
+	Cross Length
+	// Grow divides what is left over by integer weight, after every base size
+	// and Gap has been allocated.
+	Grow int
+	// MinMain and the rest bound the resolved sizes on each axis.
+	MinMain, MaxMain   Length
+	MinCross, MaxCross Length
+	// AlignSelf places this child across the axis regardless of what the
+	// container asked for.
+	AlignSelf *CrossAlignment
+}
+
+// mainSize resolves the child's size along the container's axis, falling back
+// to what it measured.
+func (c LayoutChild) mainSize(measured, available int) int {
+	size := measured
+	if resolved, ok := c.Basis.Resolve(available); ok {
+		size = resolved
+	}
+	return clamp(size, c.MinMain, c.MaxMain, available)
+}
+
+// intrinsicMain is the same question asked before a container exists, where a
+// percentage has nothing to be a percentage of.
+func (c LayoutChild) intrinsicMain(measured int) int {
+	size := measured
+	if stated, ok := c.Basis.intrinsic(); ok {
+		size = stated
+	}
+	if low, ok := c.MinMain.intrinsic(); ok && size < low {
+		size = low
+	}
+	if high, ok := c.MaxMain.intrinsic(); ok && size > high {
+		size = high
+	}
+	return size
+}
+
+// crossSizeOf resolves the child's size across the container's axis. stretched
+// says whether the container would otherwise fill it.
+func (c LayoutChild) crossSizeOf(measured, available int, stretched bool) int {
+	size := measured
+	if stretched {
+		size = available
+	}
+	if resolved, ok := c.Cross.Resolve(available); ok {
+		size = resolved
+	}
+	return clamp(size, c.MinCross, c.MaxCross, available)
+}
+
+func (c LayoutChild) alignment(container CrossAlignment) CrossAlignment {
+	if c.AlignSelf != nil {
+		return *c.AlignSelf
+	}
+	// A child that states its cross size is never stretched; CSS treats
+	// stretch as filling a size nobody gave, and this one was given.
+	if container == CrossStretch && c.Cross.IsSet() {
+		return CrossStart
+	}
+	return container
+}
+
+func (c LayoutChild) valid() bool {
+	return c.Basis.valid() && c.Cross.valid() && c.Grow >= 0 &&
+		c.MinMain.valid() && c.MaxMain.valid() && c.MinCross.valid() && c.MaxCross.valid()
 }
 
 type Placed struct {
@@ -154,17 +227,15 @@ func measureFlow(ctx *compileContext, maximum, preferred image.Point, gap int, h
 		if nilNode(child.Node) {
 			return image.Point{}, fmt.Errorf("%s: node must not be nil", nodePath)
 		}
-		if child.Basis < 0 || child.Grow < 0 {
-			return image.Point{}, fmt.Errorf("%s: basis and grow must not be negative", nodePath)
+		if !child.valid() {
+			return image.Point{}, fmt.Errorf("%s: sizes and grow must not be negative", nodePath)
 		}
 		size, err := child.Node.measure(ctx, maximum, nodePath)
 		if err != nil {
 			return image.Point{}, err
 		}
 		childMain, childCross := axes(size, horizontal)
-		if child.Basis > 0 {
-			childMain = child.Basis
-		}
+		childMain = child.intrinsicMain(childMain)
 		main += childMain
 		cross = max(cross, childCross)
 	}
@@ -191,9 +262,8 @@ func paintFlow(ctx *compileContext, list *display.DisplayList, bounds image.Rect
 		if err != nil {
 			return err
 		}
-		if child.Basis > 0 {
-			setMain(&size, horizontal, child.Basis)
-		}
+		measuredMain, _ := axes(size, horizontal)
+		setMain(&size, horizontal, child.mainSize(measuredMain, mainOf(bounds.Size(), horizontal)))
 		sizes[index] = size
 		childMain, _ := axes(size, horizontal)
 		baseMain += childMain
@@ -226,6 +296,14 @@ func paintFlow(ctx *compileContext, list *display.DisplayList, bounds image.Rect
 				used++
 			}
 		}
+		// A maximum bounds the size however it was arrived at, so growing is
+		// clamped after the fact rather than being allowed to pass it.
+		for index, child := range children {
+			grown := mainOf(sizes[index], horizontal)
+			if capped := clamp(grown, child.MinMain, child.MaxMain, availableMain); capped != grown {
+				setMain(&sizes[index], horizontal, capped)
+			}
+		}
 		baseMain += remaining
 	}
 	start := 0
@@ -240,11 +318,11 @@ func paintFlow(ctx *compileContext, list *display.DisplayList, bounds image.Rect
 	cursor := start
 	for index, child := range children {
 		nodePath := childPath(path, "children", index)
-		childMain, childCross := axes(sizes[index], horizontal)
+		childMain, measuredCross := axes(sizes[index], horizontal)
+		alignment := child.alignment(crossAlign)
+		childCross := child.crossSizeOf(measuredCross, availableCross, alignment == CrossStretch)
 		crossStart := 0
-		switch crossAlign {
-		case CrossStretch:
-			childCross = availableCross
+		switch alignment {
 		case CrossCenter:
 			crossStart = (availableCross - childCross) / 2
 		case CrossEnd:
@@ -379,4 +457,94 @@ func rectFromAxes(origin image.Point, mainStart, crossStart, mainSize, crossSize
 	}
 	min := origin.Add(image.Pt(crossStart, mainStart))
 	return image.Rectangle{Min: min, Max: min.Add(image.Pt(crossSize, mainSize))}
+}
+
+// Anchor places one child against the edges of its container. Which edges were
+// named decides how it is sized: opposite edges stretch it between them, a
+// single edge holds it at its own size, and neither leaves it at the origin.
+type Anchor struct {
+	Top, Right, Bottom, Left *int
+	Size                     image.Point
+	Node                     Node
+	// Layer orders overlapping children. Higher is painted later, so it
+	// appears over lower ones; equal layers keep their document order.
+	Layer int
+}
+
+// Anchored resolves its children's insets against the box it is finally given,
+// which is why it exists alongside Absolute: an absolute rectangle has to be
+// known when the document is written, and an inset from the far edge cannot be
+// until the container has been laid out.
+type Anchored struct {
+	Size     image.Point
+	Children []Anchor
+}
+
+func (Anchored) composeNode() {}
+
+func (a Anchored) measure(ctx *compileContext, maximum image.Point, path string) (image.Point, error) {
+	for index, child := range a.Children {
+		nodePath := childPath(path, "children", index)
+		if nilNode(child.Node) {
+			return image.Point{}, fmt.Errorf("%s: node must not be nil", nodePath)
+		}
+		if !validSize(child.Size) {
+			return image.Point{}, fmt.Errorf("%s: size must not be negative, got %v", nodePath, child.Size)
+		}
+		if _, err := child.Node.measure(ctx, maximum, nodePath); err != nil {
+			return image.Point{}, err
+		}
+	}
+	// Anchored children are placed against their container and contribute
+	// nothing to how large it wants to be, which is what taking them out of
+	// the flow means.
+	return constrainSize(a.Size, maximum), nil
+}
+
+func (a Anchored) paint(ctx *compileContext, list *display.DisplayList, bounds image.Rectangle, path string) error {
+	ordered := make([]int, len(a.Children))
+	for index := range ordered {
+		ordered[index] = index
+	}
+	slices.SortStableFunc(ordered, func(i, j int) int { return a.Children[i].Layer - a.Children[j].Layer })
+	for _, index := range ordered {
+		child := a.Children[index]
+		nodePath := childPath(path, "children", index)
+		placed := child.resolve(bounds)
+		if placed.Empty() {
+			ctx.warn(nodePath, "empty-layout", "the anchored box resolved to no area")
+			continue
+		}
+		if err := child.Node.paint(ctx, list, placed, nodePath); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// resolve turns the insets into a rectangle inside the container, following
+// the same rules CSS does for an absolutely positioned box.
+func (a Anchor) resolve(bounds image.Rectangle) image.Rectangle {
+	span := func(start, end *int, low, high, size int) (int, int) {
+		switch {
+		case start != nil && end != nil:
+			return low + *start, high - *end
+		case start != nil:
+			if size > 0 {
+				return low + *start, low + *start + size
+			}
+			return low + *start, high
+		case end != nil:
+			if size > 0 {
+				return high - *end - size, high - *end
+			}
+			return low, high - *end
+		case size > 0:
+			return low, low + size
+		}
+		return low, high
+	}
+	left, right := span(a.Left, a.Right, bounds.Min.X, bounds.Max.X, a.Size.X)
+	top, bottom := span(a.Top, a.Bottom, bounds.Min.Y, bounds.Max.Y, a.Size.Y)
+	return image.Rect(left, top, right, bottom)
 }

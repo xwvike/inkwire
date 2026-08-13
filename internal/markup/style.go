@@ -38,17 +38,19 @@ func (l length) pixels() int { return int(l.value) }
 // field left at its zero value was not specified, except where a pointer or a
 // length's set flag records the difference explicitly.
 type style struct {
-	display   displayMode
-	direction axis
-	basis     length
-	grow      int
-	gap       int
-	padding   compose.Insets
-	margin    compose.Insets
-	autoLeft  bool
-	autoTop   bool
-	width     length
-	height    length
+	display    displayMode
+	direction  axis
+	basis      length
+	grow       int
+	gap        int
+	padding    compose.Insets
+	margin     compose.Insets
+	autoLeft   bool
+	autoTop    bool
+	autoRight  bool
+	autoBottom bool
+	width      length
+	height     length
 
 	background *display.Ink
 	color      display.Ink
@@ -58,7 +60,23 @@ type style struct {
 	fontSize   int
 	textAlign  display.HorizontalAlign
 	textVAlign display.VerticalAlign
-	alignItems compose.CrossAlignment
+	lineHeight int
+	wrap       display.WrapMode
+	clip       bool
+	hidden     bool
+	dashed     bool
+	absolute   bool
+	minSize    [2]length // width, height
+	maxSize    [2]length
+	inset      [4]length // top, right, bottom, left
+	layer      int
+	justify    compose.MainAlignment
+	// alignSelf overrides the container's align-items for one item. The
+	// pointer distinguishes "not stated" from "stretch".
+	alignSelf   *compose.CrossAlignment
+	objectFit   *display.ImageFit
+	spaceEvenly bool
+	alignItems  compose.CrossAlignment
 
 	// inline starts from the element's own default and is cleared by any
 	// display declaration, because a span told to be a block is a block.
@@ -80,6 +98,8 @@ func (s style) inherited() style {
 		fontSize:   s.fontSize,
 		textAlign:  s.textAlign,
 		textVAlign: s.textVAlign,
+		lineHeight: s.lineHeight,
+		wrap:       s.wrap,
 	}
 }
 
@@ -88,13 +108,28 @@ func rootStyle() style {
 		color:      display.InkBlack,
 		fontFamily: display.DefaultFontFamily,
 		fontSize:   display.DefaultFontSize,
+		// CSS wraps by default. Not wrapping is what white-space: nowrap is
+		// for, and a page that silently refused to wrap would lose text with
+		// nothing but a clipping warning to show for it.
+		wrap: display.WrapRunes,
 	}
 }
 
 // apply folds one declaration into the style, reporting anything it cannot
 // honour rather than dropping it.
-func (s *style) apply(property, value string, report func(string)) {
+func (s *style) apply(property, value string, inherited style, report func(string)) {
 	value = strings.TrimSpace(value)
+	// inherit takes the parent's value, which is not the same as leaving the
+	// field alone: an earlier declaration on this element may already have
+	// changed it. initial and unset return the property to its own default.
+	switch value {
+	case "inherit":
+		s.inheritOne(property, inherited)
+		return
+	case "initial", "unset", "revert":
+		s.reset(property)
+		return
+	}
 	switch property {
 	case "display":
 		switch value {
@@ -106,6 +141,12 @@ func (s *style) apply(property, value string, report func(string)) {
 			s.display = displayNone
 		case "inline":
 			s.display, s.inline = displayBlock, true
+		case "inline-block":
+			// Nothing here lays boxes out along a line of text, so an
+			// inline-block is a block that happens to sit in a flex line.
+			s.display, s.inline = displayBlock, false
+		case "inline-flex":
+			s.display, s.inline = displayFlex, false
 		default:
 			report(fmt.Sprintf("display: %s is not supported; use block, flex or none", value))
 		}
@@ -127,18 +168,133 @@ func (s *style) apply(property, value string, report func(string)) {
 		s.grow = parseNumber(value, property, report)
 	case "gap":
 		s.gap = parseLength(value, property, report).pixels()
+	case "justify-content":
+		switch value {
+		case "flex-start", "start", "normal":
+			s.justify = compose.MainStart
+		case "center":
+			s.justify = compose.MainCenter
+		case "flex-end", "end":
+			s.justify = compose.MainEnd
+		case "space-between":
+			// Nothing in compose says this, but a growing spacer between each
+			// pair of items says exactly it.
+			s.spaceEvenly = true
+		default:
+			report(fmt.Sprintf("justify-content: %s is not supported", value))
+		}
+	case "line-height":
+		s.lineHeight = parseLength(value, property, report).pixels()
+	case "white-space":
+		switch value {
+		case "normal":
+			s.wrap = display.WrapRunes
+		case "nowrap":
+			s.wrap = display.NoWrap
+		default:
+			// pre and its relatives keep the source's own spacing, which this
+			// collapses on the way in and cannot get back.
+			report(fmt.Sprintf("white-space: %s is not supported; use normal or nowrap", value))
+		}
+	case "overflow":
+		switch value {
+		case "hidden", "clip":
+			s.clip = true
+		case "visible":
+			s.clip = false
+		default:
+			report(fmt.Sprintf("overflow: %s is not supported; nothing here can scroll", value))
+		}
+	case "object-fit":
+		switch value {
+		case "fill":
+			s.objectFit = fitOf(display.FitStretch)
+		case "contain":
+			s.objectFit = fitOf(display.FitContain)
+		case "cover":
+			s.objectFit = fitOf(display.FitCover)
+		default:
+			report(fmt.Sprintf("object-fit: %s is not supported; use fill, contain or cover", value))
+		}
+	case "align-self":
+		if value == "auto" {
+			return
+		}
+		if cross, ok := parseCross(value, "align-self", report); ok {
+			s.alignSelf = &cross
+		}
+	case "border-width":
+		s.borderStyle().width = parseLength(value, property, report).pixels()
+	case "border-style":
+		switch value {
+		case "solid":
+			s.borderStyle()
+		case "dashed":
+			s.borderStyle()
+			s.dashed = true
+		default:
+			report(fmt.Sprintf("border-style: %s is not supported; use solid or dashed", value))
+		}
+	case "box-sizing":
+		// This is already how every box here behaves: a width is the width of
+		// the border box, padding and border included. Saying so is accepted;
+		// asking for the CSS default is not, because it is not what happens.
+		if value != "border-box" {
+			report(fmt.Sprintf(
+				"box-sizing: %s is not supported; a width here always includes padding and border", value))
+		}
+	case "position":
+		switch value {
+		case "static":
+			s.absolute = false
+		case "absolute":
+			s.absolute = true
+		case "relative":
+			// Nothing here is offset from its flow position, and a relative
+			// box with no offsets is indistinguishable from a static one, so
+			// this is only accepted for the containing-block role it plays.
+		default:
+			report(fmt.Sprintf("position: %s is not supported; use static or absolute", value))
+		}
+	case "top":
+		s.inset[0] = parseLength(value, property, report)
+	case "right":
+		s.inset[1] = parseLength(value, property, report)
+	case "bottom":
+		s.inset[2] = parseLength(value, property, report)
+	case "left":
+		s.inset[3] = parseLength(value, property, report)
+	case "inset":
+		sides := parseInsets(value, report)
+		s.inset = [4]length{
+			{set: true, value: float64(sides.Top)},
+			{set: true, value: float64(sides.Right)},
+			{set: true, value: float64(sides.Bottom)},
+			{set: true, value: float64(sides.Left)},
+		}
+	case "z-index":
+		// Nothing here overlaps except boxes taken out of the flow, and for
+		// those the layer is simply the order they are painted in.
+		s.layer = parseNumber(value, property, report)
+	case "visibility":
+		switch value {
+		case "visible":
+			s.hidden = false
+		case "hidden":
+			s.hidden = true
+		default:
+			report(fmt.Sprintf("visibility: %s is not supported; use visible or hidden", value))
+		}
+	case "border-color":
+		if ink, ok := parseInk(value, property, report); ok {
+			s.borderStyle().ink = ink
+		}
 	case "align-items":
 		switch value {
-		case "stretch":
-			s.alignItems = compose.CrossStretch
-		case "flex-start", "start":
-			s.alignItems = compose.CrossStart
-		case "center":
-			s.alignItems = compose.CrossCenter
-		case "flex-end", "end":
-			s.alignItems = compose.CrossEnd
 		default:
-			report(fmt.Sprintf("align-items: %s is not supported", value))
+			if cross, ok := parseCross(value, "align-items", report); ok {
+				s.alignItems = cross
+			}
 		}
 	case "padding":
 		s.padding = parseInsets(value, report)
@@ -161,6 +317,10 @@ func (s *style) apply(property, value string, report func(string)) {
 		}
 		s.margin.Left = parseLength(value, property, report).pixels()
 	case "margin-right":
+		if value == "auto" {
+			s.autoRight = true
+			return
+		}
 		s.margin.Right = parseLength(value, property, report).pixels()
 	case "margin-top":
 		if value == "auto" {
@@ -169,7 +329,19 @@ func (s *style) apply(property, value string, report func(string)) {
 		}
 		s.margin.Top = parseLength(value, property, report).pixels()
 	case "margin-bottom":
+		if value == "auto" {
+			s.autoBottom = true
+			return
+		}
 		s.margin.Bottom = parseLength(value, property, report).pixels()
+	case "min-width":
+		s.minSize[0] = parseLength(value, property, report)
+	case "max-width":
+		s.maxSize[0] = parseLength(value, property, report)
+	case "min-height":
+		s.minSize[1] = parseLength(value, property, report)
+	case "max-height":
+		s.maxSize[1] = parseLength(value, property, report)
 	case "width":
 		s.width = parseLength(value, property, report)
 	case "height":
@@ -222,6 +394,80 @@ func (s *style) apply(property, value string, report func(string)) {
 	default:
 		report(fmt.Sprintf("%s is not a property this renderer implements", property))
 	}
+}
+
+// borderStyle returns the border being built, creating it with the CSS
+// defaults for anything not yet stated.
+func (s *style) borderStyle() *border {
+	if s.border == nil {
+		s.border = &border{width: 1, ink: display.InkBlack}
+	}
+	return s.border
+}
+
+func fitOf(fit display.ImageFit) *display.ImageFit { return &fit }
+
+// inheritOne copies one property from the value the parent passed down.
+func (s *style) inheritOne(property string, inherited style) {
+	switch property {
+	case "color":
+		s.color = inherited.color
+	case "font-family":
+		s.fontFamily = inherited.fontFamily
+	case "font-size":
+		s.fontSize = inherited.fontSize
+	case "text-align":
+		s.textAlign = inherited.textAlign
+	case "vertical-align":
+		s.textVAlign = inherited.textVAlign
+	case "line-height":
+		s.lineHeight = inherited.lineHeight
+	case "white-space":
+		s.wrap = inherited.wrap
+	}
+}
+
+// reset returns one property to the value it would have had with no
+// declaration at all.
+func (s *style) reset(property string) {
+	fresh := style{}
+	switch property {
+	case "color":
+		s.color = display.InkBlack
+	case "background", "background-color":
+		s.background = nil
+	case "border", "border-width", "border-style", "border-color", "border-radius":
+		s.border, s.dashed = nil, false
+	case "padding":
+		s.padding = fresh.padding
+	case "margin":
+		s.margin = fresh.margin
+	case "width":
+		s.width = fresh.width
+	case "height":
+		s.height = fresh.height
+	case "font-size":
+		s.fontSize = display.DefaultFontSize
+	case "font-family":
+		s.fontFamily = display.DefaultFontFamily
+	case "display":
+		s.display = displayBlock
+	}
+}
+
+func parseCross(value, property string, report func(string)) (compose.CrossAlignment, bool) {
+	switch value {
+	case "stretch":
+		return compose.CrossStretch, true
+	case "flex-start", "start":
+		return compose.CrossStart, true
+	case "center":
+		return compose.CrossCenter, true
+	case "flex-end", "end":
+		return compose.CrossEnd, true
+	}
+	report(fmt.Sprintf("%s: %s is not supported", property, value))
+	return 0, false
 }
 
 func parseLength(value, property string, report func(string)) length {

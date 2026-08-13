@@ -20,8 +20,9 @@ type rule struct {
 }
 
 type declaration struct {
-	property string
-	value    string
+	property  string
+	value     string
+	important bool
 }
 
 // specificity is compared as CSS compares it, with document order breaking a
@@ -38,6 +39,36 @@ func (r rule) less(other rule) bool {
 
 type stylesheet struct {
 	rules []rule
+	// variables holds custom properties by the selector that declared them,
+	// so a value can be looked up for the element it applies to.
+	variables []rule
+}
+
+// substitute replaces every var(--name) in a value with what the matching
+// custom properties declared, and reports a name nothing declared.
+func (s *stylesheet) substitute(value string, declared map[string]string) (string, string) {
+	for {
+		start := strings.Index(value, "var(")
+		if start < 0 {
+			return value, ""
+		}
+		end := strings.Index(value[start:], ")")
+		if end < 0 {
+			return value, "unclosed var()"
+		}
+		end += start
+		inner := strings.TrimSpace(value[start+len("var(") : end])
+		name, fallback, hasFallback := strings.Cut(inner, ",")
+		name = strings.TrimSpace(name)
+		replacement, ok := declared[name]
+		if !ok {
+			if !hasFallback {
+				return value, fmt.Sprintf("%s was never declared", name)
+			}
+			replacement = strings.TrimSpace(fallback)
+		}
+		value = value[:start] + replacement + value[end+1:]
+	}
 }
 
 func parseStylesheet(source string) (*stylesheet, error) {
@@ -53,14 +84,28 @@ func parseStylesheet(source string) (*stylesheet, error) {
 		declarations := make([]declaration, 0, len(parsedRule.Declarations))
 		for _, parsedDeclaration := range parsedRule.Declarations {
 			declarations = append(declarations, declaration{
-				property: strings.ToLower(strings.TrimSpace(parsedDeclaration.Property)),
-				value:    strings.TrimSpace(parsedDeclaration.Value),
+				property:  strings.ToLower(strings.TrimSpace(parsedDeclaration.Property)),
+				value:     strings.TrimSpace(parsedDeclaration.Value),
+				important: parsedDeclaration.Important,
 			})
 		}
+		var custom []declaration
+		kept := declarations[:0]
+		for _, applied := range declarations {
+			if strings.HasPrefix(applied.property, "--") {
+				custom = append(custom, applied)
+				continue
+			}
+			kept = append(kept, applied)
+		}
+		declarations = kept
 		for _, selectorText := range parsedRule.Selectors {
 			selector, err := cascadia.Parse(selectorText)
 			if err != nil {
 				return nil, fmt.Errorf("parse selector %q: %w", selectorText, err)
+			}
+			if len(custom) != 0 {
+				sheet.variables = append(sheet.variables, rule{selector: selector, declaration: custom})
 			}
 			sheet.rules = append(sheet.rules, rule{
 				selector:    selector,
@@ -101,10 +146,20 @@ func (s *stylesheet) declarationsFor(node *html.Node) []declaration {
 	}
 	sort.SliceStable(matched, func(i, j int) bool { return matched[i].less(matched[j]) })
 
-	var declarations []declaration
+	// Applied weakest first, so the last write wins. Important declarations
+	// outrank every normal one however specific, and the style attribute
+	// outranks every selector, so the four groups go on in that order.
+	var normal, important []declaration
 	for _, candidate := range matched {
-		declarations = append(declarations, candidate.declaration...)
+		for _, applied := range candidate.declaration {
+			if applied.important {
+				important = append(important, applied)
+			} else {
+				normal = append(normal, applied)
+			}
+		}
 	}
+	declarations := normal
 	if inline := attribute(node, "style"); inline != "" {
 		// The parser drops the value of a final declaration that has no
 		// terminating semicolon, and a style attribute is usually written
@@ -115,14 +170,20 @@ func (s *stylesheet) declarationsFor(node *html.Node) []declaration {
 		parsed, err := parser.ParseDeclarations(inline)
 		if err == nil {
 			for _, parsedDeclaration := range parsed {
-				declarations = append(declarations, declaration{
-					property: strings.ToLower(strings.TrimSpace(parsedDeclaration.Property)),
-					value:    strings.TrimSpace(parsedDeclaration.Value),
-				})
+				inlineDeclaration := declaration{
+					property:  strings.ToLower(strings.TrimSpace(parsedDeclaration.Property)),
+					value:     strings.TrimSpace(parsedDeclaration.Value),
+					important: parsedDeclaration.Important,
+				}
+				if inlineDeclaration.important {
+					important = append(important, inlineDeclaration)
+					continue
+				}
+				declarations = append(declarations, inlineDeclaration)
 			}
 		}
 	}
-	return declarations
+	return append(declarations, important...)
 }
 
 func attribute(node *html.Node, name string) string {

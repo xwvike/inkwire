@@ -325,6 +325,35 @@ func (c ClipPath) paint(ctx *compileContext, list *display.DisplayList, bounds i
 }
 
 // ClipRect clips Child to Rect in coordinates relative to its allocated box.
+// Clip confines its child to whatever rectangle the layout gives it. ClipRect
+// needs the rectangle stated, which suits a document that names coordinates;
+// this suits one that does not know its own box until it has been laid out.
+type Clip struct {
+	Size  image.Point
+	Child Node
+}
+
+func (Clip) composeNode() {}
+
+func (c Clip) measure(ctx *compileContext, maximum image.Point, path string) (image.Point, error) {
+	if nilNode(c.Child) {
+		return image.Point{}, fmt.Errorf("%s.child: node must not be nil", path)
+	}
+	size, err := c.Child.measure(ctx, maximum, path+".child")
+	if err != nil {
+		return image.Point{}, err
+	}
+	return preferredSize(size, c.Size, maximum)
+}
+
+func (c Clip) paint(ctx *compileContext, list *display.DisplayList, bounds image.Rectangle, path string) error {
+	list.Save()
+	list.ClipRect(bounds)
+	err := c.Child.paint(ctx, list, bounds, path+".child")
+	list.Restore()
+	return err
+}
+
 type ClipRect struct {
 	Size  image.Point
 	Rect  image.Rectangle
