@@ -1,0 +1,35 @@
+<!--
+  The same page as disk.html, laid out on a grid instead of four rows.
+
+  The rows there cannot agree on how wide the label column should be, so
+  disk.css states it: fifty pixels, chosen by measuring the longest name and
+  adding a little. A grid measures that column once, across every row, and the
+  number disappears from the stylesheet along with the need to revisit it when
+  a longer mount point turns up.
+-->
+<div class="page">
+  <header>
+    <span>磁盘</span>
+    <span class="mono">08-13 09:42</span>
+  </header>
+
+  <main>
+    <span class="name">/</span>
+    <span class="bar"><i class="hot" style="width: 87.3%"></i></span>
+    <span class="figs"><b class="hot">402</b><small>/460G</small></span>
+
+    <span class="name">/data</span>
+    <span class="bar"><i style="width: 31.7%"></i></span>
+    <span class="figs"><b>1180</b><small>/3720G</small></span>
+
+    <span class="name">/backup</span>
+    <span class="bar"><i style="width: 34.4%"></i></span>
+    <span class="figs"><b>640</b><small>/1860G</small></span>
+
+    <span class="name">/media</span>
+    <span class="bar"><i class="hot" style="width: 87.6%"></i></span>
+    <span class="figs"><b class="hot">3260</b><small>/3720G</small></span>
+
+    <footer>2 个卷超过 85%，<span class="hot">/ 还剩 58G</span></footer>
+  </main>
+</div>

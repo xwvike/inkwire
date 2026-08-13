@@ -14,6 +14,7 @@ type displayMode uint8
 const (
 	displayBlock displayMode = iota
 	displayFlex
+	displayGrid
 	displayNone
 )
 
@@ -76,10 +77,18 @@ type style struct {
 	layer      int
 	transform  display.Transform
 	ratio      float64
+	columns    []compose.Track
+	rows       []compose.Track
+	rowGap     int
+	columnGap  int
+	gapSet     bool
+	cellColumn [2]int // line, span
+	cellRow    [2]int
 	justify    compose.MainAlignment
 	// alignSelf overrides the container's align-items for one item. The
 	// pointer distinguishes "not stated" from "stretch".
 	alignSelf   *compose.CrossAlignment
+	justifySelf *compose.CrossAlignment
 	objectFit   *display.ImageFit
 	spaceEvenly bool
 	alignItems  compose.CrossAlignment
@@ -143,6 +152,10 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 			s.display, s.inline = displayBlock, false
 		case "flex":
 			s.display, s.inline = displayFlex, false
+		case "grid":
+			s.display, s.inline = displayGrid, false
+		case "inline-grid":
+			s.display, s.inline = displayGrid, false
 		case "none":
 			s.display = displayNone
 		case "inline":
@@ -154,7 +167,7 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 		case "inline-flex":
 			s.display, s.inline = displayFlex, false
 		default:
-			report(fmt.Sprintf("display: %s is not supported; use block, flex or none", value))
+			report(fmt.Sprintf("display: %s is not supported; use block, flex, grid or none", value))
 		}
 	case "flex-direction":
 		switch value {
@@ -173,7 +186,29 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 		// Only the single-number form, which sets grow.
 		s.grow = parseNumber(value, property, report)
 	case "gap":
-		s.gap = parseLength(value, property, report).px()
+		fields := strings.Fields(value)
+		s.rowGap = parseLength(fields[0], property, report).px()
+		s.columnGap = s.rowGap
+		if len(fields) > 1 {
+			s.columnGap = parseLength(fields[1], property, report).px()
+		}
+		s.gap = s.rowGap
+		s.gapSet = true
+	case "row-gap":
+		s.rowGap = parseLength(value, property, report).px()
+		s.gap = s.rowGap
+		s.gapSet = true
+	case "column-gap":
+		s.columnGap = parseLength(value, property, report).px()
+		s.gapSet = true
+	case "grid-template-columns":
+		s.columns = parseTracks(value, property, report)
+	case "grid-template-rows":
+		s.rows = parseTracks(value, property, report)
+	case "grid-column":
+		s.cellColumn = parseGridLine(value, property, report)
+	case "grid-row":
+		s.cellRow = parseGridLine(value, property, report)
 	case "justify-content":
 		switch value {
 		case "flex-start", "start", "normal":
@@ -221,6 +256,17 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 			s.objectFit = fitOf(display.FitCover)
 		default:
 			report(fmt.Sprintf("object-fit: %s is not supported; use fill, contain or cover", value))
+		}
+	case "justify-items":
+		if cross, ok := parseCross(value, property, report); ok {
+			s.justify = mainOfCross(cross)
+		}
+	case "justify-self":
+		if value == "auto" {
+			return
+		}
+		if cross, ok := parseCross(value, property, report); ok {
+			s.justifySelf = &cross
 		}
 	case "align-self":
 		if value == "auto" {
@@ -483,6 +529,28 @@ func (s *style) borderStyle() *border {
 
 func fitOf(fit display.ImageFit) *display.ImageFit { return &fit }
 
+// A grid places children along its rows with the same vocabulary a flex line
+// uses across them, so the two alignments convert between each other.
+func mainOfCross(cross compose.CrossAlignment) compose.MainAlignment {
+	switch cross {
+	case compose.CrossCenter:
+		return compose.MainCenter
+	case compose.CrossEnd:
+		return compose.MainEnd
+	}
+	return compose.MainStart
+}
+
+func crossOfMain(main compose.MainAlignment) compose.CrossAlignment {
+	switch main {
+	case compose.MainCenter:
+		return compose.CrossCenter
+	case compose.MainEnd:
+		return compose.CrossEnd
+	}
+	return compose.CrossStretch
+}
+
 // quarterTurns accepts the angles that move every pixel onto another pixel.
 // Between them a rotation has to decide which of two pixels a sample belongs
 // to, and either answer thins some strokes and thickens others.
@@ -547,6 +615,97 @@ func (s *style) reset(property string) {
 	case "display":
 		s.display = displayBlock
 	}
+}
+
+// parseTracks reads a track list: lengths, fr units, auto, and repeat().
+func parseTracks(value, property string, report func(string)) []compose.Track {
+	var tracks []compose.Track
+	for _, field := range expandRepeats(value, property, report) {
+		switch {
+		case field == "auto" || field == "min-content" || field == "max-content":
+			tracks = append(tracks, compose.Track{})
+		case strings.HasSuffix(field, "fr"):
+			count, err := strconv.ParseFloat(strings.TrimSuffix(field, "fr"), 64)
+			if err != nil || count <= 0 {
+				report(fmt.Sprintf("%s: %s is not a positive number of fr", property, field))
+				return nil
+			}
+			tracks = append(tracks, compose.Track{Fraction: int(count)})
+		default:
+			size := parseLength(field, property, report)
+			if !size.set {
+				return nil
+			}
+			tracks = append(tracks, compose.Track{
+				Size: compose.Calc(int(size.percent*10), int(size.pixels)),
+			})
+		}
+	}
+	return tracks
+}
+
+// expandRepeats turns repeat(3, 1fr) into three fields, which is the only
+// function in a track list worth having: the rest describe intrinsic sizes
+// this vocabulary does not distinguish.
+func expandRepeats(value, property string, report func(string)) []string {
+	var fields []string
+	for rest := strings.TrimSpace(value); rest != ""; {
+		if !strings.HasPrefix(rest, "repeat(") {
+			field, remainder, _ := strings.Cut(rest, " ")
+			if field != "" {
+				fields = append(fields, field)
+			}
+			rest = strings.TrimSpace(remainder)
+			continue
+		}
+		inner, remainder, ok := strings.Cut(strings.TrimPrefix(rest, "repeat("), ")")
+		if !ok {
+			report(fmt.Sprintf("%s: repeat( is never closed", property))
+			return nil
+		}
+		countText, pattern, ok := strings.Cut(inner, ",")
+		count, err := strconv.Atoi(strings.TrimSpace(countText))
+		if !ok || err != nil || count < 1 {
+			report(fmt.Sprintf("%s: repeat() needs a whole number and a track list", property))
+			return nil
+		}
+		for i := 0; i < count; i++ {
+			fields = append(fields, strings.Fields(pattern)...)
+		}
+		rest = strings.TrimSpace(remainder)
+	}
+	return fields
+}
+
+// parseGridLine reads "3", "span 2" or "2 / 4" into a line and a span.
+func parseGridLine(value, property string, report func(string)) [2]int {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "auto" {
+		return [2]int{}
+	}
+	if start, end, ok := strings.Cut(trimmed, "/"); ok {
+		from, errFrom := strconv.Atoi(strings.TrimSpace(start))
+		to, errTo := strconv.Atoi(strings.TrimSpace(end))
+		if errFrom != nil || errTo != nil || from < 1 || to <= from {
+			report(fmt.Sprintf("%s: %s must be two increasing line numbers", property, value))
+			return [2]int{}
+		}
+		return [2]int{from, to - from}
+	}
+	if rest, ok := strings.CutPrefix(trimmed, "span "); ok {
+		count, err := strconv.Atoi(strings.TrimSpace(rest))
+		if err != nil || count < 1 {
+			report(fmt.Sprintf("%s: span needs a whole number, got %s", property, rest))
+			return [2]int{}
+		}
+		return [2]int{0, count}
+	}
+	line, err := strconv.Atoi(trimmed)
+	if err != nil || line < 1 {
+		report(fmt.Sprintf("%s: %s is not a line number", property, value))
+		return [2]int{}
+	}
+	return [2]int{line, 1}
 }
 
 func parseCross(value, property string, report func(string)) (compose.CrossAlignment, bool) {

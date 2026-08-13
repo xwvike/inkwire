@@ -519,3 +519,97 @@ func TestAspectRatio(t *testing.T) {
 		t.Error("a ratio with a zero in it was accepted")
 	}
 }
+
+// The reason grid was worth building: a column measured once across rows that
+// know nothing about each other, so labels of different lengths still line up.
+func TestGridColumnsLineUpAcrossRows(t *testing.T) {
+	got := boxes(t,
+		`<i class="g">`+
+			`<span class="l">/</span><i class="bar"></i>`+
+			`<span class="l">/backup</span><i class="bar"></i>`+
+			`</i>`,
+		`.g { display: grid; grid-template-columns: auto 1fr; flex-grow: 1;
+		      font-family: monaco; font-size: 12px; }
+		 .bar { display: block; background: red; }`)
+	// Seven characters of Monaco 12 advance seven pixels each.
+	if got[display.InkRed].Min.X != 49 {
+		t.Errorf("the bars begin at x=%d, want 49: the widest label sets the column",
+			got[display.InkRed].Min.X)
+	}
+	// Both bars share that edge, which a row of rows could not manage.
+	if got[display.InkRed].Dy() < 20 {
+		t.Errorf("the bars cover %v; both rows should have one", got[display.InkRed])
+	}
+}
+
+func TestGridTracksAndPlacement(t *testing.T) {
+	tests := []struct {
+		name string
+		css  string
+		body string
+		want image.Rectangle
+	}{
+		{"fr shares", `grid-template-columns: 1fr 3fr;`,
+			`<i class="a"></i><i class="b"></i>`, image.Rect(25, 0, 100, 50)},
+		{"repeat", `grid-template-columns: repeat(4, 1fr);`,
+			`<i class="a"></i><i class="b"></i>`, image.Rect(25, 0, 50, 50)},
+		{"fixed and fr", `grid-template-columns: 20px 1fr;`,
+			`<i class="a"></i><i class="b"></i>`, image.Rect(20, 0, 100, 50)},
+		{"explicit line", `grid-template-columns: repeat(3, 1fr);`,
+			`<i class="a"></i><i class="b" style="grid-column: 3"></i>`, image.Rect(67, 0, 100, 50)},
+		{"span", `grid-template-columns: repeat(4, 1fr);`,
+			`<i class="a"></i><i class="b" style="grid-column: span 2"></i>`, image.Rect(25, 0, 75, 50)},
+		{"column gap", `grid-template-columns: 1fr 1fr; column-gap: 10px;`,
+			`<i class="a"></i><i class="b"></i>`, image.Rect(55, 0, 100, 50)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := boxes(t, `<i class="g">`+test.body+`</i>`,
+				inks+` .g { display: grid; flex-grow: 1; `+test.css+` }`)
+			expect(t, got, display.InkRed, test.want, test.name)
+		})
+	}
+}
+
+// Rows wrap when the columns run out, and an implicit row is as tall as it
+// needs to be.
+func TestGridWrapsOntoImplicitRows(t *testing.T) {
+	got := boxes(t, `<i class="g"><i class="a"></i><i class="a"></i><i class="b"></i></i>`,
+		inks+` .g { display: grid; flex-grow: 1; grid-template-columns: 1fr 1fr; }`)
+	expect(t, got, display.InkRed, image.Rect(0, 25, 50, 50), "the third cell on a second row")
+}
+
+// The grid version of the disk page states no column widths at all. The
+// original had to: four separate rows cannot agree on how wide the names are,
+// so the stylesheet picked fifty pixels by measuring the longest one. Here the
+// grid measures it, and the number is gone along with the need to revisit it.
+func TestTheGridPageStatesNoColumnWidths(t *testing.T) {
+	markupSource, err := pages.ReadFile("testdata/diskgrid.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cssSource, err := pages.ReadFile("testdata/diskgrid.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, warnings, report := render(t, string(markupSource), string(cssSource))
+	for _, warning := range warnings {
+		t.Errorf("markup warning: %s", warning.Message)
+	}
+	for _, warning := range report.Warnings {
+		t.Errorf("compose warning %s: %s", warning.Code, warning.Message)
+	}
+	// The flex version names a width for the labels and another for the
+	// figures; the grid version names neither.
+	flexCSS, err := pages.ReadFile("testdata/disk.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(flexCSS), "flex-basis: 50px") {
+		t.Fatal("the flex version no longer states the label width; this comparison is stale")
+	}
+	if strings.Contains(string(cssSource), "px;") &&
+		strings.Contains(string(cssSource), "grid-template-columns: auto 1fr auto") == false {
+		t.Error("the grid version should size its columns from their contents")
+	}
+}

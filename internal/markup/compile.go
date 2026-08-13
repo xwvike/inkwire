@@ -286,6 +286,7 @@ func (c *compiler) children(node *html.Node, current style, path string) compose
 	}
 
 	var items []compose.LayoutChild
+	var cells []compose.GridChild
 	var placed []compose.Anchor
 	index := 0
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
@@ -312,6 +313,10 @@ func (c *compiler) children(node *html.Node, current style, path string) compose
 			(current.direction == axisColumn && childStyle.autoTop) {
 			items = append(items, compose.LayoutChild{Node: compose.Spacer{}, Grow: 1})
 		}
+		if current.display == displayGrid {
+			cells = append(cells, gridCell(compiled, childStyle))
+			continue
+		}
 		before, after, across := marginsAlong(childStyle, current.direction)
 		if across != (compose.Insets{}) {
 			compiled = compose.Padding{Insets: across, Child: compiled}
@@ -328,11 +333,11 @@ func (c *compiler) children(node *html.Node, current style, path string) compose
 			items = append(items, compose.LayoutChild{Node: compose.Spacer{}, Grow: 1})
 		}
 	}
-	if current.display != displayFlex && current.gap > 0 {
+	if current.display == displayBlock && current.gapSet {
 		c.warn(path, "unsupported-declaration",
 			"gap has no effect on a block container; it spaces flex items")
 	}
-	if len(items) == 0 && len(placed) == 0 {
+	if len(items) == 0 && len(placed) == 0 && len(cells) == 0 {
 		return nil
 	}
 	flow := func(line compose.Node) compose.Node {
@@ -344,6 +349,18 @@ func (c *compiler) children(node *html.Node, current style, path string) compose
 			return layered
 		}
 		return compose.Stack{Children: []compose.Node{line, layered}}
+	}
+
+	if current.display == displayGrid {
+		if len(cells) == 0 {
+			return flow(nil)
+		}
+		return flow(compose.Grid{
+			Columns: current.columns, Rows: current.rows,
+			ColumnGap: current.columnGap, RowGap: current.rowGap,
+			AlignItems: current.alignItems, JustifyItems: crossOfMain(current.justify),
+			Children: cells,
+		})
 	}
 	if current.display == displayFlex {
 		if current.spaceEvenly {
@@ -375,6 +392,20 @@ func anchorFor(child style, node compose.Node) compose.Anchor {
 	}
 	anchor.Width, anchor.Height = lengthOf(child.width), lengthOf(child.height)
 	return anchor
+}
+
+// gridCell carries a child's own placement into the grid, where a line number
+// and a span are the whole of what a cell needs to know.
+func gridCell(node compose.Node, child style) compose.GridChild {
+	return compose.GridChild{
+		Node:        node,
+		Column:      child.cellColumn[0],
+		ColumnSpan:  child.cellColumn[1],
+		Row:         child.cellRow[0],
+		RowSpan:     child.cellRow[1],
+		AlignSelf:   child.alignSelf,
+		JustifySelf: child.justifySelf,
+	}
 }
 
 // spread puts a growing spacer between each pair of items, which is what
