@@ -100,7 +100,75 @@ func NewBuiltinFontRegistry() (*FontRegistry, error) {
 			}
 		}
 	}
+	if err := registerEnlargements(registry, faces); err != nil {
+		return nil, err
+	}
 	return registry, nil
+}
+
+// enlargements are the whole-number factors the bundled strikes are offered at.
+// Three is the practical limit: a 16 pixel strike at 3x is 48 pixels, which is
+// a third of the short edge of the largest panel known here.
+var enlargements = []int{2, 3}
+
+// registerEnlargements offers each strike at whole-number multiples, so that a
+// document can ask for a size a bigger panel needs without a second font file.
+//
+// A ui set is enlarged as a set, with both of its faces taking the same factor.
+// The two faces are chosen so their baselines line up, and scaling them apart
+// would break the alignment that pairing exists for.
+func registerEnlargements(registry *FontRegistry, faces map[string]Face) error {
+	pairs := map[string][2]string{
+		"ui-12": {"MONACO10", "HZK12"},
+		"ui-14": {"MONACO12", "HZK14"},
+		"ui-16": {"MONACO14", "HZK16"},
+	}
+	base := map[string]map[int]string{
+		"ui":     {12: "ui-12", 14: "ui-14", 16: "ui-16"},
+		"hzk":    {12: "HZK12", 14: "HZK14", 16: "HZK16"},
+		"monaco": {10: "MONACO10", 12: "MONACO12", 14: "MONACO14", 16: "MONACO16"},
+	}
+	for _, factor := range enlargements {
+		scaled := make(map[string]Face, len(faces))
+		for name, face := range faces {
+			enlarged, err := newScaledFace(face, factor)
+			if err != nil {
+				return err
+			}
+			scaled[name] = enlarged
+			if err := registerSet(registry, enlarged.Name(), enlarged); err != nil {
+				return err
+			}
+		}
+		for name, pair := range pairs {
+			setName := fmt.Sprintf("%s@%dx", name, factor)
+			if err := registerSet(registry, setName, scaled[pair[0]], scaled[pair[1]]); err != nil {
+				return err
+			}
+		}
+		for family, sizes := range base {
+			for size, setName := range sizes {
+				enlargedSet := setName
+				if family == "ui" {
+					enlargedSet = fmt.Sprintf("%s@%dx", setName, factor)
+				} else {
+					enlargedSet = scaled[setName].Name()
+				}
+				if err := registry.RegisterFamily(family, size*factor, enlargedSet); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func registerSet(registry *FontRegistry, name string, faces ...Face) error {
+	set, err := NewFontSet(name, faces...)
+	if err != nil {
+		return err
+	}
+	return registry.Register(set)
 }
 
 func BundledFontSource() string {

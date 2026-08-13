@@ -123,10 +123,14 @@ func TestBuiltinFontsExposeNativeSizesAndStyles(t *testing.T) {
 
 func TestFontRegistryMatchesLogicalUISizes(t *testing.T) {
 	registry := builtinRegistry(t)
-	if got, want := registry.Sizes("ui"), []int{12, 14, 16}; !slices.Equal(got, want) {
+	// The bundled strikes, followed by the whole-number enlargements of each.
+	// They are listed in full rather than derived, so that adding a factor is
+	// a deliberate edit here as well as in the registry.
+	if got, want := registry.Sizes("ui"), []int{12, 14, 16, 24, 28, 32, 36, 42, 48}; !slices.Equal(got, want) {
 		t.Fatalf("ui sizes = %v, want %v", got, want)
 	}
-	if got, want := registry.Sizes("monaco"), []int{10, 12, 14, 16}; !slices.Equal(got, want) {
+	if got, want := registry.Sizes("monaco"),
+		[]int{10, 12, 14, 16, 20, 24, 28, 30, 32, 36, 42, 48}; !slices.Equal(got, want) {
 		t.Fatalf("Monaco sizes = %v, want %v", got, want)
 	}
 	set, ok := registry.Match("ui", 14)
