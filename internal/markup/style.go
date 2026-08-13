@@ -68,6 +68,7 @@ type style struct {
 	lineHeight int
 	wrap       display.WrapMode
 	clip       bool
+	clipShape  compose.Shape
 	hidden     bool
 	dashed     bool
 	absolute   bool
@@ -237,6 +238,8 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 			// collapses on the way in and cannot get back.
 			report(fmt.Sprintf("white-space: %s is not supported; use normal or nowrap", value))
 		}
+	case "clip-path":
+		s.clipShape = parseClipPath(value, property, report)
 	case "overflow":
 		switch value {
 		case "hidden", "clip":
@@ -706,6 +709,108 @@ func parseGridLine(value, property string, report func(string)) [2]int {
 		return [2]int{}
 	}
 	return [2]int{line, 1}
+}
+
+// parseClipPath reads the basic shapes. They are the ones that describe an
+// outline rather than an image, which is what this panel can clip to: the
+// clip is a mask of set and unset pixels, and a shape says exactly which.
+func parseClipPath(value, property string, report func(string)) compose.Shape {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "none" {
+		return compose.Shape{}
+	}
+	name, argument, ok := strings.Cut(strings.TrimSuffix(trimmed, ")"), "(")
+	if !ok {
+		report(fmt.Sprintf("%s: %s is not a shape function", property, value))
+		return compose.Shape{}
+	}
+	lengths := func(fields []string) []compose.Length {
+		result := make([]compose.Length, 0, len(fields))
+		for _, field := range fields {
+			size := parseLength(field, property, report)
+			if !size.set {
+				return nil
+			}
+			result = append(result, lengthOf(size))
+		}
+		return result
+	}
+	switch name {
+	case "inset":
+		body, corner, rounded := strings.Cut(argument, " round ")
+		sides := lengths(strings.Fields(body))
+		if len(sides) == 0 || len(sides) > 4 {
+			report(fmt.Sprintf("%s: inset() needs one to four lengths", property))
+			return compose.Shape{}
+		}
+		shape := compose.Shape{Kind: compose.ShapeInset}
+		shape.Insets = [4]compose.Length{sides[0], sides[0], sides[0], sides[0]}
+		if len(sides) > 1 {
+			shape.Insets[1], shape.Insets[3] = sides[1], sides[1]
+		}
+		if len(sides) > 2 {
+			shape.Insets[2] = sides[2]
+		}
+		if len(sides) > 3 {
+			shape.Insets[3] = sides[3]
+		}
+		if rounded {
+			radii := lengths(strings.Fields(corner))
+			if len(radii) != 1 {
+				report(fmt.Sprintf("%s: inset() rounds by a single radius", property))
+				return compose.Shape{}
+			}
+			shape.Corner = radii[0]
+		}
+		return shape
+	case "circle", "ellipse":
+		body, centre, positioned := strings.Cut(argument, " at ")
+		radii := lengths(strings.Fields(body))
+		shape := compose.Shape{Kind: compose.ShapeCircle}
+		if name == "ellipse" {
+			shape.Kind = compose.ShapeEllipse
+			if len(radii) != 2 {
+				report(fmt.Sprintf("%s: ellipse() needs two radii", property))
+				return compose.Shape{}
+			}
+			shape.RadiusX, shape.RadiusY = radii[0], radii[1]
+		} else {
+			if len(radii) > 1 {
+				report(fmt.Sprintf("%s: circle() takes one radius", property))
+				return compose.Shape{}
+			}
+			if len(radii) == 1 {
+				shape.Radius = radii[0]
+			}
+		}
+		if positioned {
+			at := lengths(strings.Fields(centre))
+			if len(at) != 2 {
+				report(fmt.Sprintf("%s: at needs an x and a y", property))
+				return compose.Shape{}
+			}
+			shape.Centre = [2]compose.Length{at[0], at[1]}
+		}
+		return shape
+	case "polygon":
+		shape := compose.Shape{Kind: compose.ShapePolygon}
+		for _, pair := range strings.Split(argument, ",") {
+			at := lengths(strings.Fields(pair))
+			if len(at) != 2 {
+				report(fmt.Sprintf("%s: each polygon corner needs an x and a y", property))
+				return compose.Shape{}
+			}
+			shape.Points = append(shape.Points, [2]compose.Length{at[0], at[1]})
+		}
+		if len(shape.Points) < 3 {
+			report(fmt.Sprintf("%s: a polygon needs at least three corners", property))
+			return compose.Shape{}
+		}
+		return shape
+	}
+	report(fmt.Sprintf(
+		"%s: %s() is not supported; use inset, circle, ellipse or polygon", property, name))
+	return compose.Shape{}
 }
 
 func parseCross(value, property string, report func(string)) (compose.CrossAlignment, bool) {

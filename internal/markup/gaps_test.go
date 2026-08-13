@@ -613,3 +613,98 @@ func TestTheGridPageStatesNoColumnWidths(t *testing.T) {
 		t.Error("the grid version should size its columns from their contents")
 	}
 }
+
+// The panel has clipped to an arbitrary path since early on, and CSS could not
+// reach it: overflow only ever clips to the box. clip-path is the property
+// that says the shape.
+func TestClipPathShapes(t *testing.T) {
+	const filled = `.a { display: block; background: black; flex-grow: 1; }`
+	full := countInk(t, filled)
+
+	tests := []struct {
+		name string
+		css  string
+	}{
+		{"inset", `clip-path: inset(10px);`},
+		{"inset in percent", `clip-path: inset(25%);`},
+		{"rounded inset", `clip-path: inset(0 round 8px);`},
+		{"circle", `clip-path: circle(40%);`},
+		{"circle placed", `clip-path: circle(10px at 20px 20px);`},
+		{"ellipse", `clip-path: ellipse(30% 45%);`},
+		{"polygon", `clip-path: polygon(0 0, 100% 0, 50% 100%);`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			clipped := countInk(t, filled+` .a { `+test.css+` }`)
+			if clipped == 0 {
+				t.Fatalf("%s clipped everything away", test.css)
+			}
+			if clipped >= full {
+				t.Errorf("%s covered %d pixels and the unclipped box covers %d", test.css, clipped, full)
+			}
+		})
+	}
+}
+
+// A triangle keeps its top edge and loses its bottom corners, which a
+// rectangle-shaped clip could not do.
+func TestPolygonClipIsNotJustARectangle(t *testing.T) {
+	got := boxes(t, `<i class="a"></i>`,
+		`.a { display: block; background: black; flex-grow: 1;
+		      clip-path: polygon(50% 0, 100% 100%, 0 100%); }`)
+	// The apex is a single column at the top; the base spans the full width.
+	frame, _ := renderProbe(t, `<i class="a"></i>`,
+		`.a { display: block; background: black; flex-grow: 1;
+		      clip-path: polygon(50% 0, 100% 100%, 0 100%); }`)
+	top, bottom := rowWidth(frame, 1), rowWidth(frame, frame.Height()-1)
+	if top >= bottom {
+		t.Errorf("the shape is %d wide at the top and %d at the bottom; that is not a triangle", top, bottom)
+	}
+	if got[display.InkBlack].Dx() < 50 {
+		t.Errorf("the base only covers %d pixels", got[display.InkBlack].Dx())
+	}
+}
+
+func rowWidth(frame *display.Frame, y int) int {
+	count := 0
+	for x := 0; x < frame.Width(); x++ {
+		if ink, _ := frame.InkAt(x, y); ink == display.InkBlack {
+			count++
+		}
+	}
+	return count
+}
+
+// overflow:hidden on a rounded box clips to the rounded box, not to the
+// rectangle around it.
+func TestOverflowFollowsTheBorderRadius(t *testing.T) {
+	const body = `<i class="o"><i class="fill"></i></i>`
+	const base = `.o { display: block; flex-grow: 1; overflow: hidden; }
+		 .fill { display: block; background: black; width: 100%; height: 100%; }`
+	square := inkIn(t, body, base)
+	rounded := inkIn(t, body, base+` .o { border-radius: 12px; }`)
+	if rounded == 0 || square == 0 {
+		t.Fatalf("nothing was drawn: square=%d rounded=%d", square, rounded)
+	}
+	if rounded >= square {
+		t.Errorf("the rounded clip kept %d pixels and the square one %d; corners should be gone",
+			rounded, square)
+	}
+}
+
+func inkIn(t *testing.T, body, css string) int {
+	t.Helper()
+	frame, said := renderProbe(t, body, css)
+	if frame == nil {
+		t.Fatalf("nothing rendered: %s", said)
+	}
+	count := 0
+	for y := 0; y < frame.Height(); y++ {
+		for x := 0; x < frame.Width(); x++ {
+			if ink, _ := frame.InkAt(x, y); ink == display.InkBlack {
+				count++
+			}
+		}
+	}
+	return count
+}

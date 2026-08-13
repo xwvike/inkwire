@@ -190,16 +190,36 @@ func (c *compiler) element(node *html.Node, parent style, path string) (compose.
 		}
 		layers = append(layers, compose.Rectangle{Radius: current.border.radius, Stroke: stroke})
 	}
+	// overflow confines what is inside the element; the element's own
+	// background and border are drawn regardless. clip-path is the other way
+	// round: it shapes the element itself, so it is applied further out.
 	if current.clip && inner != nil {
-		inner = compose.Clip{Child: inner}
+		if current.border != nil && current.border.radius > 0 {
+			// Clipping to the box means clipping to the box as drawn, and a
+			// rounded border draws a rounded box.
+			inner = compose.ClipShape{Child: inner, Shape: compose.Shape{
+				Kind: compose.ShapeInset, Corner: compose.Pixels(current.border.radius),
+			}}
+		} else {
+			inner = compose.Clip{Child: inner}
+		}
 	}
 	if len(layers) == 0 {
-		return sized(transformed(inner, current), current), current
+		return sized(transformed(shaped(inner, current), current), current), current
 	}
 	if inner != nil {
 		layers = append(layers, inner)
 	}
-	return sized(transformed(compose.Stack{Children: layers}, current), current), current
+	return sized(transformed(shaped(compose.Stack{Children: layers}, current), current), current), current
+}
+
+// shaped confines the whole element to its clip-path, background and border
+// included, which is what clip-path means: the element is that shape.
+func shaped(node compose.Node, s style) compose.Node {
+	if node == nil || s.clipShape.Kind == compose.ShapeNone {
+		return node
+	}
+	return compose.ClipShape{Shape: s.clipShape, Child: node}
 }
 
 // transformed wraps a node when the style asks for a magnification or a turn.
