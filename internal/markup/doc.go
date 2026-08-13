@@ -2,6 +2,28 @@
 // page can be written the way a page is usually written and still end up as
 // the same drawing commands a scene document produces.
 //
+// # What this describes, and what it does not
+//
+// A page here is boxes, text, pictures and where they go. That is what a
+// stylesheet is for and it is the whole of this package's job.
+//
+// It is not for geometry. CSS has no vocabulary for an arc, a polygon or a
+// repeating pattern, and giving it one would mean inventing a dialect that
+// looks like CSS and is not. Those are described by a scene document, and a
+// page embeds one with a scene element:
+//
+//	<scene src="plot.json"></scene>
+//
+// which is how the intraday chart in examples/desk is written: a layout in
+// markup with ninety-six polyline points handed over, since nobody writes
+// those by hand and whatever produced the series produced them too.
+//
+// The division is enforced rather than described. internal/compose carries a
+// table of which nodes belong to a page and which to a drawing, and a test
+// walks this package's source to check it only builds the first kind. It is
+// there because the two formats drifted apart once already without anything
+// noticing.
+//
 // It is not a browser and does not try to be. The panel settles most of the
 // question of what to support: with three inks and no greys there is nothing
 // for opacity, gradients, shadows or antialiasing to do; with bitmap strikes

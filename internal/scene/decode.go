@@ -1,6 +1,20 @@
 // Package scene decodes the versioned JSON page description used by the CLI
 // and transports. It is deliberately separate from compose: JSON is the
 // stable input contract, while compose remains an internal compiler model.
+//
+// # What this describes
+//
+// A scene document can describe a whole page, and it is the only thing that
+// can describe geometry: arcs, polygons, paths, patterns and single pixels.
+// Those are what a generator produces, not what a person writes, which is why
+// they are stated as coordinates rather than as a style.
+//
+// A page written in HTML and CSS reaches them through a scene element, and
+// DecodeNode is the entry point for that: one node, no page size, drawn
+// wherever the page puts it.
+//
+// The division between the two formats is enforced in internal/compose, which
+// carries the table of which nodes belong to which and a test that checks it.
 package scene
 
 import (
