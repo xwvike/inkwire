@@ -479,3 +479,142 @@ func quote(value string) string {
 	encoded, _ := json.Marshal(value)
 	return string(encoded)
 }
+
+func scanResult(address string, rssi int16, id uint16, name string) gicisky.FoundDevice {
+	device := gicisky.FoundDevice{Name: name, RSSI: rssi}
+	device.Address.Set(address)
+	device.Advertised = gicisky.Advertisement{ID: id}
+	device.HasAdvertised = true
+	device.Profile, device.Identified = gicisky.LookupProfile(id, 0)
+	return device
+}
+
+func TestDevicesReportsWhatEachTagIs(t *testing.T) {
+	handler := New(Config{Logf: func(string, ...any) {}, Scan: func(context.Context) ([]gicisky.FoundDevice, error) {
+		return []gicisky.FoundDevice{
+			scanResult("AA:BB:CC:DD:EE:01", -40, 0x0033, "NEMR000001"),
+			// Present, advertising, and not in this build's table.
+			scanResult("AA:BB:CC:DD:EE:02", -70, 0x3FFE, ""),
+		}, nil
+	}})
+	request := httptest.NewRequest(http.MethodGet, "/v1/devices", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Devices []Device `json:"devices"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Devices) != 2 {
+		t.Fatalf("reported %d devices, want 2", len(body.Devices))
+	}
+
+	known := body.Devices[0]
+	if known.Model != `EPD 2.9" BWR` || known.Width != 296 || known.Height != 128 || known.Palette != "BWR" {
+		t.Errorf("identified tag = %+v", known)
+	}
+	if !known.Drivable || !known.Verified || known.ID != "0x0033" {
+		t.Errorf("identified tag should be drivable and verified: %+v", known)
+	}
+
+	// The whole point of reporting an unknown tag is that it is visible but
+	// must not be written to, since its page size would be a guess.
+	unknown := body.Devices[1]
+	if unknown.Drivable {
+		t.Error("an unrecognised tag was reported as drivable")
+	}
+	if unknown.ID != "0x3FFE" {
+		t.Errorf("id = %q, want the advertised id so it can be reported upstream", unknown.ID)
+	}
+	if unknown.Width != 0 || unknown.Model != "" {
+		t.Errorf("an unrecognised tag was given a size or model: %+v", unknown)
+	}
+	if unknown.Address == "" {
+		t.Error("an unrecognised tag was reported without an address")
+	}
+}
+
+// Scanning and writing share one radio, so a scan during a write must be
+// refused the same way a second write is.
+func TestScanIsRefusedWhileTheAdapterIsWriting(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var hold sync.Once
+	handler := New(Config{Logf: func(string, ...any) {},
+		Push: func(context.Context, string, []byte) error {
+			hold.Do(func() {
+				entered <- struct{}{}
+				<-release
+			})
+			return nil
+		},
+		Scan: func(context.Context) ([]gicisky.FoundDevice, error) {
+			return []gicisky.FoundDevice{scanResult("AA:BB:CC:DD:EE:01", -40, 0x0033, "")}, nil
+		}})
+
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() { done <- request(t, handler, "/v1/display?device=writing", testScene) }()
+	<-entered
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/devices", nil))
+	if response.Code != http.StatusConflict {
+		t.Fatalf("scan during a write = %d, want %d: %s", response.Code, http.StatusConflict, response.Body.String())
+	}
+	var refusal struct {
+		Code   string       `json:"code"`
+		Status DeviceStatus `json:"status"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &refusal); err != nil {
+		t.Fatal(err)
+	}
+	if refusal.Code != "device-busy" || refusal.Status.Device != "writing" {
+		t.Errorf("refusal = %+v, want device-busy naming the writing device", refusal)
+	}
+
+	close(release)
+	<-done
+
+	// The scan must succeed once the write is done, and must not have left a
+	// history entry of its own behind.
+	after := httptest.NewRecorder()
+	handler.ServeHTTP(after, httptest.NewRequest(http.MethodGet, "/v1/devices", nil))
+	if after.Code != http.StatusOK {
+		t.Fatalf("scan after the write = %d: %s", after.Code, after.Body.String())
+	}
+	handler.mu.Lock()
+	_, recorded := handler.history[scanHolder]
+	handler.mu.Unlock()
+	if recorded {
+		t.Error("scanning left a per-device history entry, but it writes to no device")
+	}
+}
+
+func TestScanFailureIsReportedWithACode(t *testing.T) {
+	handler := New(Config{Logf: func(string, ...any) {}, Scan: func(context.Context) ([]gicisky.FoundDevice, error) {
+		return nil, errors.New("enable Bluetooth: adapter is off")
+	}})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/devices", nil))
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadGateway)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["code"] != "scan-failed" {
+		t.Errorf("code = %q, want scan-failed", body["code"])
+	}
+	// A failed scan still hands the radio back.
+	handler.mu.Lock()
+	active := handler.active
+	handler.mu.Unlock()
+	if active != "" {
+		t.Errorf("the adapter is still held by %q after a failed scan", active)
+	}
+}

@@ -44,8 +44,40 @@ type Config struct {
 	// the defaults above.
 	Attempts    int
 	PushTimeout time.Duration
+	// ScanTimeout bounds one /v1/devices request. Zero selects the driver's
+	// own default, which is sized to the tag's advertising interval.
+	ScanTimeout time.Duration
 	Logf        func(string, ...any)
 	Push        func(context.Context, string, []byte) error
+	Scan        func(context.Context) ([]gicisky.FoundDevice, error)
+}
+
+// scanHolder names the radio's holder while a scan is running. Scanning and
+// writing share one adapter, so they share one claim; this is not a device and
+// therefore never enters the per-device history.
+const scanHolder = "(scan)"
+
+// Device is one tag as the scan found it. Only fields something acts on are
+// reported: the model table also carries rotation, mirroring and compression,
+// but nothing encodes with them yet, and an unread field is one that drifts.
+type Device struct {
+	Address string `json:"address"`
+	Name    string `json:"name,omitempty"`
+	RSSI    int16  `json:"rssi"`
+	// Voltage is the tag's own reading. No charge percentage accompanies it:
+	// a coin cell's voltage curve is not linear, and a derived percentage
+	// would read as a measurement rather than as the guess it would be.
+	Voltage  float64 `json:"voltage,omitempty"`
+	ID       string  `json:"id,omitempty"`
+	Model    string  `json:"model,omitempty"`
+	Width    int     `json:"width,omitempty"`
+	Height   int     `json:"height,omitempty"`
+	Palette  string  `json:"palette,omitempty"`
+	Verified bool    `json:"verified"`
+	// Drivable is false when the tag is present but this build cannot say
+	// what panel it has, which is exactly when writing to it would be a
+	// guess rather than a render.
+	Drivable bool `json:"drivable"`
 }
 
 // DeviceStatus is everything the server knows about one panel. It rides along
@@ -66,8 +98,10 @@ type Handler struct {
 	baseDir     string
 	attempts    int
 	pushTimeout time.Duration
+	scanTimeout time.Duration
 	logf        func(string, ...any)
 	push        func(context.Context, string, []byte) error
+	scan        func(context.Context) ([]gicisky.FoundDevice, error)
 	mux         *http.ServeMux
 
 	mu      sync.Mutex
@@ -89,6 +123,9 @@ func New(config Config) *Handler {
 	if config.PushTimeout <= 0 {
 		config.PushTimeout = DefaultPushTimeout
 	}
+	if config.ScanTimeout <= 0 {
+		config.ScanTimeout = gicisky.DefaultScanTimeout
+	}
 	if config.Logf == nil {
 		config.Logf = log.Printf
 	}
@@ -98,15 +135,72 @@ func New(config Config) *Handler {
 		baseDir:     config.BaseDir,
 		attempts:    config.Attempts,
 		pushTimeout: config.PushTimeout,
+		scanTimeout: config.ScanTimeout,
 		logf:        config.Logf,
 		push:        config.Push,
+		scan:        config.Scan,
 		mux:         http.NewServeMux(),
 		history:     make(map[string]DeviceStatus),
 	}
 	handler.mux.HandleFunc("POST /v1/render", handler.render)
 	handler.mux.HandleFunc("POST /v1/encode", handler.encode)
 	handler.mux.HandleFunc("POST /v1/display", handler.display)
+	handler.mux.HandleFunc("GET /v1/devices", handler.devices)
 	return handler
+}
+
+// devices reports every tag advertising nearby and what panel each one has.
+// It takes the same claim a write does, because both need the radio.
+func (h *Handler) devices(writer http.ResponseWriter, request *http.Request) {
+	busy, claimed := h.claim(scanHolder)
+	if !claimed {
+		writeStatus(writer, http.StatusConflict, "device-busy",
+			fmt.Errorf("the adapter is busy writing %s", busy.Device), busy)
+		return
+	}
+	ctx, cancel := context.WithTimeout(request.Context(), h.scanTimeout+5*time.Second)
+	defer cancel()
+	found, err := h.scanDevices(ctx)
+	h.release(scanHolder, 0, err)
+	if err != nil {
+		writeError(writer, http.StatusBadGateway, "scan-failed", err)
+		return
+	}
+	devices := make([]Device, 0, len(found))
+	for _, device := range found {
+		devices = append(devices, describeDevice(device))
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"devices": devices})
+}
+
+func describeDevice(found gicisky.FoundDevice) Device {
+	device := Device{Address: found.Address.String(), Name: found.Name, RSSI: found.RSSI}
+	if found.HasAdvertised {
+		device.ID = fmt.Sprintf("0x%04X", found.Advertised.ID)
+		device.Voltage = found.Advertised.Voltage()
+	}
+	if !found.Identified {
+		return device
+	}
+	device.Model = found.Profile.Model
+	device.Width = found.Profile.Width
+	device.Height = found.Profile.Height
+	device.Palette = found.Profile.Palette.String()
+	device.Verified = found.Profile.Verified
+	device.Drivable = true
+	return device
+}
+
+func (h *Handler) scanDevices(ctx context.Context) ([]gicisky.FoundDevice, error) {
+	if h.scan != nil {
+		return h.scan(ctx)
+	}
+	if err := h.adapter.Enable(); err != nil {
+		return nil, fmt.Errorf("enable Bluetooth: %w", err)
+	}
+	driver := h.newDriver("")
+	driver.ScanTimeout = h.scanTimeout
+	return driver.ScanAll(ctx)
 }
 
 func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -206,6 +300,11 @@ func (h *Handler) claim(target string) (DeviceStatus, bool) {
 func (h *Handler) release(target string, size int, err error) DeviceStatus {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if target == scanHolder {
+		// A scan writes nothing, so it leaves no per-device history behind.
+		h.active = ""
+		return DeviceStatus{Device: target, State: "idle"}
+	}
 	record := h.history[target]
 	record.Device = target
 	record.LastWrite = time.Now().UTC().Format(time.RFC3339)

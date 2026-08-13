@@ -40,21 +40,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "encode":
 		return runEncode(args[1:], stdout, stderr)
 	case "scan":
-		if len(args) != 1 {
-			printUsage(stderr)
-			return 2
-		}
-		if !enableBluetooth(logger) {
-			return 1
-		}
-		driver := gicisky.NewDriver(bluetooth.DefaultAdapter, gicisky.TargetAddress, logger.Printf)
-		device, err := driver.Find(ctx)
-		if err != nil {
-			logger.Print(err)
-			return 1
-		}
-		fmt.Fprintf(stdout, "%s %s RSSI=%d\n", device.Address.String(), device.Name, device.RSSI)
-		return 0
+		return runScan(ctx, args[1:], logger, stdout, stderr)
 	case "push":
 		return runPushScene(ctx, args[1:], logger, stderr)
 	case "push-payload":
@@ -97,6 +83,65 @@ func runServe(ctx context.Context, args []string, logger *log.Logger, stderr io.
 		return 1
 	}
 	return 0
+}
+
+func runScan(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("scan", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	timeout := flags.Duration("timeout", gicisky.DefaultScanTimeout, "how long to listen for advertisements")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "usage: inkwire scan [-timeout 15s]")
+		return 2
+	}
+	if !enableBluetooth(logger) {
+		return 1
+	}
+	driver := gicisky.NewDriver(bluetooth.DefaultAdapter, "", logger.Printf)
+	driver.ScanTimeout = *timeout
+	devices, err := driver.ScanAll(ctx)
+	if err != nil {
+		logger.Print(err)
+		return 1
+	}
+	if len(devices) == 0 {
+		fmt.Fprintln(stdout, "no tags found")
+		return 1
+	}
+	printDevices(stdout, devices)
+	return 0
+}
+
+func printDevices(writer io.Writer, devices []gicisky.FoundDevice) {
+	fmt.Fprintf(writer, "%-38s %-13s %5s %5s  %-15s %-9s %s\n",
+		"ADDRESS", "NAME", "RSSI", "BATT", "MODEL", "SIZE", "PALETTE")
+	for _, device := range devices {
+		model, size, palette := "unknown", "", ""
+		switch {
+		case device.Identified:
+			model = device.Profile.Model
+			size = fmt.Sprintf("%dx%d", device.Profile.Width, device.Profile.Height)
+			palette = device.Profile.Palette.String()
+			if !device.Profile.Verified {
+				palette += " (unverified)"
+			}
+		case device.HasAdvertised:
+			// The tag said what it is and this build does not recognise it.
+			// Saying so is more useful than omitting the tag entirely.
+			model = fmt.Sprintf("id 0x%04X", device.Advertised.ID)
+			palette = "unrecognised model"
+		default:
+			palette = "no advertisement data"
+		}
+		battery := "-"
+		if device.HasAdvertised {
+			battery = fmt.Sprintf("%.1fV", device.Advertised.Voltage())
+		}
+		fmt.Fprintf(writer, "%-38s %-13s %5d %5s  %-15s %-9s %s\n",
+			device.Address.String(), device.Name, device.RSSI, battery, model, size, palette)
+	}
 }
 
 func runRender(args []string, stdout, stderr io.Writer) int {
@@ -301,7 +346,7 @@ func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "usage: inkwire render [-o preview.png] <scene.json>")
 	fmt.Fprintln(writer, "       inkwire encode [-o payload.bin] <scene.json>")
 	fmt.Fprintln(writer, "       inkwire push [-device MAC-or-name] <scene.json>")
-	fmt.Fprintln(writer, "       inkwire scan")
+	fmt.Fprintln(writer, "       inkwire scan [-timeout 15s]")
 	fmt.Fprintln(writer, "       inkwire serve [-listen address] [-device MAC-or-name] [-assets directory]")
 	fmt.Fprintln(writer, "       inkwire push-payload [MAC-or-name] <payload.bin>")
 }

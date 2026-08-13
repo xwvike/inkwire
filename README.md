@@ -7,7 +7,7 @@
 | 项目 | 当前支持 |
 |---|---|
 | 设备 |  Gicisky / PICKSMART 电子纸标签 |
-| 广播名称 | `PICKSMART`、`NEMR92943861` |
+| 广播名称 | `PICKSMART`、`NEMR<MAC后八位>` |
 | 默认 BLE Public 地址 | `FF:FF:92:94:38:61` |
 | 屏幕 | 296x128 像素，黑、白、红三色，无灰度 |
 | 页面方向 | 横屏 296x128；顺时针或逆时针竖屏 128x296 |
@@ -22,7 +22,7 @@
 | `./inkwire render [-o preview.png] <scene.json>` | 渲染 PNG 预览；未指定 `-o` 时与 JSON 同名 |
 | `./inkwire encode [-o payload.bin] <scene.json>` | 生成设备 payload；未指定 `-o` 时与 JSON 同名 |
 | `./inkwire push [-device MAC-or-name] <scene.json>` | 渲染并写入设备 |
-| `./inkwire scan` | 查找当前配置的标签并打印地址、名称和 RSSI |
+| `./inkwire scan [-timeout 15s]` | 列出附近所有标签，并识别每个的型号、分辨率、颜色和电压 |
 | `./inkwire serve [-listen address] [-device MAC-or-name] [-assets directory]` | 启动 HTTP 服务 |
 | `./inkwire push-payload [MAC-or-name] <payload.bin>` | 写入已经编码的 payload |
 
@@ -34,6 +34,27 @@
 ```
 
 `-device` 支持 BLE 地址或广播名称。默认地址 `FF:FF:92:94:38:61`；
+
+### 标签识别
+
+标签在 BLE 广播的 manufacturer data 里报告自己的型号，厂商 ID `0x5053`（ASCII `PS`，PICKSMART），**不需要连接即可读取**：
+
+```
+byte   0       1        2   3        4
+       id 低位  电池     固件版本      id 高位
+```
+
+型号 ID 取 `(data[4] << 8) | data[0]` 的低 14 位。广播名不携带型号信息——`NEMR` 后面是 MAC 后八位，不同尺寸的标签名字格式相同，而且有些广播包里名字直接是空的。**因此识别一律以 manufacturer data 为准。**
+
+```
+$ ./inkwire scan
+ADDRESS                                NAME           RSSI  BATT  MODEL           SIZE      PALETTE
+e2ada7d1-187a-caea-21e4-d895f8240b62   NEMR92943861    -50  3.0V  EPD 2.9" BWR    296x128   BWR
+```
+
+型号表覆盖 11 个型号（212×104 到 960×640，BW / BWR / BWRY），移植自 [hass-gicisky](https://github.com/eigger/hass-gicisky)（MIT，© 2025 eigger）。**其中只有 `0x0033`（2.9" BWR）经过实机验证**，其余按上游数据采信，在 `scan` 输出中标注 `unverified`。
+
+认不出型号的标签仍会被列出，但标记为不可驱动——此时页面尺寸只能靠猜，而猜错就是往面板写入形状错误的数据。
 
 
 ## HTTP
@@ -51,6 +72,7 @@
 | `POST /v1/render` | PNG，`Content-Type: image/png` |
 | `POST /v1/encode` | 9472 字节设备 payload，`Content-Type: application/octet-stream` |
 | `POST /v1/display` | 写入设备后的 JSON 结果 |
+| `GET /v1/devices` | 扫描并列出附近所有标签及其型号信息 |
 
 服务没有鉴权，而且每个请求都能驱动硬件，因此 `-listen` 只接受回环地址，绑定其他地址会直接退出。
 

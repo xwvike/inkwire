@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"tinygo.org/x/bluetooth"
@@ -63,6 +65,15 @@ type FoundDevice struct {
 	Address bluetooth.Address
 	Name    string
 	RSSI    int16
+
+	// Advertised is present when the tag included manufacturer data. Profile
+	// is only filled in when that id is one this build knows; an unknown tag
+	// is still reported, because refusing to mention it would be worse than
+	// saying it cannot be driven.
+	Advertised    Advertisement
+	HasAdvertised bool
+	Profile       Profile
+	Identified    bool
 }
 
 func (d *Driver) Find(ctx context.Context) (FoundDevice, error) {
@@ -113,6 +124,92 @@ func (d *Driver) Find(ctx context.Context) (FoundDevice, error) {
 		<-scanDone
 		return FoundDevice{}, fmt.Errorf("PICKSMART tag not found (target %s): %w", d.Target, scanCtx.Err())
 	}
+}
+
+// ScanAll reports every Gicisky tag advertising nearby instead of stopping at
+// the first match, and identifies each one from its advertisement.
+//
+// Results are merged by address across packets on purpose. A tag does not put
+// its local name and its manufacturer data in the same advertisement, so a
+// single packet tells you either what it is called or what it is, never both.
+func (d *Driver) ScanAll(ctx context.Context) ([]FoundDevice, error) {
+	if d.Adapter == nil {
+		return nil, errors.New("Bluetooth adapter is nil")
+	}
+	timeout := d.ScanTimeout
+	if timeout <= 0 {
+		timeout = DefaultScanTimeout
+	}
+
+	var mutex sync.Mutex
+	found := make(map[string]*FoundDevice)
+	scanDone := make(chan error, 1)
+	go func() {
+		scanDone <- d.Adapter.Scan(func(_ *bluetooth.Adapter, result bluetooth.ScanResult) {
+			advertised, ok := giciskyAdvertisement(result)
+			name := result.LocalName()
+			// Without manufacturer data the only evidence left is the name,
+			// and the tag advertises the same name shape whatever panel it
+			// has, so it is a weaker signal kept only for merging.
+			if !ok && !looksLikeTag(name) {
+				return
+			}
+			mutex.Lock()
+			defer mutex.Unlock()
+			key := result.Address.String()
+			device := found[key]
+			if device == nil {
+				device = &FoundDevice{Address: result.Address}
+				found[key] = device
+			}
+			if name != "" {
+				device.Name = name
+			}
+			device.RSSI = result.RSSI
+			if ok {
+				device.Advertised, device.HasAdvertised = advertised, true
+				device.Profile, device.Identified = LookupProfile(advertised.ID, advertised.Firmware)
+			}
+		})
+	}()
+
+	scanCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	<-scanCtx.Done()
+	_ = d.Adapter.StopScan()
+	if err := <-scanDone; err != nil {
+		return nil, fmt.Errorf("scan: %w", err)
+	}
+
+	mutex.Lock()
+	defer mutex.Unlock()
+	devices := make([]FoundDevice, 0, len(found))
+	for _, device := range found {
+		devices = append(devices, *device)
+	}
+	// Strongest first, because that is the one within reach; the address
+	// breaks ties so repeated scans list a fixed set in a fixed order.
+	slices.SortFunc(devices, func(a, b FoundDevice) int {
+		if a.RSSI != b.RSSI {
+			return int(b.RSSI) - int(a.RSSI)
+		}
+		return strings.Compare(a.Address.String(), b.Address.String())
+	})
+	return devices, nil
+}
+
+func giciskyAdvertisement(result bluetooth.ScanResult) (Advertisement, bool) {
+	for _, element := range result.ManufacturerData() {
+		if element.CompanyID != ManufacturerCompanyID {
+			continue
+		}
+		return ParseAdvertisement(element.Data)
+	}
+	return Advertisement{}, false
+}
+
+func looksLikeTag(name string) bool {
+	return strings.EqualFold(name, TargetName) || strings.HasPrefix(strings.ToUpper(name), "NEMR")
 }
 
 func (d *Driver) Push(ctx context.Context, payload []byte) error {
