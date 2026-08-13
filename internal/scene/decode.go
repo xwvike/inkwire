@@ -73,6 +73,18 @@ func (d Decoder) Decode(reader io.Reader) (compose.Document, error) {
 	return document, nil
 }
 
+// DecodeNode reads a single node rather than a whole document, for the case
+// where a page is written some other way and only part of it is described
+// here. A fragment has no page size, orientation or background: it is drawn
+// wherever the thing embedding it puts it.
+func (d Decoder) DecodeNode(source []byte) (compose.Node, error) {
+	node, err := d.decodeNode(source, "node")
+	if err != nil {
+		return nil, err
+	}
+	return node, nil
+}
+
 func (d Decoder) DecodeFile(path string) (compose.Document, error) {
 	file, err := os.Open(path)
 	if err != nil {

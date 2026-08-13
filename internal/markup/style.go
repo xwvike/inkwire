@@ -15,6 +15,9 @@ const (
 	displayBlock displayMode = iota
 	displayFlex
 	displayGrid
+	// displayContents draws no box of its own; its children take its place
+	// in the parent, which is how a wrapper element stays out of a grid.
+	displayContents
 	displayNone
 )
 
@@ -67,6 +70,7 @@ type style struct {
 	textVAlign display.VerticalAlign
 	lineHeight int
 	wrap       display.WrapMode
+	preserve   bool
 	clip       bool
 	clipShape  compose.Shape
 	hidden     bool
@@ -116,6 +120,7 @@ func (s style) inherited() style {
 		textVAlign: s.textVAlign,
 		lineHeight: s.lineHeight,
 		wrap:       s.wrap,
+		preserve:   s.preserve,
 	}
 }
 
@@ -157,6 +162,8 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 			s.display, s.inline = displayGrid, false
 		case "inline-grid":
 			s.display, s.inline = displayGrid, false
+		case "contents":
+			s.display, s.inline = displayContents, false
 		case "none":
 			s.display = displayNone
 		case "inline":
@@ -228,15 +235,21 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 	case "line-height":
 		s.lineHeight = parseLength(value, property, report).px()
 	case "white-space":
+		// The two questions white-space answers are whether runs of spaces
+		// survive and whether a long line wraps, and the values are the four
+		// combinations of those.
 		switch value {
 		case "normal":
-			s.wrap = display.WrapRunes
+			s.wrap, s.preserve = display.WrapRunes, false
 		case "nowrap":
-			s.wrap = display.NoWrap
+			s.wrap, s.preserve = display.NoWrap, false
+		case "pre":
+			s.wrap, s.preserve = display.NoWrap, true
+		case "pre-wrap":
+			s.wrap, s.preserve = display.WrapRunes, true
 		default:
-			// pre and its relatives keep the source's own spacing, which this
-			// collapses on the way in and cannot get back.
-			report(fmt.Sprintf("white-space: %s is not supported; use normal or nowrap", value))
+			report(fmt.Sprintf(
+				"white-space: %s is not supported; use normal, nowrap, pre or pre-wrap", value))
 		}
 	case "clip-path":
 		s.clipShape = parseClipPath(value, property, report)
@@ -588,7 +601,7 @@ func (s *style) inheritOne(property string, inherited style) {
 	case "line-height":
 		s.lineHeight = inherited.lineHeight
 	case "white-space":
-		s.wrap = inherited.wrap
+		s.wrap, s.preserve = inherited.wrap, inherited.preserve
 	}
 }
 

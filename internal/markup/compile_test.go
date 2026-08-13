@@ -2,7 +2,6 @@ package markup
 
 import (
 	"bytes"
-	"embed"
 	"fmt"
 	"image/color"
 	"os"
@@ -14,13 +13,37 @@ import (
 	"github.com/xwvike/inkwire/internal/scene"
 )
 
-//go:embed testdata
-var pages embed.FS
+// The pages live beside the scene documents they were rewritten from, so a
+// reader comparing the two formats finds them side by side rather than one of
+// them buried in a test directory.
+const examples = "../../examples/desk/"
 
-// Each page here is a rewrite of the scene document of the same name. Pixel
-// identity against those documents is what keeps two authoring formats from
-// becoming two renderers.
-func rewritten() []string { return []string{"disk", "claude", "tasks", "btc"} }
+// rewritten names every page that exists in both formats, by the directory and
+// base name that hold them. Pixel identity between the two is what keeps two
+// authoring formats from becoming two renderers.
+//
+// The pages that are not here cannot be: they exist to show arcs, circles,
+// polygons, patterns and paths, and CSS has no way to ask for those. That is
+// the same boundary chart.json sits on, and it is a boundary rather than a gap.
+func rewritten() [][2]string {
+	return [][2]string{
+		{"../../examples/desk/", "disk"},
+		{"../../examples/desk/", "claude"},
+		{"../../examples/desk/", "tasks"},
+		{"../../examples/desk/", "btc"},
+		{"../../examples/text_showcase/", "page"},
+		{"../../examples/schema_quickstart/", "page"},
+	}
+}
+
+func readPage(t *testing.T, dir, name, extension string) []byte {
+	t.Helper()
+	source, err := os.ReadFile(dir + name + extension)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return source
+}
 
 func render(t *testing.T, markupSource, cssSource string) (*display.Frame, []Warning, compose.Report) {
 	t.Helper()
@@ -47,22 +70,17 @@ func render(t *testing.T, markupSource, cssSource string) (*display.Frame, []War
 // the panel as the same drawing commands the scene document produces. Anything
 // less and the two authoring formats would drift into two renderers.
 func TestTheHTMLPagesMatchTheirSceneDocumentsExactly(t *testing.T) {
-	for _, name := range rewritten() {
-		t.Run(name, func(t *testing.T) { assertSamePixels(t, name) })
+	for _, page := range rewritten() {
+		dir, name := page[0], page[1]
+		label := strings.TrimSuffix(strings.TrimPrefix(dir, "../../examples/"), "/") + "/" + name
+		t.Run(label, func(t *testing.T) { assertSamePixels(t, dir, name) })
 	}
 }
 
-func assertSamePixels(t *testing.T, name string) {
+func assertSamePixels(t *testing.T, dir, name string) {
 	t.Helper()
-	markupSource, err := pages.ReadFile("testdata/" + name + ".html")
-	if err != nil {
-		t.Fatal(err)
-	}
-	cssSource, err := pages.ReadFile("testdata/" + name + ".css")
-	if err != nil {
-		t.Fatal(err)
-	}
-	fromMarkup, warnings, report := render(t, string(markupSource), string(cssSource))
+	fromMarkup, warnings, report := render(t,
+		string(readPage(t, dir, name, ".html")), string(readPage(t, dir, name, ".css")))
 	for _, warning := range warnings {
 		t.Errorf("markup warning %s: %s", warning.Code, warning.Message)
 	}
@@ -70,10 +88,7 @@ func assertSamePixels(t *testing.T, name string) {
 		t.Errorf("compose warning %s at %s: %s", warning.Code, warning.Path, warning.Message)
 	}
 
-	sceneSource, err := os.ReadFile("../../examples/desk/" + name + ".json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	sceneSource := readPage(t, dir, name, ".json")
 	result, err := (scene.Decoder{}).Render(bytes.NewReader(sceneSource))
 	if err != nil {
 		t.Fatal(err)

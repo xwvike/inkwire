@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"os"
 	"strings"
 	"testing"
 
@@ -584,11 +585,11 @@ func TestGridWrapsOntoImplicitRows(t *testing.T) {
 // so the stylesheet picked fifty pixels by measuring the longest one. Here the
 // grid measures it, and the number is gone along with the need to revisit it.
 func TestTheGridPageStatesNoColumnWidths(t *testing.T) {
-	markupSource, err := pages.ReadFile("testdata/diskgrid.html")
+	markupSource, err := os.ReadFile(examples + "diskgrid.html")
 	if err != nil {
 		t.Fatal(err)
 	}
-	cssSource, err := pages.ReadFile("testdata/diskgrid.css")
+	cssSource, err := os.ReadFile(examples + "diskgrid.css")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -601,7 +602,7 @@ func TestTheGridPageStatesNoColumnWidths(t *testing.T) {
 	}
 	// The flex version names a width for the labels and another for the
 	// figures; the grid version names neither.
-	flexCSS, err := pages.ReadFile("testdata/disk.css")
+	flexCSS, err := os.ReadFile(examples + "disk.css")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -707,4 +708,62 @@ func inkIn(t *testing.T, body, css string) int {
 		}
 	}
 	return count
+}
+
+// An image is content rather than a container, and it was taking a shortcut
+// out of the compiler that skipped clipping and transforming. A circular
+// portrait came out square and said nothing about it.
+func TestAnImageIsClippedAndTransformedLikeAnythingElse(t *testing.T) {
+	compiler := Compiler{Images: func(string) (image.Image, error) {
+		source := image.NewNRGBA(image.Rect(0, 0, 8, 8))
+		for y := 0; y < 8; y++ {
+			for x := 0; x < 8; x++ {
+				source.Set(x, y, image.Black)
+			}
+		}
+		return source, nil
+	}}
+	inkFor := func(t *testing.T, css string) int {
+		t.Helper()
+		document, err := compiler.Compile(
+			`<div class="page"><img src="p.png" class="a"></div>`,
+			`.page { display: flex; width: 60px; height: 60px; background: white; } `+css)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, warning := range document.Warnings {
+			t.Errorf("warning: %s", warning.Message)
+		}
+		composed, _ := compose.NewDefaultCompiler()
+		compiled, _, err := composed.Compile(compose.Document{Size: image.Pt(60, 60), Root: document.Root})
+		if err != nil {
+			t.Fatal(err)
+		}
+		frame, err := compiled.Render()
+		if err != nil {
+			t.Fatal(err)
+		}
+		count := 0
+		for y := 0; y < frame.Height(); y++ {
+			for x := 0; x < frame.Width(); x++ {
+				if ink, _ := frame.InkAt(x, y); ink == display.InkBlack {
+					count++
+				}
+			}
+		}
+		return count
+	}
+
+	square := inkFor(t, `.a { flex-grow: 1; }`)
+	circle := inkFor(t, `.a { flex-grow: 1; clip-path: circle(50%); }`)
+	if square == 0 {
+		t.Fatal("the image drew nothing")
+	}
+	if circle >= square {
+		t.Errorf("clipping the image to a circle kept %d pixels of %d", circle, square)
+	}
+	// A circle inscribed in a square covers about π/4 of it.
+	if ratio := float64(circle) / float64(square); ratio < 0.6 || ratio > 0.9 {
+		t.Errorf("the circle covers %.2f of the square, which is not a circle", ratio)
+	}
 }

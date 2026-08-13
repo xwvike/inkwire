@@ -39,6 +39,16 @@ type compiler struct {
 	// reported once per visit.
 	computedFor map[*html.Node]style
 	images      func(string) (stdimage.Image, error)
+	scenes      func(SceneRef) (compose.Node, error)
+}
+
+// SceneRef is what a scene element points at: a file, or the description
+// written inside it.
+type SceneRef struct {
+	// Src is the src attribute, empty when the description is inline.
+	Src string
+	// Inline is the element's own text, empty when Src is set.
+	Inline string
 }
 
 // Compiler holds what compiling a page needs beyond the page itself.
@@ -47,6 +57,15 @@ type Compiler struct {
 	// reported rather than quietly dropped, because a missing picture is the
 	// kind of absence nobody notices until the tag is on the wall.
 	Images func(src string) (stdimage.Image, error)
+	// Scenes resolves a scene element into drawing commands.
+	//
+	// A stylesheet can describe a box and put text or a picture in it; it has
+	// no vocabulary for an arc, a polygon or a pattern, and inventing one
+	// would be inventing a dialect. A scene document has that vocabulary
+	// already, so a page keeps the layout and hands the drawing over. The
+	// resolver is supplied rather than imported so that this package stays
+	// independent of any particular way of writing one.
+	Scenes func(reference SceneRef) (compose.Node, error)
 }
 
 // Compile turns one HTML document and one stylesheet into compose nodes,
@@ -64,7 +83,8 @@ func (options Compiler) Compile(markup, css string) (Document, error) {
 	if err != nil {
 		return Document{}, err
 	}
-	c := &compiler{sheet: sheet, computedFor: map[*html.Node]style{}, images: options.Images}
+	c := &compiler{sheet: sheet, computedFor: map[*html.Node]style{},
+		images: options.Images, scenes: options.Scenes}
 	for _, name := range atRules(css) {
 		c.warn("stylesheet", "unsupported-at-rule",
 			fmt.Sprintf("%s is not implemented; there is one panel and one frame, so there is nothing for it to select on", name))
@@ -164,12 +184,26 @@ func (c *compiler) element(node *html.Node, parent style, path string) (compose.
 		return sized(compose.Spacer{}, current), current
 	}
 
+	if node.Data == "scene" {
+		// Like an image, a scene is content rather than a container, and the
+		// element around it still sizes, clips and transforms it.
+		return sized(transformed(shaped(c.scene(node, path), current), current), current), current
+	}
 	if node.Data == "img" {
-		return sized(c.image(node, current, path), current), current
+		// An image is content rather than a container, but it is still an
+		// element: clipping and transforming apply to it exactly as they do
+		// to anything else, and returning here without them made a circular
+		// portrait come out square without a word about it.
+		return sized(transformed(shaped(c.image(node, current, path), current), current), current), current
 	}
 	inner := c.children(node, current, path)
 	if inner == nil && current.background == nil && current.border == nil {
-		return nil, current
+		// An element with nothing to paint still has a box. Dropping it
+		// shifted everything after it along, which in a grid meant a spacer
+		// element vanished and the cell it was holding was taken by the next
+		// child. Removing the box is what display: none is for, and that is
+		// handled above.
+		inner = compose.Spacer{}
 	}
 
 	// Padding wraps whatever the children produced.
@@ -261,6 +295,55 @@ func sized(node compose.Node, s style) compose.Node {
 	return compose.Stack{Size: size, Children: []compose.Node{node}}
 }
 
+// scene resolves a scene element into the drawing it describes.
+func (c *compiler) scene(node *html.Node, path string) compose.Node {
+	reference := SceneRef{Src: attribute(node, "src")}
+	if reference.Src == "" {
+		reference.Inline = strings.TrimSpace(textContent(node))
+	}
+	if reference.Src == "" && reference.Inline == "" {
+		c.warn(path, "unresolved-scene", "a scene element needs a src or a description inside it")
+		return nil
+	}
+	if c.scenes == nil {
+		c.warn(path, "unresolved-scene", fmt.Sprintf(
+			"scene %s was not drawn: this compiler was given no way to resolve one", reference.describe()))
+		return nil
+	}
+	resolved, err := c.scenes(reference)
+	if err != nil {
+		c.warn(path, "unresolved-scene", fmt.Sprintf("scene %s: %v", reference.describe(), err))
+		return nil
+	}
+	if resolved == nil {
+		c.warn(path, "unresolved-scene", fmt.Sprintf("scene %s resolved to nothing", reference.describe()))
+		return nil
+	}
+	return resolved
+}
+
+func (r SceneRef) describe() string {
+	if r.Src != "" {
+		return fmt.Sprintf("src=%q", r.Src)
+	}
+	return "written inline"
+}
+
+// textContent gathers an element's text without any of the white-space
+// handling the layout needs, because a description is read rather than drawn.
+func textContent(node *html.Node) string {
+	var builder strings.Builder
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		switch child.Type {
+		case html.TextNode:
+			builder.WriteString(child.Data)
+		case html.ElementNode:
+			builder.WriteString(textContent(child))
+		}
+	}
+	return builder.String()
+}
+
 // image resolves an img element. Its fit comes from object-fit, and the
 // pixel reduction is left to the image node, which measures the source and
 // chooses a treatment for it.
@@ -305,61 +388,18 @@ func (c *compiler) children(node *html.Node, current style, path string) compose
 		}
 	}
 
-	var items []compose.LayoutChild
-	var cells []compose.GridChild
-	var placed []compose.Anchor
-	index := 0
-	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		if child.Type != html.ElementNode {
-			continue
-		}
-		childPath := fmt.Sprintf("%s>%s[%d]", path, child.Data, index)
-		index++
-		compiled, childStyle := c.element(child, current, childPath)
-		if compiled == nil {
-			continue
-		}
-		// An absolutely positioned child is taken out of the line and placed
-		// against the container's own box, which is what compose's Absolute
-		// does with an explicit rectangle.
-		if childStyle.absolute {
-			placed = append(placed, anchorFor(childStyle, compiled))
-			continue
-		}
-		// margin-left:auto on a row, or margin-top:auto on a column, pushes
-		// this child and everything after it to the far end. A spacer that
-		// takes all the slack is how compose says the same thing.
-		if (current.direction == axisRow && childStyle.autoLeft) ||
-			(current.direction == axisColumn && childStyle.autoTop) {
-			items = append(items, compose.LayoutChild{Node: compose.Spacer{}, Grow: 1})
-		}
-		if current.display == displayGrid {
-			cells = append(cells, gridCell(compiled, childStyle))
-			continue
-		}
-		before, after, across := marginsAlong(childStyle, current.direction)
-		if across != (compose.Insets{}) {
-			compiled = compose.Padding{Insets: across, Child: compiled}
-		}
-		if before > 0 {
-			items = append(items, compose.LayoutChild{Node: compose.Spacer{}, Basis: compose.Pixels(before)})
-		}
-		items = append(items, c.layoutChild(compiled, childStyle, current, childPath))
-		if after > 0 {
-			items = append(items, compose.LayoutChild{Node: compose.Spacer{}, Basis: compose.Pixels(after)})
-		}
-		if (current.direction == axisRow && childStyle.autoRight) ||
-			(current.direction == axisColumn && childStyle.autoBottom) {
-			items = append(items, compose.LayoutChild{Node: compose.Spacer{}, Grow: 1})
-		}
-	}
+	var boxes childBoxes
+	c.appendChildren(node, current, path, &boxes)
+	items, cells, placed := boxes.items, boxes.cells, boxes.placed
+
+	// gap only means something between the children of a flex line or a grid,
+	// so a block container that declares one is asking for something it will
+	// not get.
 	if current.display == displayBlock && current.gapSet {
 		c.warn(path, "unsupported-declaration",
-			"gap has no effect on a block container; it spaces flex items")
+			"gap has no effect on a block container; it spaces flex and grid children")
 	}
-	if len(items) == 0 && len(placed) == 0 && len(cells) == 0 {
-		return nil
-	}
+
 	flow := func(line compose.Node) compose.Node {
 		if len(placed) == 0 {
 			return line
@@ -412,6 +452,90 @@ func anchorFor(child style, node compose.Node) compose.Anchor {
 	}
 	anchor.Width, anchor.Height = lengthOf(child.width), lengthOf(child.height)
 	return anchor
+}
+
+// childBoxes is where one container's children accumulate. They are collected
+// separately because a container places them differently: a flex line, a grid
+// cell, or a box anchored to the container's edges.
+type childBoxes struct {
+	items  []compose.LayoutChild
+	cells  []compose.GridChild
+	placed []compose.Anchor
+	index  int
+}
+
+// appendChildren walks one element's children into the collection. It calls
+// itself for an element with display: contents, whose children belong to this
+// container rather than to a box of its own.
+func (c *compiler) appendChildren(node *html.Node, current style, path string, into *childBoxes) {
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type == html.TextNode {
+			// Text sitting directly among boxes becomes a box of its own, as
+			// CSS puts it in an anonymous item. Skipping it dropped the units
+			// out of "<b>412</b>h<small>hours</small>" without a word.
+			text := c.spacing(child.Data, current, false)
+			if text == "" {
+				continue
+			}
+			anonymous := compose.Text{
+				Runs:          []display.TextRun{{Text: text, Style: textStyle(current)}},
+				VerticalAlign: current.textVAlign,
+				Wrap:          current.wrap,
+				LineHeight:    current.lineHeight,
+			}
+			if current.display == displayGrid {
+				into.cells = append(into.cells, compose.GridChild{Node: anonymous})
+				continue
+			}
+			into.items = append(into.items, compose.LayoutChild{Node: anonymous})
+			continue
+		}
+		if child.Type != html.ElementNode {
+			continue
+		}
+		childPath := fmt.Sprintf("%s>%s[%d]", path, child.Data, into.index)
+		into.index++
+		if c.computed(child, current, childPath).display == displayContents {
+			c.appendChildren(child, current, childPath, into)
+			continue
+		}
+		compiled, childStyle := c.element(child, current, childPath)
+		if compiled == nil {
+			continue
+		}
+		// An absolutely positioned child is taken out of the line and placed
+		// against the container's own box.
+		if childStyle.absolute {
+			into.placed = append(into.placed, anchorFor(childStyle, compiled))
+			continue
+		}
+		if current.display == displayGrid {
+			into.cells = append(into.cells, gridCell(compiled, childStyle))
+			continue
+		}
+		// margin-left:auto on a row, or margin-top:auto on a column, pushes
+		// this child and everything after it to the far end. A spacer that
+		// takes all the slack is how compose says the same thing.
+		if (current.direction == axisRow && childStyle.autoLeft) ||
+			(current.direction == axisColumn && childStyle.autoTop) {
+			into.items = append(into.items, compose.LayoutChild{Node: compose.Spacer{}, Grow: 1})
+		}
+		before, after, across := marginsAlong(childStyle, current.direction)
+		if across != (compose.Insets{}) {
+			compiled = compose.Padding{Insets: across, Child: compiled}
+		}
+		if before > 0 {
+			into.items = append(into.items, compose.LayoutChild{Node: compose.Spacer{}, Basis: compose.Pixels(before)})
+		}
+		into.items = append(into.items, c.layoutChild(compiled, childStyle, current, childPath))
+		if after > 0 {
+			into.items = append(into.items, compose.LayoutChild{Node: compose.Spacer{}, Basis: compose.Pixels(after)})
+		}
+		if (current.direction == axisRow && childStyle.autoRight) ||
+			(current.direction == axisColumn && childStyle.autoBottom) {
+			into.items = append(into.items, compose.LayoutChild{Node: compose.Spacer{}, Grow: 1})
+		}
+	}
 }
 
 // gridCell carries a child's own placement into the grid, where a line number
@@ -513,7 +637,7 @@ func (c *compiler) collectRuns(node *html.Node, current style, path string, star
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
 		switch child.Type {
 		case html.TextNode:
-			text := collapse(child.Data, *started)
+			text := c.spacing(child.Data, current, *started)
 			if text == "" {
 				continue
 			}
@@ -541,6 +665,16 @@ func (c *compiler) collectRuns(node *html.Node, current style, path string, star
 
 func textStyle(s style) display.TextStyle {
 	return display.TextStyle{Font: s.fontFamily, Size: s.fontSize, Ink: s.color}
+}
+
+// spacing applies the white-space rule in force. Preserved text keeps the
+// source's own runs of spaces, which is the only way a page that lines its
+// columns up with them can be written at all.
+func (c *compiler) spacing(text string, current style, started bool) string {
+	if current.preserve {
+		return strings.Trim(text, "\n")
+	}
+	return collapse(text, started)
 }
 
 // collapse applies the part of white-space processing that matters here: runs
