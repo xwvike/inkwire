@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/gicisky"
+	"tinygo.org/x/bluetooth"
 )
 
 const testScene = `{"version":1,"root":{"type":"absolute","children":[{"bounds":{"x":0,"y":0,"width":20,"height":10},"node":{"type":"rectangle","fill":"red"}}]}}`
@@ -480,9 +482,29 @@ func quote(value string) string {
 	return string(encoded)
 }
 
-func scanResult(address string, rssi int16, id uint16, name string) gicisky.FoundDevice {
+// zeroAddress is what an Address stringifies to when Set has been given a
+// literal of the wrong kind, which it ignores in silence.
+var zeroAddress = func() string { var address bluetooth.Address; return address.String() }()
+
+// scanResult builds one found tag. The address is checked rather than assumed
+// because an Address is a CoreBluetooth UUID on macOS and a MAC on Linux: a
+// literal of the wrong kind leaves every test device sharing the zero address,
+// and the test then passes without distinguishing them at all.
+func scanResult(t *testing.T, seed byte, rssi int16, id uint16, name string) gicisky.FoundDevice {
+	t.Helper()
 	device := gicisky.FoundDevice{Name: name, RSSI: rssi}
-	device.Address.Set(address)
+	for _, literal := range []string{
+		fmt.Sprintf("0000f00d-0000-1000-8000-00805f9b%04x", uint16(seed)),
+		fmt.Sprintf("AA:BB:CC:DD:EE:%02X", seed),
+	} {
+		device.Address.Set(literal)
+		if device.Address.String() != zeroAddress {
+			break
+		}
+	}
+	if device.Address.String() == zeroAddress {
+		t.Fatal("no address literal this test knows is accepted on this platform")
+	}
 	device.Advertised = gicisky.Advertisement{ID: id}
 	device.HasAdvertised = true
 	device.Profile, device.Identified = gicisky.LookupProfile(id, 0)
@@ -492,9 +514,9 @@ func scanResult(address string, rssi int16, id uint16, name string) gicisky.Foun
 func TestDevicesReportsWhatEachTagIs(t *testing.T) {
 	handler := New(Config{Logf: func(string, ...any) {}, Scan: func(context.Context) ([]gicisky.FoundDevice, error) {
 		return []gicisky.FoundDevice{
-			scanResult("AA:BB:CC:DD:EE:01", -40, 0x0033, "NEMR000001"),
+			scanResult(t, 0x01, -40, 0x0033, "NEMR000001"),
 			// Present, advertising, and not in this build's table.
-			scanResult("AA:BB:CC:DD:EE:02", -70, 0x3FFE, ""),
+			scanResult(t, 0x02, -70, 0x3FFE, ""),
 		}, nil
 	}})
 	request := httptest.NewRequest(http.MethodGet, "/v1/devices", nil)
@@ -553,7 +575,7 @@ func TestScanIsRefusedWhileTheAdapterIsWriting(t *testing.T) {
 			return nil
 		},
 		Scan: func(context.Context) ([]gicisky.FoundDevice, error) {
-			return []gicisky.FoundDevice{scanResult("AA:BB:CC:DD:EE:01", -40, 0x0033, "")}, nil
+			return []gicisky.FoundDevice{scanResult(t, 0x01, -40, 0x0033, "")}, nil
 		}})
 
 	done := make(chan *httptest.ResponseRecorder, 1)

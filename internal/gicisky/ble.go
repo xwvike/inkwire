@@ -146,34 +146,14 @@ func (d *Driver) ScanAll(ctx context.Context) ([]FoundDevice, error) {
 	}
 
 	var mutex sync.Mutex
-	found := make(map[string]*FoundDevice)
+	seen := newDeviceSet()
 	scanDone := make(chan error, 1)
 	go func() {
 		scanDone <- d.Adapter.Scan(func(_ *bluetooth.Adapter, result bluetooth.ScanResult) {
 			advertised, ok := giciskyAdvertisement(result)
-			name := result.LocalName()
-			// Without manufacturer data the only evidence left is the name,
-			// and the tag advertises the same name shape whatever panel it
-			// has, so it is a weaker signal kept only for merging.
-			if !ok && !looksLikeTag(name) {
-				return
-			}
 			mutex.Lock()
 			defer mutex.Unlock()
-			key := result.Address.String()
-			device := found[key]
-			if device == nil {
-				device = &FoundDevice{Address: result.Address}
-				found[key] = device
-			}
-			if name != "" {
-				device.Name = name
-			}
-			device.RSSI = result.RSSI
-			if ok {
-				device.Advertised, device.HasAdvertised = advertised, true
-				device.Profile, device.Identified = LookupProfile(advertised.ID, advertised.Firmware)
-			}
+			seen.observe(result.Address, result.LocalName(), result.RSSI, advertised, ok)
 		})
 	}()
 
@@ -187,8 +167,52 @@ func (d *Driver) ScanAll(ctx context.Context) ([]FoundDevice, error) {
 
 	mutex.Lock()
 	defer mutex.Unlock()
-	devices := make([]FoundDevice, 0, len(found))
-	for _, device := range found {
+	return seen.sorted(), nil
+}
+
+// deviceSet accumulates advertisements into one entry per address.
+//
+// It is separate from the scan itself so that the merging can be exercised
+// without a radio. Merging is precisely what a second tag brings into play,
+// and a build that has only ever seen one tag has never run it.
+type deviceSet struct {
+	found map[string]*FoundDevice
+}
+
+func newDeviceSet() *deviceSet { return &deviceSet{found: make(map[string]*FoundDevice)} }
+
+// observe folds one advertisement into the set and reports whether it was
+// kept. A packet with neither manufacturer data nor a tag-shaped name belongs
+// to somebody else's device.
+func (s *deviceSet) observe(address bluetooth.Address, name string, rssi int16, advertised Advertisement, hasAdvertised bool) bool {
+	// Without manufacturer data the only evidence left is the name, and every
+	// tag advertises the same name shape whatever panel it has, so the name is
+	// a weaker signal kept only so nameless and named packets from one tag end
+	// up as one entry.
+	if !hasAdvertised && !looksLikeTag(name) {
+		return false
+	}
+	key := address.String()
+	device := s.found[key]
+	if device == nil {
+		device = &FoundDevice{Address: address}
+		s.found[key] = device
+	}
+	// A later packet without a name must not erase a name already learned.
+	if name != "" {
+		device.Name = name
+	}
+	device.RSSI = rssi
+	if hasAdvertised {
+		device.Advertised, device.HasAdvertised = advertised, true
+		device.Profile, device.Identified = LookupProfile(advertised.ID, advertised.Firmware)
+	}
+	return true
+}
+
+func (s *deviceSet) sorted() []FoundDevice {
+	devices := make([]FoundDevice, 0, len(s.found))
+	for _, device := range s.found {
 		devices = append(devices, *device)
 	}
 	// Strongest first, because that is the one within reach; the address
@@ -199,7 +223,7 @@ func (d *Driver) ScanAll(ctx context.Context) ([]FoundDevice, error) {
 		}
 		return strings.Compare(a.Address.String(), b.Address.String())
 	})
-	return devices, nil
+	return devices
 }
 
 func giciskyAdvertisement(result bluetooth.ScanResult) (Advertisement, bool) {
