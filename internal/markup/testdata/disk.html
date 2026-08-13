@@ -1,0 +1,45 @@
+<!--
+  The target. This must compile to the same drawing commands as
+  examples/desk/disk.json, and render pixel for pixel identically to it.
+
+  It is deliberately written the way the CSS would be written if nobody had
+  seen the JSON, so that the property set it needs is discovered rather than
+  chosen. Everything it uses is listed in doc.go; anything it uses that the
+  compiler does not support yet is a warning, never a silent no-op.
+
+  Two things are worth noticing against the JSON version. The header bar is a
+  black background with text on it, where the JSON needs a stack of a filled
+  rectangle and a padded row. And the bars are a width in percent, where the
+  JSON carries the ratio pre-multiplied into a pair of flex weights.
+-->
+<div class="page">
+  <header>
+    <span>磁盘</span>
+    <span class="mono">08-13 09:42</span>
+  </header>
+
+  <main>
+    <div class="row">
+      <span class="name">/</span>
+      <span class="bar"><i class="hot" style="width: 87.3%"></i></span>
+      <span class="figs"><b class="hot">402</b><small>/460G</small></span>
+    </div>
+    <div class="row">
+      <span class="name">/data</span>
+      <span class="bar"><i style="width: 31.7%"></i></span>
+      <span class="figs"><b>1180</b><small>/3720G</small></span>
+    </div>
+    <div class="row">
+      <span class="name">/backup</span>
+      <span class="bar"><i style="width: 34.4%"></i></span>
+      <span class="figs"><b>640</b><small>/1860G</small></span>
+    </div>
+    <div class="row">
+      <span class="name">/media</span>
+      <span class="bar"><i class="hot" style="width: 87.6%"></i></span>
+      <span class="figs"><b class="hot">3260</b><small>/3720G</small></span>
+    </div>
+
+    <footer>2 个卷超过 85%，<span class="hot">/ 还剩 58G</span></footer>
+  </main>
+</div>

@@ -1,0 +1,91 @@
+/* Every declaration here has to be understood by the compiler or reported.
+   Silently dropping one is the failure this whole approach has to avoid: an
+   author writes CSS they know, part of it does nothing, and the result is
+   worse than a small schema that never pretended to accept it. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  width: 296px;
+  height: 128px;
+  background: white;
+  color: black;
+}
+
+header {
+  vertical-align: middle;
+  flex-basis: 18px;
+  display: flex;
+  align-items: center;
+  padding: 0 5px;
+  background: black;
+  color: white;
+  font-family: ui;
+  font-size: 12px;
+}
+
+/* The right-hand span is pushed over by the space the left one does not take,
+   which in the JSON needs an explicit spacer node. */
+header .mono {
+  margin-left: auto;
+  font-family: monaco;
+}
+
+main {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 3px 4px;
+}
+
+.row {
+  flex-basis: 15px;
+  display: flex;
+}
+
+.name {
+  vertical-align: middle;
+  flex-basis: 50px;
+  font-family: monaco;
+  font-size: 12px;
+}
+
+.bar {
+  flex-grow: 1;
+  border: 1px solid black;
+  padding: 2px;
+}
+
+.bar > i {
+  display: block;
+  height: 100%;
+  background: black;
+}
+
+.figs {
+  vertical-align: middle;
+  flex-basis: 70px;
+  text-align: right;
+  font-family: monaco;
+  font-size: 12px;
+}
+
+.figs small {
+  font-size: 10px;
+}
+
+footer {
+  margin-top: auto;
+  font-family: ui;
+  font-size: 12px;
+}
+
+/* The panel has three inks, so this is the only accent there is. */
+.hot {
+  color: red;
+}
+
+i.hot {
+  background: red;
+}
