@@ -6,8 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xwvike/inkwire/internal/display"
+	"github.com/xwvike/inkwire/internal/server"
 )
 
 func TestRenderAndEncodeCommands(t *testing.T) {
@@ -45,6 +47,57 @@ func TestRenderAndEncodeCommands(t *testing.T) {
 	}
 	if len(payload) != display.GiciskyPayloadSize {
 		t.Fatalf("payload = %d bytes", len(payload))
+	}
+}
+
+// serve has no authentication and every request writes to the tag, so the
+// address is the whole access control. Bind it wrong and the guard is the only
+// thing between the hardware and the network.
+func TestServeOnlyBindsLoopback(t *testing.T) {
+	allowed := []string{"127.0.0.1:8080", "localhost:8080", "[::1]:8080", "127.0.0.2:9000"}
+	for _, address := range allowed {
+		if err := requireLoopback(address); err != nil {
+			t.Errorf("requireLoopback(%q) = %v, want accepted", address, err)
+		}
+	}
+	refused := []string{":8080", "0.0.0.0:8080", "192.168.1.10:8080", "[::]:8080", "8080", ""}
+	for _, address := range refused {
+		if err := requireLoopback(address); err == nil {
+			t.Errorf("requireLoopback(%q) was accepted and would expose the tag", address)
+		}
+	}
+}
+
+// A write has to outlast a whole push or the server would cut its own
+// transfer off partway and report a failure the tag never had.
+func TestServeTimeoutsCannotCutAPushShort(t *testing.T) {
+	httpServer := newHTTPServer("127.0.0.1:0", nil)
+	if httpServer.WriteTimeout <= server.DefaultPushTimeout {
+		t.Errorf("write timeout %s does not outlast the push budget %s", httpServer.WriteTimeout, server.DefaultPushTimeout)
+	}
+	// Each of these bounds a connection that would otherwise sit on the
+	// adapter, so an unset one is a hole rather than a lenient default.
+	for _, timeout := range []struct {
+		name  string
+		value time.Duration
+	}{
+		{"ReadHeaderTimeout", httpServer.ReadHeaderTimeout},
+		{"ReadTimeout", httpServer.ReadTimeout},
+		{"IdleTimeout", httpServer.IdleTimeout},
+	} {
+		if timeout.value <= 0 {
+			t.Errorf("%s is unset, so a connection can be held open indefinitely", timeout.name)
+		}
+	}
+}
+
+func TestServeRefusesANonLoopbackAddress(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"serve", "-listen", "0.0.0.0:8080"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "loopback") {
+		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 

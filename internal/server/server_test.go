@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -13,9 +14,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/xwvike/inkwire/internal/display"
+	"github.com/xwvike/inkwire/internal/gicisky"
 )
 
 const testScene = `{"version":1,"root":{"type":"absolute","children":[{"bounds":{"x":0,"y":0,"width":20,"height":10},"node":{"type":"rectangle","fill":"red"}}]}}`
@@ -86,6 +90,227 @@ func TestDisplayUsesSameSceneAndSelectedDevice(t *testing.T) {
 	}
 	if target != "PICKSMART" || len(payload) != display.GiciskyPayloadSize {
 		t.Fatalf("push target=%q payload=%d", target, len(payload))
+	}
+}
+
+// One adapter drives one conversation, so a second write must be refused
+// while the first is still uploading rather than corrupting it or queueing
+// invisibly behind a ten-second transfer.
+func TestConcurrentDisplayIsRefusedWithTheHolderStatus(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	// Only the first write holds the adapter open; later ones complete at
+	// once so the test can check that the claim was handed back.
+	var hold sync.Once
+	handler := New(Config{Logf: func(string, ...any) {}, Push: func(context.Context, string, []byte) error {
+		hold.Do(func() {
+			entered <- struct{}{}
+			<-release
+		})
+		return nil
+	}})
+
+	first := make(chan *httptest.ResponseRecorder, 1)
+	go func() { first <- request(t, handler, "/v1/display?device=first", testScene) }()
+	<-entered
+
+	second := request(t, handler, "/v1/display?device=second", testScene)
+	if second.Code != http.StatusConflict {
+		t.Fatalf("second write status = %d, want %d: %s", second.Code, http.StatusConflict, second.Body.String())
+	}
+	var refusal struct {
+		Code   string       `json:"code"`
+		Status DeviceStatus `json:"status"`
+	}
+	if err := json.Unmarshal(second.Body.Bytes(), &refusal); err != nil {
+		t.Fatal(err)
+	}
+	if refusal.Code != "device-busy" {
+		t.Errorf("code = %q, want device-busy", refusal.Code)
+	}
+	// The refusal has to name the device actually holding the adapter, not
+	// the one that was asked for, or it cannot be acted on.
+	if refusal.Status.Device != "first" || refusal.Status.State != "pushing" {
+		t.Errorf("status = %+v, want the first device reported as pushing", refusal.Status)
+	}
+	if refusal.Status.Since == "" {
+		t.Error("a pushing device reported no start time")
+	}
+
+	close(release)
+	if got := <-first; got.Code != http.StatusOK {
+		t.Fatalf("first write status = %d: %s", got.Code, got.Body.String())
+	}
+
+	// Once released the adapter is free again and the outcome is recorded.
+	third := request(t, handler, "/v1/display?device=first", testScene)
+	if third.Code != http.StatusOK {
+		t.Fatalf("write after release status = %d: %s", third.Code, third.Body.String())
+	}
+	var success struct {
+		Status DeviceStatus `json:"status"`
+	}
+	if err := json.Unmarshal(third.Body.Bytes(), &success); err != nil {
+		t.Fatal(err)
+	}
+	if success.Status.State != "idle" || success.Status.LastResult != "ok" {
+		t.Errorf("status after a successful write = %+v", success.Status)
+	}
+	if success.Status.LastBytes != display.GiciskyPayloadSize {
+		t.Errorf("recorded %d bytes, want %d", success.Status.LastBytes, display.GiciskyPayloadSize)
+	}
+}
+
+// Exceeding the handler's own deadline means the retries never got the tag to
+// answer, which is a different problem from a scene the server cannot render.
+func TestPushDeadlineReportsTheBluetoothLink(t *testing.T) {
+	handler := New(Config{Logf: func(string, ...any) {}, PushTimeout: 20 * time.Millisecond,
+		Push: func(ctx context.Context, _ string, _ []byte) error {
+			<-ctx.Done()
+			return ctx.Err()
+		}})
+	response := request(t, handler, "/v1/display", testScene)
+	if response.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusGatewayTimeout, response.Body.String())
+	}
+	var body struct {
+		Code   string       `json:"code"`
+		Status DeviceStatus `json:"status"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Code != "device-timeout" {
+		t.Errorf("code = %q, want device-timeout", body.Code)
+	}
+	if body.Status.LastResult == "ok" || body.Status.LastBytes != 0 {
+		t.Errorf("a timed-out write was recorded as %+v", body.Status)
+	}
+	// A failed write still releases the adapter, otherwise one bad tag wedges
+	// the server until it is restarted.
+	if body.Status.State != "idle" {
+		t.Errorf("state after a failed write = %q, want idle", body.Status.State)
+	}
+}
+
+// A push that fails for a reason other than the deadline is a different code,
+// so a caller can distinguish "the tag refused" from "the tag never answered".
+func TestFailedPushIsReportedSeparatelyFromATimeout(t *testing.T) {
+	handler := New(Config{Logf: func(string, ...any) {}, Push: func(context.Context, string, []byte) error {
+		return errors.New("tag reported error 0503")
+	}})
+	response := request(t, handler, "/v1/display", testScene)
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusBadGateway, response.Body.String())
+	}
+	var body struct {
+		Code   string       `json:"code"`
+		Status DeviceStatus `json:"status"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Code != "push-failed" {
+		t.Errorf("code = %q, want push-failed", body.Code)
+	}
+	if body.Status.LastResult != "tag reported error 0503" {
+		t.Errorf("last result = %q, want the driver error", body.Status.LastResult)
+	}
+}
+
+// A code only earns its keep if it is the one the caller will branch on, so
+// every reachable failure is triggered here rather than assumed.
+//
+// render-failed is deliberately absent: it guards a PNG encode into a
+// bytes.Buffer, which cannot fail for a frame the compiler has already
+// produced. It stays as a defensive branch with no reachable test.
+func TestEveryErrorCarriesACode(t *testing.T) {
+	handler := New(Config{Logf: func(string, ...any) {}})
+	tests := []struct {
+		name    string
+		request func() *http.Request
+		code    string
+	}{
+		{"invalid scene", func() *http.Request {
+			return jsonRequest("/v1/render", `{"version":1,"root":{"type":"nonesuch"}}`)
+		}, "invalid-scene"},
+		{"oversized scene", func() *http.Request {
+			return jsonRequest("/v1/render", `{"version":1,"padding":"`+strings.Repeat("x", maxSceneBytes)+`"}`)
+		}, "request-too-large"},
+		{"unusable Content-Type", func() *http.Request {
+			request := jsonRequest("/v1/render", testScene)
+			request.Header.Set("Content-Type", "!!! not a media type")
+			return request
+		}, "unsupported-media-type"},
+		{"wrong Content-Type", func() *http.Request {
+			request := jsonRequest("/v1/render", testScene)
+			request.Header.Set("Content-Type", "text/plain")
+			return request
+		}, "unsupported-media-type"},
+		{"multipart without a scene", func() *http.Request {
+			var body bytes.Buffer
+			writer := multipart.NewWriter(&body)
+			part, _ := writer.CreateFormFile("photo.png", "photo.png")
+			_, _ = part.Write([]byte("not an image"))
+			_ = writer.Close()
+			request := httptest.NewRequest(http.MethodPost, "/v1/render", &body)
+			request.Header.Set("Content-Type", writer.FormDataContentType())
+			return request
+		}, "invalid-request"},
+		{"page the panel cannot accept", func() *http.Request {
+			// The scene renders, so the failure is only found when the
+			// frame is encoded for a 296x128 panel.
+			return jsonRequest("/v1/encode", `{"version":1,"size":{"width":100,"height":50},`+
+				`"root":{"type":"absolute","children":[{"bounds":{"x":0,"y":0,"width":10,"height":10},`+
+				`"node":{"type":"rectangle","fill":"black"}}]}}`)
+		}, "unprocessable-scene"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, test.request())
+			var body map[string]string
+			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+				t.Fatalf("status %d body %q: %v", response.Code, response.Body.String(), err)
+			}
+			if body["code"] != test.code {
+				t.Errorf("code = %q, want %q (status %d, %q)", body["code"], test.code, response.Code, body["error"])
+			}
+			if body["error"] == "" {
+				t.Error("the code replaced the message instead of joining it")
+			}
+			if response.Code < 400 {
+				t.Errorf("status = %d, want a failure", response.Code)
+			}
+		})
+	}
+}
+
+// Tests replace Push outright, so the cap the server hands the real driver is
+// never exercised by them.
+func TestDriverGetsTheServersAttemptCap(t *testing.T) {
+	if got := New(Config{Attempts: 2, Logf: func(string, ...any) {}}).newDriver("PICKSMART").Attempts; got != 2 {
+		t.Errorf("driver attempts = %d, want the configured cap 2", got)
+	}
+	if got := New(Config{Logf: func(string, ...any) {}}).newDriver("PICKSMART").Attempts; got != DefaultAttempts {
+		t.Errorf("driver attempts = %d, want the default %d", got, DefaultAttempts)
+	}
+}
+
+// The budget is the one number a caller feels, so it is checked against what
+// the hardware actually costs rather than left as a round figure.
+func TestPushBudgetSurvivesAMissedScanAndStillRetries(t *testing.T) {
+	const slowestHealthyWrite = 20521 * time.Millisecond
+
+	if DefaultPushTimeout <= slowestHealthyWrite {
+		t.Fatalf("budget %s cuts the slowest measured healthy write %s", DefaultPushTimeout, slowestHealthyWrite)
+	}
+	// A scan can miss the tag's advertising window, so the budget has to
+	// cover one wasted attempt and a complete write after it. Without this
+	// the server would report a Bluetooth fault for an ordinary retry.
+	recovery := gicisky.DefaultScanTimeout + gicisky.DefaultRetryDelay + slowestHealthyWrite
+	if DefaultPushTimeout < recovery {
+		t.Errorf("budget %s leaves no room to recover from one missed scan, which needs %s", DefaultPushTimeout, recovery)
 	}
 }
 
@@ -173,11 +398,15 @@ func TestMultipartValidation(t *testing.T) {
 
 func request(t *testing.T, handler http.Handler, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, jsonRequest(path, body))
+	return response
+}
+
+func jsonRequest(path, body string) *http.Request {
 	request := httptest.NewRequest(http.MethodPost, path, bytes.NewBufferString(body))
 	request.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	return response
+	return request
 }
 
 func multipartRequest(t *testing.T, handler http.Handler, path, scene string, resources map[string][]byte) *httptest.ResponseRecorder {

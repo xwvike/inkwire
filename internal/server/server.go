@@ -10,6 +10,8 @@ import (
 	"log"
 	"mime"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/gicisky"
@@ -24,21 +26,54 @@ const (
 	maxAssets       = 32
 )
 
+const (
+	// Three measured writes to a healthy tag took 14.6, 18.1 and 20.5
+	// seconds, almost all of it spent scanning and connecting. The budget
+	// below clears the slowest of those twice over, so one failed scan and
+	// a full retry still fit; a request held longer than that has stopped
+	// being a slow tag and become a Bluetooth problem worth reporting.
+	DefaultAttempts    = 3
+	DefaultPushTimeout = 45 * time.Second
+)
+
 type Config struct {
 	Adapter *bluetooth.Adapter
 	Target  string
 	BaseDir string
-	Logf    func(string, ...any)
-	Push    func(context.Context, string, []byte) error
+	// Attempts and PushTimeout bound one /v1/display request. Zero selects
+	// the defaults above.
+	Attempts    int
+	PushTimeout time.Duration
+	Logf        func(string, ...any)
+	Push        func(context.Context, string, []byte) error
+}
+
+// DeviceStatus is everything the server knows about one panel. It rides along
+// with every refused or failed write so a caller can tell a busy adapter from
+// a tag that is not answering.
+type DeviceStatus struct {
+	Device     string `json:"device"`
+	State      string `json:"state"`
+	Since      string `json:"since,omitempty"`
+	LastWrite  string `json:"lastWrite,omitempty"`
+	LastResult string `json:"lastResult,omitempty"`
+	LastBytes  int    `json:"lastBytes,omitempty"`
 }
 
 type Handler struct {
-	adapter *bluetooth.Adapter
-	target  string
-	baseDir string
-	logf    func(string, ...any)
-	push    func(context.Context, string, []byte) error
-	mux     *http.ServeMux
+	adapter     *bluetooth.Adapter
+	target      string
+	baseDir     string
+	attempts    int
+	pushTimeout time.Duration
+	logf        func(string, ...any)
+	push        func(context.Context, string, []byte) error
+	mux         *http.ServeMux
+
+	mu      sync.Mutex
+	active  string
+	since   time.Time
+	history map[string]DeviceStatus
 }
 
 func New(config Config) *Handler {
@@ -48,10 +83,26 @@ func New(config Config) *Handler {
 	if config.Target == "" {
 		config.Target = gicisky.TargetAddress
 	}
+	if config.Attempts <= 0 {
+		config.Attempts = DefaultAttempts
+	}
+	if config.PushTimeout <= 0 {
+		config.PushTimeout = DefaultPushTimeout
+	}
 	if config.Logf == nil {
 		config.Logf = log.Printf
 	}
-	handler := &Handler{adapter: config.Adapter, target: config.Target, baseDir: config.BaseDir, logf: config.Logf, push: config.Push, mux: http.NewServeMux()}
+	handler := &Handler{
+		adapter:     config.Adapter,
+		target:      config.Target,
+		baseDir:     config.BaseDir,
+		attempts:    config.Attempts,
+		pushTimeout: config.PushTimeout,
+		logf:        config.Logf,
+		push:        config.Push,
+		mux:         http.NewServeMux(),
+		history:     make(map[string]DeviceStatus),
+	}
 	handler.mux.HandleFunc("POST /v1/render", handler.render)
 	handler.mux.HandleFunc("POST /v1/encode", handler.encode)
 	handler.mux.HandleFunc("POST /v1/display", handler.display)
@@ -70,7 +121,7 @@ func (h *Handler) render(writer http.ResponseWriter, request *http.Request) {
 	writeReportHeaders(writer.Header(), result)
 	var encoded bytes.Buffer
 	if err := display.WritePNG(&encoded, result.Frame); err != nil {
-		writeError(writer, http.StatusInternalServerError, err)
+		writeError(writer, http.StatusInternalServerError, "render-failed", err)
 		return
 	}
 	writer.Header().Set("Content-Type", "image/png")
@@ -85,7 +136,7 @@ func (h *Handler) encode(writer http.ResponseWriter, request *http.Request) {
 	}
 	payload, err := result.Payload()
 	if err != nil {
-		writeError(writer, http.StatusUnprocessableEntity, err)
+		writeError(writer, http.StatusUnprocessableEntity, "unprocessable-scene", err)
 		return
 	}
 	writer.Header().Set("Content-Type", "application/octet-stream")
@@ -101,18 +152,85 @@ func (h *Handler) display(writer http.ResponseWriter, request *http.Request) {
 	}
 	payload, err := result.Payload()
 	if err != nil {
-		writeError(writer, http.StatusUnprocessableEntity, err)
+		writeError(writer, http.StatusUnprocessableEntity, "unprocessable-scene", err)
 		return
 	}
 	target := request.URL.Query().Get("device")
 	if target == "" {
 		target = h.target
 	}
-	if err := h.pushPayload(request.Context(), target, payload); err != nil {
-		writeError(writer, http.StatusBadGateway, err)
+
+	busy, claimed := h.claim(target)
+	if !claimed {
+		// One adapter can hold one conversation, so a second write is
+		// refused outright instead of queued behind a ten-second upload the
+		// caller cannot see.
+		writeStatus(writer, http.StatusConflict, "device-busy",
+			fmt.Errorf("device %s is being written", busy.Device), busy)
 		return
 	}
-	writeJSON(writer, http.StatusOK, map[string]any{"ok": true, "device": target, "bytes": len(payload), "report": result.Report})
+	ctx, cancel := context.WithTimeout(request.Context(), h.pushTimeout)
+	defer cancel()
+	pushErr := h.pushPayload(ctx, target, payload)
+	status := h.release(target, len(payload), pushErr)
+	if pushErr != nil {
+		code, httpStatus := "push-failed", http.StatusBadGateway
+		// The deadline belongs to this handler, so exceeding it means the
+		// retries never got the tag to answer: report the Bluetooth link,
+		// not the scene.
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			code, httpStatus = "device-timeout", http.StatusGatewayTimeout
+		}
+		writeStatus(writer, httpStatus, code, pushErr, status)
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{
+		"ok": true, "device": target, "bytes": len(payload), "status": status, "report": result.Report,
+	})
+}
+
+// claim makes a write exclusive across every device, because exclusivity is a
+// property of the single Bluetooth adapter rather than of the target tag. The
+// returned status describes whoever holds it.
+func (h *Handler) claim(target string) (DeviceStatus, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.active != "" {
+		return h.statusLocked(h.active), false
+	}
+	h.active = target
+	h.since = time.Now()
+	return h.statusLocked(target), true
+}
+
+func (h *Handler) release(target string, size int, err error) DeviceStatus {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	record := h.history[target]
+	record.Device = target
+	record.LastWrite = time.Now().UTC().Format(time.RFC3339)
+	if err != nil {
+		record.LastResult = err.Error()
+		record.LastBytes = 0
+	} else {
+		record.LastResult = "ok"
+		record.LastBytes = size
+	}
+	h.history[target] = record
+	h.active = ""
+	record.State = "idle"
+	return record
+}
+
+func (h *Handler) statusLocked(device string) DeviceStatus {
+	status := h.history[device]
+	status.Device = device
+	status.State = "idle"
+	if h.active == device {
+		status.State = "pushing"
+		status.Since = h.since.UTC().Format(time.RFC3339)
+	}
+	return status
 }
 
 func (h *Handler) pushPayload(ctx context.Context, target string, payload []byte) error {
@@ -122,14 +240,21 @@ func (h *Handler) pushPayload(ctx context.Context, target string, payload []byte
 	if err := h.adapter.Enable(); err != nil {
 		return fmt.Errorf("enable Bluetooth: %w", err)
 	}
+	return h.newDriver(target).PushWithRetry(ctx, payload)
+}
+
+// newDriver is separate so the attempt cap can be checked without a radio.
+// Every test here replaces Push outright, which left this wiring unexercised.
+func (h *Handler) newDriver(target string) *gicisky.Driver {
 	driver := gicisky.NewDriver(h.adapter, target, h.logf)
-	return driver.PushWithRetry(ctx, payload)
+	driver.Attempts = h.attempts
+	return driver
 }
 
 func (h *Handler) renderRequest(writer http.ResponseWriter, request *http.Request) (scene.Result, bool) {
 	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
 	if err != nil {
-		writeError(writer, http.StatusUnsupportedMediaType, fmt.Errorf("invalid Content-Type: %w", err))
+		writeError(writer, http.StatusUnsupportedMediaType, "unsupported-media-type", fmt.Errorf("invalid Content-Type: %w", err))
 		return scene.Result{}, false
 	}
 	var sceneBytes []byte
@@ -142,21 +267,21 @@ func (h *Handler) renderRequest(writer http.ResponseWriter, request *http.Reques
 		request.Body = http.MaxBytesReader(writer, request.Body, maxRequestBytes)
 		sceneBytes, resources, err = readMultipart(request)
 	default:
-		writeError(writer, http.StatusUnsupportedMediaType, fmt.Errorf("Content-Type must be application/json or multipart/form-data"))
+		writeError(writer, http.StatusUnsupportedMediaType, "unsupported-media-type", fmt.Errorf("Content-Type must be application/json or multipart/form-data"))
 		return scene.Result{}, false
 	}
 	if err != nil {
-		status := http.StatusBadRequest
+		status, code := http.StatusBadRequest, "invalid-request"
 		var maxBytesError *http.MaxBytesError
 		if errors.As(err, &maxBytesError) || errors.Is(err, errPartTooLarge) {
-			status = http.StatusRequestEntityTooLarge
+			status, code = http.StatusRequestEntityTooLarge, "request-too-large"
 		}
-		writeError(writer, status, err)
+		writeError(writer, status, code, err)
 		return scene.Result{}, false
 	}
 	result, err := (scene.Decoder{BaseDir: h.baseDir, RestrictFiles: true, Resources: resources}).Render(bytes.NewReader(sceneBytes))
 	if err != nil {
-		writeError(writer, http.StatusUnprocessableEntity, err)
+		writeError(writer, http.StatusUnprocessableEntity, "invalid-scene", err)
 		return scene.Result{}, false
 	}
 	return result, true
@@ -237,8 +362,14 @@ func writeReportHeaders(header http.Header, result scene.Result) {
 	header.Set("X-Inkwire-Image-Decisions", fmt.Sprint(len(result.Report.Images)))
 }
 
-func writeError(writer http.ResponseWriter, status int, err error) {
-	writeJSON(writer, status, map[string]any{"error": err.Error()})
+// Every failure carries a stable code so a caller can branch on the kind of
+// problem without matching on the human-readable message.
+func writeError(writer http.ResponseWriter, status int, code string, err error) {
+	writeJSON(writer, status, map[string]any{"error": err.Error(), "code": code})
+}
+
+func writeStatus(writer http.ResponseWriter, status int, code string, err error, device DeviceStatus) {
+	writeJSON(writer, status, map[string]any{"error": err.Error(), "code": code, "status": device})
 }
 
 func writeJSON(writer http.ResponseWriter, status int, value any) {

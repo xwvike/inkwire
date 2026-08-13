@@ -52,6 +52,8 @@
 | `POST /v1/encode` | 9472 字节设备 payload，`Content-Type: application/octet-stream` |
 | `POST /v1/display` | 写入设备后的 JSON 结果 |
 
+服务没有鉴权，而且每个请求都能驱动硬件，因此 `-listen` 只接受回环地址，绑定其他地址会直接退出。
+
 发送纯 JSON：
 
 ```bash
@@ -74,6 +76,53 @@ curl \
 ```
 
 响应报告位于 `X-Inkwire-Warnings`、`X-Inkwire-Missing-Runes` 和 `X-Inkwire-Image-Decisions` 响应头中。
+
+### 错误码
+
+所有失败响应都带 `code` 字段，可以直接分支判断，不需要匹配 `error` 文本。
+
+| `code` | 状态码 | 含义 |
+|---|---|---|
+| `unsupported-media-type` | 415 | `Content-Type` 既不是 JSON 也不是 multipart |
+| `invalid-request` | 400 | multipart 结构有问题 |
+| `request-too-large` | 413 | 场景或资源超出体积上限 |
+| `invalid-scene` | 422 | 场景文档无法解码或渲染 |
+| `unprocessable-scene` | 422 | 场景渲染成功但无法编码成设备 payload |
+| `render-failed` | 500 | PNG 编码失败 |
+| `device-busy` | 409 | 蓝牙适配器正在写另一次请求 |
+| `push-failed` | 502 | 标签响应了错误，或连接失败 |
+| `device-timeout` | 504 | 重试用尽仍未拿到标签响应 |
+
+### 写入的并发与超时
+
+一个蓝牙适配器同时只能进行一次会话，所以 `/v1/display` 是互斥的——**跨设备互斥，不只是同一个标签**。第二个请求不会排队，而是立刻返回 409 并附带当前占用者的状态：
+
+```json
+{
+  "error": "device PICKSMART is being written",
+  "code": "device-busy",
+  "status": {
+    "device": "PICKSMART",
+    "state": "pushing",
+    "since": "2026-08-13T02:41:07Z"
+  }
+}
+```
+
+`status` 也出现在成功和失败的响应里，记录上一次写入的时间、结果和字节数。
+
+超时的取值来自真机实测（2026-08-13，RSSI -47 到 -54）：
+
+| 步骤 | 实测 | 说明 |
+|---|---|---|
+| 扫描发现标签 | 4.3 – 11.5 秒 | 取决于标签的广播间隔，波动最大，也最不可控 |
+| 连接、发现服务、首次应答 | 4.3 – 7.8 秒 | 含固定的 2 秒通知就绪等待 |
+| 每个数据块往返 | 约 105 毫秒 | 40 块，最后一个"开始刷新"的应答同样是 105 毫秒 |
+| **一次完整写入** | **14.6 – 20.5 秒** | |
+
+因此扫描超时保持 15 秒——低于这个值会把正常的标签判成失败。应答超时 5 秒，重试间隔 2 秒，最多 3 次。
+
+`/v1/display` 的总预算是 45 秒：足够覆盖最慢的一次正常写入，**外加一次完全落空的扫描和重试**。超过就返回 `device-timeout`，说明重试没能让标签应答。无论成功还是失败都会立刻释放适配器，一个坏标签不会卡住服务。
 
 ## 图片资源与路径
 

@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/gicisky"
@@ -79,8 +81,12 @@ func runServe(ctx context.Context, args []string, logger *log.Logger, stderr io.
 		fmt.Fprintln(stderr, "usage: inkwire serve [-listen 127.0.0.1:8080] [-device MAC-or-name] [-assets directory]")
 		return 2
 	}
+	if err := requireLoopback(*address); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
 	handler := server.New(server.Config{Adapter: bluetooth.DefaultAdapter, Target: *target, BaseDir: *assets, Logf: logger.Printf})
-	httpServer := &http.Server{Addr: *address, Handler: handler}
+	httpServer := newHTTPServer(*address, handler)
 	go func() {
 		<-ctx.Done()
 		_ = httpServer.Shutdown(context.Background())
@@ -251,6 +257,39 @@ func printReport(writer io.Writer, result scene.Result) {
 			decision.Path, decision.Options.Dither, decision.Options.Fit, decision.Options.Sampling,
 			decision.Options.Threshold, decision.Options.DisableRed)
 	}
+}
+
+// newHTTPServer is separate from runServe so the timeouts are reachable from a
+// test. Left inline they were invisible: deleting one changed nothing that
+// anything checked.
+func newHTTPServer(address string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              address,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       time.Minute,
+		// A write must outlast a full push, so this is the server's push
+		// budget plus room for the response itself.
+		WriteTimeout: server.DefaultPushTimeout + 15*time.Second,
+		IdleTimeout:  time.Minute,
+	}
+}
+
+// requireLoopback keeps the server unreachable from the network. It has no
+// authentication and every request can drive the tag, so the address is
+// constrained here rather than left to whoever writes the command line.
+func requireLoopback(address string) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("invalid listen address %q: %w", address, err)
+	}
+	if host == "localhost" {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	return fmt.Errorf("listen address %q is not loopback; inkwire serve has no authentication and writes to hardware, so it only binds localhost", address)
 }
 
 func replaceExtension(path, extension string) string {

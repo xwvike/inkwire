@@ -12,7 +12,10 @@ import (
 const (
 	DefaultNotifyReadyDelay   = 2 * time.Second
 	DefaultNotifyProcessDelay = 50 * time.Millisecond
-	DefaultResponseTimeout    = 15 * time.Second
+	// Every measured notification came back in about 105 ms, including the
+	// last one that reports the refresh has started, so this is two orders
+	// of magnitude of headroom over a tag that is answering at all.
+	DefaultResponseTimeout = 5 * time.Second
 )
 
 type ProtocolError struct {

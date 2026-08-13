@@ -15,9 +15,17 @@ const (
 	TargetName    = "PICKSMART"
 	FallbackName  = "NEMR92943861"
 
+	// Finding the tag is the slowest and least predictable step: six
+	// measured scans at RSSI -47 to -54 took between 4.3 and 11.5 seconds,
+	// which is the tag's advertising interval rather than anything this
+	// driver controls. Shortening this timeout turns a healthy tag into a
+	// failed attempt, so it stays well above the slowest scan seen.
 	DefaultScanTimeout = 15 * time.Second
-	DefaultRetryDelay  = 5 * time.Second
-	DefaultAttempts    = 6
+	DefaultRetryDelay  = 2 * time.Second
+	// Three attempts is the point of diminishing returns: a tag that has
+	// not answered twice is reporting a Bluetooth problem, and each further
+	// attempt costs another full scan timeout.
+	DefaultAttempts = 3
 )
 
 var (
