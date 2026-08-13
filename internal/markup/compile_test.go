@@ -118,7 +118,8 @@ func TestUnsupportedDeclarationsAreReported(t *testing.T) {
 		{"unsupported display", `.a { display: grid; }`, "grid"},
 		{"weight the strikes do not have", `.a { font-weight: bold; }`, "font-weight"},
 		{"overflow handling", `.a { text-overflow: ellipsis; }`, "text-overflow"},
-		{"transform", `.a { transform: rotate(90deg); }`, "transform"},
+		{"skew", `.a { transform: skew(10deg); }`, "skew"},
+		{"filter", `.a { filter: blur(2px); }`, "filter"},
 		{"at-rule", `@media (min-width: 100px) { .a { color: red; } }`, "@media"},
 	}
 	for _, test := range tests {

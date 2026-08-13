@@ -194,12 +194,22 @@ func (c *compiler) element(node *html.Node, parent style, path string) (compose.
 		inner = compose.Clip{Child: inner}
 	}
 	if len(layers) == 0 {
-		return sized(inner, current), current
+		return sized(transformed(inner, current), current), current
 	}
 	if inner != nil {
 		layers = append(layers, inner)
 	}
-	return sized(compose.Stack{Children: layers}, current), current
+	return sized(transformed(compose.Stack{Children: layers}, current), current), current
+}
+
+// transformed wraps a node when the style asks for a magnification or a turn.
+// The wrapper draws the subtree onto a surface of its own, so everything under
+// it moves together rather than each shape being redrawn at a new size.
+func transformed(node compose.Node, s style) compose.Node {
+	if node == nil || (s.transform == display.Transform{}) {
+		return node
+	}
+	return compose.Transformed{Transform: s.transform, Child: node}
 }
 
 func radiusOf(s style) int {
@@ -219,11 +229,11 @@ func sized(node compose.Node, s style) compose.Node {
 		return node
 	}
 	size := stdimage.Point{}
-	if s.width.set && !s.width.percent {
-		size.X = s.width.pixels()
+	if s.width.fixed() {
+		size.X = s.width.px()
 	}
-	if s.height.set && !s.height.percent {
-		size.Y = s.height.pixels()
+	if s.height.fixed() {
+		size.Y = s.height.px()
 	}
 	if size == (stdimage.Point{}) {
 		return node
@@ -360,18 +370,10 @@ func (c *compiler) children(node *html.Node, current style, path string) compose
 // through as they were written and are resolved there.
 func anchorFor(child style, node compose.Node) compose.Anchor {
 	anchor := compose.Anchor{Node: node, Layer: child.layer}
-	for index, edge := range []**int{&anchor.Top, &anchor.Right, &anchor.Bottom, &anchor.Left} {
-		if value := child.inset[index]; value.set && !value.percent {
-			pixels := value.pixels()
-			*edge = &pixels
-		}
+	for index, edge := range []*compose.Length{&anchor.Top, &anchor.Right, &anchor.Bottom, &anchor.Left} {
+		*edge = lengthOf(child.inset[index])
 	}
-	if child.width.set && !child.width.percent {
-		anchor.Size.X = child.width.pixels()
-	}
-	if child.height.set && !child.height.percent {
-		anchor.Size.Y = child.height.pixels()
-	}
+	anchor.Width, anchor.Height = lengthOf(child.width), lengthOf(child.height)
 	return anchor
 }
 
@@ -412,7 +414,9 @@ func (c *compiler) layoutChild(node compose.Node, child, parent style, path stri
 		// Block children stack down the page whatever the container says.
 		along = axisColumn
 	}
-	item := compose.LayoutChild{Node: node, Grow: child.grow, AlignSelf: child.alignSelf}
+	item := compose.LayoutChild{
+		Node: node, Grow: child.grow, AlignSelf: child.alignSelf, Ratio: child.ratio,
+	}
 
 	mainSize, crossSize := child.width, child.height
 	minMain, minCross := child.minSize[0], child.minSize[1]
@@ -435,13 +439,10 @@ func (c *compiler) layoutChild(node compose.Node, child, parent style, path stri
 // lengthOf carries a stated size through unresolved. Percentages are kept in
 // tenths so that a figure like 87.3% survives the trip.
 func lengthOf(size length) compose.Length {
-	switch {
-	case !size.set:
+	if !size.set {
 		return compose.Auto()
-	case size.percent:
-		return compose.Tenths(int(size.value * 10))
 	}
-	return compose.Pixels(size.pixels())
+	return compose.Calc(int(size.percent*10), int(size.pixels))
 }
 
 // textRuns collects the inline content of an element. It returns nothing when

@@ -28,11 +28,15 @@ const (
 // a pixel count, because "width: 0" and no width at all mean different things.
 type length struct {
 	set     bool
-	percent bool
-	value   float64
+	percent float64
+	pixels  float64
 }
 
-func (l length) pixels() int { return int(l.value) }
+func (l length) px() int { return int(l.pixels) }
+
+// fixed reports a length that is already a number of pixels, which is what the
+// few places that cannot wait for the layout need.
+func (l length) fixed() bool { return l.set && l.percent == 0 }
 
 // style is the computed value of every property this package understands. A
 // field left at its zero value was not specified, except where a pointer or a
@@ -70,6 +74,8 @@ type style struct {
 	maxSize    [2]length
 	inset      [4]length // top, right, bottom, left
 	layer      int
+	transform  display.Transform
+	ratio      float64
 	justify    compose.MainAlignment
 	// alignSelf overrides the container's align-items for one item. The
 	// pointer distinguishes "not stated" from "stretch".
@@ -167,7 +173,7 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 		// Only the single-number form, which sets grow.
 		s.grow = parseNumber(value, property, report)
 	case "gap":
-		s.gap = parseLength(value, property, report).pixels()
+		s.gap = parseLength(value, property, report).px()
 	case "justify-content":
 		switch value {
 		case "flex-start", "start", "normal":
@@ -184,7 +190,7 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 			report(fmt.Sprintf("justify-content: %s is not supported", value))
 		}
 	case "line-height":
-		s.lineHeight = parseLength(value, property, report).pixels()
+		s.lineHeight = parseLength(value, property, report).px()
 	case "white-space":
 		switch value {
 		case "normal":
@@ -224,7 +230,7 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 			s.alignSelf = &cross
 		}
 	case "border-width":
-		s.borderStyle().width = parseLength(value, property, report).pixels()
+		s.borderStyle().width = parseLength(value, property, report).px()
 	case "border-style":
 		switch value {
 		case "solid":
@@ -243,6 +249,76 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 			report(fmt.Sprintf(
 				"box-sizing: %s is not supported; a width here always includes padding and border", value))
 		}
+	case "scale":
+		// Only a whole number: half a pixel has no meaning on a panel with
+		// nothing between set and unset.
+		fields := strings.Fields(value)
+		factor, err := strconv.Atoi(fields[0])
+		if err != nil || factor < 1 {
+			report(fmt.Sprintf(
+				"scale: %s must be a whole number of at least 1; anything else would have to resample", value))
+			return
+		}
+		if len(fields) > 1 && fields[1] != fields[0] {
+			report("scale: the two axes must scale together; this panel cannot stretch one and not the other")
+			return
+		}
+		s.transform.Scale = factor
+	case "rotate":
+		turns, ok := quarterTurns(value)
+		if !ok {
+			report(fmt.Sprintf(
+				"rotate: %s must be a whole number of quarter turns; anything else would have to resample", value))
+			return
+		}
+		s.transform.Turns = turns
+	case "transform":
+		// The function form is what most stylesheets say, and it composes:
+		// "rotate(90deg) scale(2)" is both, applied together.
+		for _, call := range strings.Fields(value) {
+			name, argument, ok := strings.Cut(strings.TrimSuffix(call, ")"), "(")
+			if !ok {
+				report(fmt.Sprintf("transform: %s is not a function call", call))
+				return
+			}
+			switch name {
+			case "scale":
+				factor, err := strconv.Atoi(argument)
+				if err != nil || factor < 1 {
+					report(fmt.Sprintf(
+						"transform: scale(%s) must be a whole number of at least 1", argument))
+					return
+				}
+				s.transform.Scale = factor
+			case "rotate":
+				turns, ok := quarterTurns(argument)
+				if !ok {
+					report(fmt.Sprintf(
+						"transform: rotate(%s) must be a whole number of quarter turns", argument))
+					return
+				}
+				s.transform.Turns = turns
+			case "none":
+				s.transform = display.Transform{}
+			default:
+				report(fmt.Sprintf(
+					"transform: %s() is not supported; only scale and rotate move every pixel onto another pixel",
+					name))
+				return
+			}
+		}
+	case "aspect-ratio":
+		width, height, ok := strings.Cut(value, "/")
+		if !ok {
+			height = "1"
+		}
+		numerator, errWidth := strconv.ParseFloat(strings.TrimSpace(width), 64)
+		denominator, errHeight := strconv.ParseFloat(strings.TrimSpace(height), 64)
+		if errWidth != nil || errHeight != nil || numerator <= 0 || denominator <= 0 {
+			report(fmt.Sprintf("aspect-ratio: %s must be a positive ratio such as 16 / 9", value))
+			return
+		}
+		s.ratio = numerator / denominator
 	case "position":
 		switch value {
 		case "static":
@@ -267,10 +343,10 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 	case "inset":
 		sides := parseInsets(value, report)
 		s.inset = [4]length{
-			{set: true, value: float64(sides.Top)},
-			{set: true, value: float64(sides.Right)},
-			{set: true, value: float64(sides.Bottom)},
-			{set: true, value: float64(sides.Left)},
+			{set: true, pixels: float64(sides.Top)},
+			{set: true, pixels: float64(sides.Right)},
+			{set: true, pixels: float64(sides.Bottom)},
+			{set: true, pixels: float64(sides.Left)},
 		}
 	case "z-index":
 		// Nothing here overlaps except boxes taken out of the flow, and for
@@ -299,13 +375,13 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 	case "padding":
 		s.padding = parseInsets(value, report)
 	case "padding-top":
-		s.padding.Top = parseLength(value, property, report).pixels()
+		s.padding.Top = parseLength(value, property, report).px()
 	case "padding-right":
-		s.padding.Right = parseLength(value, property, report).pixels()
+		s.padding.Right = parseLength(value, property, report).px()
 	case "padding-bottom":
-		s.padding.Bottom = parseLength(value, property, report).pixels()
+		s.padding.Bottom = parseLength(value, property, report).px()
 	case "padding-left":
-		s.padding.Left = parseLength(value, property, report).pixels()
+		s.padding.Left = parseLength(value, property, report).px()
 	case "margin":
 		// The shorthand cannot express auto alignment, which is what the
 		// longhands are for; this is spacing only.
@@ -315,25 +391,25 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 			s.autoLeft = true
 			return
 		}
-		s.margin.Left = parseLength(value, property, report).pixels()
+		s.margin.Left = parseLength(value, property, report).px()
 	case "margin-right":
 		if value == "auto" {
 			s.autoRight = true
 			return
 		}
-		s.margin.Right = parseLength(value, property, report).pixels()
+		s.margin.Right = parseLength(value, property, report).px()
 	case "margin-top":
 		if value == "auto" {
 			s.autoTop = true
 			return
 		}
-		s.margin.Top = parseLength(value, property, report).pixels()
+		s.margin.Top = parseLength(value, property, report).px()
 	case "margin-bottom":
 		if value == "auto" {
 			s.autoBottom = true
 			return
 		}
-		s.margin.Bottom = parseLength(value, property, report).pixels()
+		s.margin.Bottom = parseLength(value, property, report).px()
 	case "min-width":
 		s.minSize[0] = parseLength(value, property, report)
 	case "max-width":
@@ -357,7 +433,7 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 	case "border":
 		s.border = parseBorder(value, s.border, report)
 	case "border-radius":
-		radius := parseLength(value, property, report).pixels()
+		radius := parseLength(value, property, report).px()
 		if s.border == nil {
 			s.border = &border{}
 		}
@@ -365,7 +441,7 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 	case "font-family":
 		s.fontFamily = strings.Trim(strings.Fields(value)[0], `"'`)
 	case "font-size":
-		s.fontSize = parseLength(value, property, report).pixels()
+		s.fontSize = parseLength(value, property, report).px()
 	case "vertical-align":
 		// CSS gives this meaning inside a table cell: where the content sits
 		// in a box taller than itself. A fixed-height row here is the same
@@ -406,6 +482,24 @@ func (s *style) borderStyle() *border {
 }
 
 func fitOf(fit display.ImageFit) *display.ImageFit { return &fit }
+
+// quarterTurns accepts the angles that move every pixel onto another pixel.
+// Between them a rotation has to decide which of two pixels a sample belongs
+// to, and either answer thins some strokes and thickens others.
+func quarterTurns(value string) (int, bool) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "none" || trimmed == "0" {
+		return 0, true
+	}
+	degrees, err := strconv.ParseFloat(strings.TrimSuffix(trimmed, "deg"), 64)
+	if err != nil {
+		return 0, false
+	}
+	if degrees != float64(int(degrees)) || int(degrees)%90 != 0 {
+		return 0, false
+	}
+	return ((int(degrees)/90)%4 + 4) % 4, true
+}
 
 // inheritOne copies one property from the value the parent passed down.
 func (s *style) inheritOne(property string, inherited style) {
@@ -474,20 +568,22 @@ func parseLength(value, property string, report func(string)) length {
 	switch {
 	case value == "auto":
 		return length{}
+	case strings.HasPrefix(value, "calc("):
+		return parseCalc(value, property, report)
 	case strings.HasSuffix(value, "%"):
 		number, err := strconv.ParseFloat(strings.TrimSuffix(value, "%"), 64)
 		if err != nil {
 			report(fmt.Sprintf("%s: %s is not a percentage", property, value))
 			return length{}
 		}
-		return length{set: true, percent: true, value: number}
+		return length{set: true, percent: number}
 	case strings.HasSuffix(value, "px"):
 		number, err := strconv.ParseFloat(strings.TrimSuffix(value, "px"), 64)
 		if err != nil {
 			report(fmt.Sprintf("%s: %s is not a pixel length", property, value))
 			return length{}
 		}
-		return length{set: true, value: number}
+		return length{set: true, pixels: number}
 	case value == "0":
 		return length{set: true}
 	}
@@ -495,6 +591,51 @@ func parseLength(value, property string, report func(string)) length {
 	// way to resolve: there is one device, one density, and no viewport.
 	report(fmt.Sprintf("%s: %s must be given in px or %%", property, value))
 	return length{}
+}
+
+// parseCalc reads the sums of lengths that calc() is used for here. Only
+// addition and subtraction of percentages and pixels are accepted: the rest of
+// the grammar multiplies and divides by unitless numbers, which nothing in
+// this vocabulary needs and which would invite expressions no panel can
+// answer, such as a length divided by a length.
+func parseCalc(value, property string, report func(string)) length {
+	inner := strings.TrimSuffix(strings.TrimPrefix(value, "calc("), ")")
+	fields := strings.Fields(inner)
+	if len(fields) == 0 {
+		report(fmt.Sprintf("%s: calc() is empty", property))
+		return length{}
+	}
+	result := length{set: true}
+	sign := 1.0
+	expectTerm := true
+	for _, field := range fields {
+		if !expectTerm {
+			switch field {
+			case "+":
+				sign = 1
+			case "-":
+				sign = -1
+			default:
+				report(fmt.Sprintf(
+					"%s: calc() understands + and - between lengths, not %q", property, field))
+				return length{}
+			}
+			expectTerm = true
+			continue
+		}
+		term := parseLength(field, property, report)
+		if !term.set {
+			return length{}
+		}
+		result.percent += sign * term.percent
+		result.pixels += sign * term.pixels
+		expectTerm = false
+	}
+	if expectTerm {
+		report(fmt.Sprintf("%s: calc() ends with an operator and no length after it", property))
+		return length{}
+	}
+	return result
 }
 
 func parseNumber(value, property string, report func(string)) int {
@@ -510,7 +651,7 @@ func parseInsets(value string, report func(string)) compose.Insets {
 	fields := strings.Fields(value)
 	sides := make([]int, 0, 4)
 	for _, field := range fields {
-		sides = append(sides, parseLength(field, "padding", report).pixels())
+		sides = append(sides, parseLength(field, "padding", report).px())
 	}
 	switch len(sides) {
 	case 1:
@@ -556,7 +697,7 @@ func parseBorder(value string, existing *border, report func(string)) *border {
 		switch {
 		case field == "solid":
 		case strings.HasSuffix(field, "px"):
-			result.width = parseLength(field, "border", report).pixels()
+			result.width = parseLength(field, "border", report).px()
 		default:
 			if ink, ok := parseInk(field, "border", report); ok {
 				result.ink = ink

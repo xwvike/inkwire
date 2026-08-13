@@ -17,12 +17,24 @@ func classify(t *testing.T, body, base, declaration string) string {
 	t.Helper()
 	without, _ := renderProbe(t, body, base)
 	with, said := renderProbe(t, body, base+" "+declaration)
+	// A refusal names the declaration; a consequence describes the layout it
+	// produced. Treating every warning as a refusal reported four properties
+	// as unsupported that had in fact worked and then overflowed the box they
+	// were given, which is the renderer doing both of its jobs.
+	refused := strings.Contains(said, "not a property") ||
+		strings.Contains(said, "is not supported") ||
+		strings.Contains(said, "must be") ||
+		strings.Contains(said, "cannot be") ||
+		strings.Contains(said, "not one of the panel")
 	switch {
-	case said != "":
+	case refused:
 		return "REFUSED  " + strings.TrimSpace(strings.SplitN(said, "\n", 2)[0])
 	case without == nil || with == nil:
 		return "ERROR"
 	case !samePixels(without, with):
+		if said != "" {
+			return "APPLIED  (and reported: " + strings.TrimSpace(strings.SplitN(said, "\n", 2)[0]) + ")"
+		}
 		return "APPLIED"
 	}
 	return "SILENT"

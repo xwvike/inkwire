@@ -64,6 +64,9 @@ type LayoutChild struct {
 	// AlignSelf places this child across the axis regardless of what the
 	// container asked for.
 	AlignSelf *CrossAlignment
+	// Ratio ties the two axes together as width divided by height, so a box
+	// that states one size takes the other from it. Zero leaves them free.
+	Ratio float64
 }
 
 // mainSize resolves the child's size along the container's axis, falling back
@@ -103,6 +106,18 @@ func (c LayoutChild) crossSizeOf(measured, available int, stretched bool) int {
 		size = resolved
 	}
 	return clamp(size, c.MinCross, c.MaxCross, available)
+}
+
+// ratioCross derives the cross size from the main one when a ratio was given
+// and no cross size was, which is the case aspect-ratio exists for.
+func (c LayoutChild) ratioCross(mainSize int, horizontal bool) (int, bool) {
+	if c.Ratio <= 0 || c.Cross.IsSet() {
+		return 0, false
+	}
+	if horizontal {
+		return int(float64(mainSize)/c.Ratio + 0.5), true
+	}
+	return int(float64(mainSize)*c.Ratio + 0.5), true
 }
 
 func (c LayoutChild) alignment(container CrossAlignment) CrossAlignment {
@@ -321,6 +336,12 @@ func paintFlow(ctx *compileContext, list *display.DisplayList, bounds image.Rect
 		childMain, measuredCross := axes(sizes[index], horizontal)
 		alignment := child.alignment(crossAlign)
 		childCross := child.crossSizeOf(measuredCross, availableCross, alignment == CrossStretch)
+		if derived, ok := child.ratioCross(childMain, horizontal); ok {
+			childCross = clamp(derived, child.MinCross, child.MaxCross, availableCross)
+			if alignment == CrossStretch {
+				alignment = CrossStart
+			}
+		}
 		crossStart := 0
 		switch alignment {
 		case CrossCenter:
@@ -463,8 +484,8 @@ func rectFromAxes(origin image.Point, mainStart, crossStart, mainSize, crossSize
 // named decides how it is sized: opposite edges stretch it between them, a
 // single edge holds it at its own size, and neither leaves it at the origin.
 type Anchor struct {
-	Top, Right, Bottom, Left *int
-	Size                     image.Point
+	Top, Right, Bottom, Left Length
+	Width, Height            Length
 	Node                     Node
 	// Layer orders overlapping children. Higher is painted later, so it
 	// appears over lower ones; equal layers keep their document order.
@@ -488,8 +509,8 @@ func (a Anchored) measure(ctx *compileContext, maximum image.Point, path string)
 		if nilNode(child.Node) {
 			return image.Point{}, fmt.Errorf("%s: node must not be nil", nodePath)
 		}
-		if !validSize(child.Size) {
-			return image.Point{}, fmt.Errorf("%s: size must not be negative, got %v", nodePath, child.Size)
+		if !child.Width.valid() || !child.Height.valid() {
+			return image.Point{}, fmt.Errorf("%s: size must not be negative", nodePath)
 		}
 		if _, err := child.Node.measure(ctx, maximum, nodePath); err != nil {
 			return image.Point{}, err
@@ -525,26 +546,30 @@ func (a Anchored) paint(ctx *compileContext, list *display.DisplayList, bounds i
 // resolve turns the insets into a rectangle inside the container, following
 // the same rules CSS does for an absolutely positioned box.
 func (a Anchor) resolve(bounds image.Rectangle) image.Rectangle {
-	span := func(start, end *int, low, high, size int) (int, int) {
+	span := func(startLen, endLen, sizeLen Length, low, high int) (int, int) {
+		available := high - low
+		start, hasStart := startLen.Resolve(available)
+		end, hasEnd := endLen.Resolve(available)
+		size, hasSize := sizeLen.Resolve(available)
 		switch {
-		case start != nil && end != nil:
-			return low + *start, high - *end
-		case start != nil:
-			if size > 0 {
-				return low + *start, low + *start + size
+		case hasStart && hasEnd:
+			return low + start, high - end
+		case hasStart:
+			if hasSize {
+				return low + start, low + start + size
 			}
-			return low + *start, high
-		case end != nil:
-			if size > 0 {
-				return high - *end - size, high - *end
+			return low + start, high
+		case hasEnd:
+			if hasSize {
+				return high - end - size, high - end
 			}
-			return low, high - *end
-		case size > 0:
+			return low, high - end
+		case hasSize:
 			return low, low + size
 		}
 		return low, high
 	}
-	left, right := span(a.Left, a.Right, bounds.Min.X, bounds.Max.X, a.Size.X)
-	top, bottom := span(a.Top, a.Bottom, bounds.Min.Y, bounds.Max.Y, a.Size.Y)
+	left, right := span(a.Left, a.Right, a.Width, bounds.Min.X, bounds.Max.X)
+	top, bottom := span(a.Top, a.Bottom, a.Height, bounds.Min.Y, bounds.Max.Y)
 	return image.Rect(left, top, right, bottom)
 }

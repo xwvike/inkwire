@@ -381,3 +381,141 @@ func TestZIndexOrdersOverlappingBoxes(t *testing.T) {
 	}
 	expect(t, got, display.InkBlack, image.Rect(0, 0, 40, 40), "the raised box")
 }
+
+// Magnifying draws the subtree onto a surface of its own and copies it over
+// enlarged, so a bordered box becomes a bordered box with thicker lines rather
+// than a larger box with the same one-pixel border.
+func TestScaleMagnifiesTheWholeSubtree(t *testing.T) {
+	plain := countInk(t, `.a { display: block; flex-grow: 1; border: 1px solid black; }`)
+	doubled := countInk(t, `.a { display: block; flex-grow: 1; border: 1px solid black; scale: 2; }`)
+	if doubled <= plain {
+		t.Errorf("doubling used %d pixels of ink and the original %d", doubled, plain)
+	}
+
+	got := boxes(t, `<i class="a"></i>`,
+		`.a { display: block; background: black; flex-basis: 20px; height: 10px; scale: 2; }`)
+	expect(t, got, display.InkBlack, image.Rect(0, 0, 20, 10), "a doubled box still fills the box it was given")
+}
+
+// A quarter turn is a transposition, so a wide box becomes a tall one.
+func TestRotateTurnsTheSubtree(t *testing.T) {
+	upright := boxes(t, `<i class="a"><i class="b"></i></i>`,
+		inks+` .a { display: block; flex-grow: 1; } .b { width: 100%; height: 20%; }`)
+	turned := boxes(t, `<i class="a"><i class="b"></i></i>`,
+		inks+` .a { display: block; flex-grow: 1; rotate: 90deg; } .b { width: 100%; height: 20%; }`)
+	if upright[display.InkRed].Dx() <= upright[display.InkRed].Dy() {
+		t.Fatalf("the upright bar is %v, which is not wider than it is tall", upright[display.InkRed])
+	}
+	if turned[display.InkRed].Dy() <= turned[display.InkRed].Dx() {
+		t.Errorf("after a quarter turn the bar is %v, still not taller than it is wide", turned[display.InkRed])
+	}
+}
+
+// Anything that would have to resample is refused rather than approximated.
+func TestOnlyExactTransformsAreAccepted(t *testing.T) {
+	for _, css := range []string{
+		`.a { scale: 1.5; }`,
+		`.a { scale: 2 3; }`,
+		`.a { rotate: 45deg; }`,
+		`.a { rotate: 30deg; }`,
+	} {
+		said := warningsFor(t, `<i class="a"></i>`, ` .a { display: block; background: black; flex-grow: 1; }`+css)
+		if said == "" {
+			t.Errorf("%s was accepted, but it cannot be done without resampling", css)
+		}
+	}
+	// The exact ones are not refused.
+	for _, css := range []string{`.a { scale: 3; }`, `.a { rotate: 180deg; }`, `.a { rotate: -90deg; }`} {
+		said := warningsFor(t, `<i class="a"></i>`, ` .a { display: block; background: black; flex-grow: 1; }`+css)
+		if said != "" {
+			t.Errorf("%s was refused: %s", css, said)
+		}
+	}
+}
+
+// calc() is a share of the container and an adjustment to it, which is the
+// form it is nearly always written in.
+func TestCalcMixesPercentAndPixels(t *testing.T) {
+	tests := []struct {
+		css  string
+		want image.Rectangle
+	}{
+		{`width: calc(100% - 20px);`, image.Rect(0, 0, 80, 50)},
+		{`width: calc(50% + 5px);`, image.Rect(0, 0, 55, 50)},
+		{`width: calc(30px + 10px);`, image.Rect(0, 0, 40, 50)},
+		{`width: calc(25%);`, image.Rect(0, 0, 25, 50)},
+	}
+	for _, test := range tests {
+		t.Run(test.css, func(t *testing.T) {
+			got := boxes(t, `<i class="a"></i>`,
+				`.a { display: block; background: black; `+test.css+` }`)
+			expect(t, got, display.InkBlack, test.want, test.css)
+		})
+	}
+}
+
+// A calc that resolves below zero is clamped rather than inverted, and one
+// written with something other than a length is refused by name.
+func TestCalcEdges(t *testing.T) {
+	got := boxes(t, `<i class="a"></i>`,
+		`.a { display: block; background: black; height: 50px; width: calc(10% - 40px); }`)
+	if _, drawn := got[display.InkBlack]; drawn {
+		t.Errorf("a calc resolving below zero drew %v", got[display.InkBlack])
+	}
+	for _, css := range []string{
+		`.a { width: calc(100% * 2); }`,
+		`.a { width: calc(100% -); }`,
+		`.a { width: calc(2em + 4px); }`,
+	} {
+		if said := warningsFor(t, `<i class="a"></i>`,
+			` .a { display: block; background: black; flex-grow: 1; }`+css); said == "" {
+			t.Errorf("%s was accepted silently", css)
+		}
+	}
+}
+
+// An inset given as a percentage resolves against the container, like every
+// other length now does.
+func TestPercentageInsets(t *testing.T) {
+	got := boxes(t, `<i class="b"></i>`,
+		`.b { display: block; background: red; position: absolute;
+		 top: 20%; left: 25%; width: 50%; height: 40%; }`)
+	expect(t, got, display.InkRed, image.Rect(25, 10, 75, 30), "an anchored box in percentages")
+}
+
+// The function form of transform is what most stylesheets say, and it composes.
+func TestTransformFunctionForm(t *testing.T) {
+	byProperty := countInk(t, `.a { display: block; flex-grow: 1; border: 1px solid black; scale: 2; }`)
+	byFunction := countInk(t, `.a { display: block; flex-grow: 1; border: 1px solid black; transform: scale(2); }`)
+	if byProperty != byFunction {
+		t.Errorf("scale: 2 drew %d pixels and transform: scale(2) drew %d", byProperty, byFunction)
+	}
+	if said := warningsFor(t, `<i class="a"></i>`,
+		` .a { display: block; background: black; flex-grow: 1; transform: rotate(90deg) scale(2); }`); said != "" {
+		t.Errorf("a composed transform was refused: %s", said)
+	}
+	// Functions that would have to resample are named, not lumped together.
+	for _, css := range []string{`transform: skew(10deg)`, `transform: translate(4px, 4px)`, `transform: rotate(45deg)`} {
+		if said := warningsFor(t, `<i class="a"></i>`,
+			` .a { display: block; background: black; flex-grow: 1; `+css+`; }`); said == "" {
+			t.Errorf("%s was accepted", css)
+		}
+	}
+}
+
+// aspect-ratio ties the axes together, so a box that states one size takes the
+// other from it.
+func TestAspectRatio(t *testing.T) {
+	got := boxes(t, `<i class="a"></i>`,
+		`.a { display: block; background: black; flex-basis: 40px; aspect-ratio: 2 / 1; }`)
+	expect(t, got, display.InkBlack, image.Rect(0, 0, 40, 20), "a two-to-one box forty wide")
+
+	square := boxes(t, `<i class="a"></i>`,
+		`.a { display: block; background: black; flex-basis: 30px; aspect-ratio: 1; }`)
+	expect(t, square, display.InkBlack, image.Rect(0, 0, 30, 30), "a square")
+
+	if said := warningsFor(t, `<i class="a"></i>`,
+		` .a { display: block; background: black; flex-grow: 1; aspect-ratio: 0 / 3; }`); said == "" {
+		t.Error("a ratio with a zero in it was accepted")
+	}
+}
