@@ -13,9 +13,13 @@ import (
 )
 
 const (
+	// TargetAddress is the tag this build was developed against, kept as the
+	// default so a single-tag setup needs no arguments. Any other tag is
+	// reached with -device.
 	TargetAddress = "FF:FF:92:94:38:61"
-	TargetName    = "PICKSMART"
-	FallbackName  = "NEMR92943861"
+	// TargetName is advertised by every tag while it powers up, before it
+	// settles on its own NEMR name. It identifies the product, not a tag.
+	TargetName = "PICKSMART"
 
 	// Finding the tag is the slowest and least predictable step: six
 	// measured scans at RSSI -47 to -54 took between 4.3 and 11.5 seconds,
@@ -293,10 +297,48 @@ func (d *Driver) matches(name, address string) bool {
 	if strings.EqualFold(name, d.Target) || strings.EqualFold(address, d.Target) {
 		return true
 	}
-	if !strings.EqualFold(d.Target, TargetAddress) {
-		return false
+	// A MAC never equals the address on a host that does not expose one:
+	// CoreBluetooth substitutes a per-host UUID, so every MAC target would
+	// otherwise be unreachable on macOS. The advertised name is derived from
+	// the MAC, so match on that instead.
+	//
+	// TargetName is deliberately not accepted here. Every tag advertises it
+	// while powering up, so honouring it for a MAC target would let a write
+	// aimed at one tag land on whichever tag happened to be booting. Ask for
+	// it by name if that is genuinely what you want.
+	if derived, ok := advertisedName(d.Target); ok {
+		return strings.EqualFold(name, derived)
 	}
-	return strings.EqualFold(name, TargetName) || strings.EqualFold(name, FallbackName)
+	return false
+}
+
+// advertisedName derives the name a tag settles on from its MAC. Gicisky tags
+// are addressed FF:FF:xx:yy:zz:kk and advertise NEMRxxyyzzkk, which makes the
+// name the one identifier that is both unique per tag and identical on every
+// host that sees it.
+//
+// It reports false for anything that is not a complete MAC, so names and
+// CoreBluetooth UUIDs pass through untouched.
+func advertisedName(target string) (string, bool) {
+	cleaned := strings.NewReplacer(":", "", "-", "").Replace(target)
+	if len(cleaned) != macHexDigits {
+		return "", false
+	}
+	for _, digit := range cleaned {
+		if !isHexDigit(digit) {
+			return "", false
+		}
+	}
+	return "NEMR" + strings.ToUpper(cleaned[macHexDigits-8:]), true
+}
+
+// macHexDigits is the length of a MAC in hex digits once separators are gone.
+// The name carries only the last four bytes; the leading FF:FF is shared by
+// every tag and so identifies none of them.
+const macHexDigits = 12
+
+func isHexDigit(r rune) bool {
+	return (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')
 }
 
 func (d *Driver) logf(format string, args ...any) {
