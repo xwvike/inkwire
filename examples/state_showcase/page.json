@@ -56,7 +56,7 @@
         {"bounds":{"x":22,"y":27,"width":21,"height":15},"node":{"type":"rectangle","radius":2,"fill":"red"}},
         {"bounds":{"x":36,"y":34,"width":21,"height":15},"node":{"type":"rectangle","radius":2,"stroke":{"ink":"black","width":1}}},
         {"bounds":{"x":61,"y":21,"width":23,"height":27},"node":{"type":"polygon","points":[{"x":11,"y":0},{"x":22,"y":13},{"x":11,"y":26},{"x":0,"y":13}],"fill":"black"}},
-        {"bounds":{"x":8,"y":53,"width":76,"height":11},"node":{"type":"text","align":"center","runs":[{"text":"LATER OVER EARLIER","font":"monaco","size":10,"ink":"black"}]}}
+        {"bounds":{"x":8,"y":53,"width":76,"height":11},"node":{"type":"text","align":"center","runs":[{"text":"LATER ON TOP","font":"monaco","size":10,"ink":"black"}]}}
       ]}},
       {"bounds":{"x":0,"y":108,"width":296,"height":20},"node":{"type":"rectangle","fill":"black"}},
       {"bounds":{"x":5,"y":110,"width":286,"height":16},"node":{"type":"text","align":"center","runs":[

@@ -59,7 +59,22 @@ func (t Text) paint(ctx *compileContext, list *display.DisplayList, bounds stdim
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	ctx.addMissing(path, layout.MissingRunes())
+	if columns, lines := layout.Clipped(); columns > 0 || lines > 0 {
+		ctx.warn(path, "text-clipped", fmt.Sprintf(
+			"%q does not fit %dx%d: %d pixels of the line and %d whole lines are cut off",
+			runText(t.Runs), bounds.Dx(), bounds.Dy(), columns, lines))
+	}
 	return nil
+}
+
+// runText joins the runs so a warning can name the text that was cut rather
+// than only the path to it.
+func runText(runs []display.TextRun) string {
+	var joined string
+	for _, run := range runs {
+		joined += run.Text
+	}
+	return joined
 }
 
 func (t Text) validate(path string) error {

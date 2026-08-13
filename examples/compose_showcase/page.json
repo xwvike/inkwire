@@ -55,9 +55,9 @@
               "node": {"type": "circle", "center": {"x": 32, "y": 32}, "radius": 32, "stroke": {"ink": "red", "width": 1}}
             },
             {
-              "bounds": {"x": 7, "y": 74, "width": 60, "height": 14},
+              "bounds": {"x": 5, "y": 74, "width": 64, "height": 14},
               "node": {"type": "text", "runs": [
-                {"text": "PHOTO / ", "font": "monaco", "size": 10, "ink": "black"},
+                {"text": "PHOTO/", "font": "monaco", "size": 10, "ink": "black"},
                 {"text": "人像", "font": "hzk", "size": 12, "ink": "red"}
               ]}
             },

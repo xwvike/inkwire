@@ -303,3 +303,64 @@ func assertFrameInk(t *testing.T, frame *display.Frame, x, y int, want display.I
 		t.Fatalf("pixel (%d,%d) = %d, want %d", x, y, got, want)
 	}
 }
+
+// The clipping check lives in display; this is the wiring that turns it into
+// something a caller sees. Without a test here, deleting the wiring leaves
+// every other test passing while the panel quietly shows a wrong number.
+func TestClippedTextIsReported(t *testing.T) {
+	compiler, err := NewDefaultCompiler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := Document{Root: Absolute{Children: []Placed{{
+		// Ten characters of Monaco 12 need seventy pixels.
+		Bounds: image.Rect(0, 0, 40, 15),
+		Node: Text{Runs: []display.TextRun{{
+			Text:  "3260/3720G",
+			Style: display.TextStyle{Font: "monaco", Size: 12, Ink: display.InkBlack},
+		}}},
+	}}}}
+	_, report, err := compiler.Compile(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var clipped *Warning
+	for index, warning := range report.Warnings {
+		if warning.Code == "text-clipped" {
+			clipped = &report.Warnings[index]
+		}
+	}
+	if clipped == nil {
+		t.Fatalf("no text-clipped warning; report has %v", report.Warnings)
+	}
+	if !strings.Contains(clipped.Message, "3260/3720G") {
+		t.Errorf("the warning does not name the text that was cut: %q", clipped.Message)
+	}
+	if clipped.Path == "" {
+		t.Error("the warning does not say which node was cut")
+	}
+}
+
+// Text that fits must stay silent, or the warning is noise and gets ignored.
+func TestTextThatFitsIsNotReported(t *testing.T) {
+	compiler, err := NewDefaultCompiler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := Document{Root: Absolute{Children: []Placed{{
+		Bounds: image.Rect(0, 0, 200, 15),
+		Node: Text{Runs: []display.TextRun{{
+			Text:  "3260/3720G",
+			Style: display.TextStyle{Font: "monaco", Size: 12, Ink: display.InkBlack},
+		}}},
+	}}}}
+	_, report, err := compiler.Compile(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, warning := range report.Warnings {
+		if warning.Code == "text-clipped" {
+			t.Errorf("text that fits was reported as clipped: %s", warning.Message)
+		}
+	}
+}
