@@ -1,0 +1,828 @@
+{
+  "version": 1,
+  "size": {
+    "width": 400,
+    "height": 300
+  },
+  "background": "white",
+  "root": {
+    "type": "absolute",
+    "clip": true,
+    "children": [
+      {
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "width": 400,
+          "height": 24
+        },
+        "node": {
+          "type": "rectangle",
+          "fill": "black"
+        }
+      },
+      {
+        "bounds": {
+          "x": 8,
+          "y": 3,
+          "width": 384,
+          "height": 20
+        },
+        "node": {
+          "type": "text",
+          "runs": [
+            {
+              "text": "图元能力 400x300 描边一律 2px",
+              "font": "ui",
+              "size": 16,
+              "ink": "white"
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 4,
+          "y": 30,
+          "width": 92,
+          "height": 44
+        },
+        "node": {
+          "type": "rectangle",
+          "radius": 8,
+          "stroke": {
+            "ink": "black",
+            "width": 2
+          }
+        }
+      },
+      {
+        "bounds": {
+          "x": 4,
+          "y": 76,
+          "width": 92,
+          "height": 18
+        },
+        "node": {
+          "type": "text",
+          "align": "center",
+          "runs": [
+            {
+              "text": "圆角描边",
+              "font": "ui",
+              "size": 16,
+              "ink": "black"
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 103,
+          "y": 30,
+          "width": 92,
+          "height": 44
+        },
+        "node": {
+          "type": "rectangle",
+          "radius": 4,
+          "fill": "red"
+        }
+      },
+      {
+        "bounds": {
+          "x": 103,
+          "y": 76,
+          "width": 92,
+          "height": 18
+        },
+        "node": {
+          "type": "text",
+          "align": "center",
+          "runs": [
+            {
+              "text": "矩形填充",
+              "font": "ui",
+              "size": 16,
+              "ink": "black"
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 202,
+          "y": 30,
+          "width": 92,
+          "height": 44
+        },
+        "node": {
+          "type": "circle",
+          "center": {
+            "x": 46,
+            "y": 22
+          },
+          "radius": 19,
+          "stroke": {
+            "ink": "black",
+            "width": 2
+          }
+        }
+      },
+      {
+        "bounds": {
+          "x": 202,
+          "y": 76,
+          "width": 92,
+          "height": 18
+        },
+        "node": {
+          "type": "text",
+          "align": "center",
+          "runs": [
+            {
+              "text": "圆描边",
+              "font": "ui",
+              "size": 16,
+              "ink": "black"
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 301,
+          "y": 30,
+          "width": 92,
+          "height": 44
+        },
+        "node": {
+          "type": "circle",
+          "center": {
+            "x": 46,
+            "y": 22
+          },
+          "radius": 19,
+          "fill": "red"
+        }
+      },
+      {
+        "bounds": {
+          "x": 301,
+          "y": 76,
+          "width": 92,
+          "height": 18
+        },
+        "node": {
+          "type": "text",
+          "align": "center",
+          "runs": [
+            {
+              "text": "圆填充",
+              "font": "ui",
+              "size": 16,
+              "ink": "black"
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 4,
+          "y": 96,
+          "width": 92,
+          "height": 44
+        },
+        "node": {
+          "type": "ellipse",
+          "fill": "red",
+          "stroke": {
+            "ink": "black",
+            "width": 2
+          }
+        }
+      },
+      {
+        "bounds": {
+          "x": 4,
+          "y": 142,
+          "width": 92,
+          "height": 18
+        },
+        "node": {
+          "type": "text",
+          "align": "center",
+          "runs": [
+            {
+              "text": "椭圆",
+              "font": "ui",
+              "size": 16,
+              "ink": "black"
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 103,
+          "y": 96,
+          "width": 92,
+          "height": 44
+        },
+        "node": {
+          "type": "arc",
+          "start": -90,
+          "sweep": 270,
+          "stroke": {
+            "ink": "black",
+            "width": 3
+          }
+        }
+      },
+      {
+        "bounds": {
+          "x": 103,
+          "y": 142,
+          "width": 92,
+          "height": 18
+        },
+        "node": {
+          "type": "text",
+          "align": "center",
+          "runs": [
+            {
+              "text": "圆弧",
+              "font": "ui",
+              "size": 16,
+              "ink": "black"
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 202,
+          "y": 96,
+          "width": 92,
+          "height": 44
+        },
+        "node": {
+          "type": "pie",
+          "start": -90,
+          "sweep": 120,
+          "ink": "red"
+        }
+      },
+      {
+        "bounds": {
+          "x": 202,
+          "y": 142,
+          "width": 92,
+          "height": 18
+        },
+        "node": {
+          "type": "text",
+          "align": "center",
+          "runs": [
+            {
+              "text": "扇形",
+              "font": "ui",
+              "size": 16,
+              "ink": "black"
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 301,
+          "y": 96,
+          "width": 92,
+          "height": 44
+        },
+        "node": {
+          "type": "chord",
+          "start": 20,
+          "sweep": 220,
+          "ink": "black"
+        }
+      },
+      {
+        "bounds": {
+          "x": 301,
+          "y": 142,
+          "width": 92,
+          "height": 18
+        },
+        "node": {
+          "type": "text",
+          "align": "center",
+          "runs": [
+            {
+              "text": "弓形",
+              "font": "ui",
+              "size": 16,
+              "ink": "black"
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 4,
+          "y": 162,
+          "width": 92,
+          "height": 44
+        },
+        "node": {
+          "type": "line",
+          "from": {
+            "x": 2,
+            "y": 40
+          },
+          "to": {
+            "x": 90,
+            "y": 4
+          },
+          "stroke": {
+            "ink": "red",
+            "width": 2,
+            "dash": [
+              6,
+              4
+            ]
+          }
+        }
+      },
+      {
+        "bounds": {
+          "x": 4,
+          "y": 208,
+          "width": 92,
+          "height": 18
+        },
+        "node": {
+          "type": "text",
+          "align": "center",
+          "runs": [
+            {
+              "text": "虚线",
+              "font": "ui",
+              "size": 16,
+              "ink": "black"
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 103,
+          "y": 162,
+          "width": 92,
+          "height": 44
+        },
+        "node": {
+          "type": "polyline",
+          "stroke": {
+            "ink": "black",
+            "width": 2
+          },
+          "points": [
+            {
+              "x": 2,
+              "y": 36
+            },
+            {
+              "x": 20,
+              "y": 10
+            },
+            {
+              "x": 38,
+              "y": 30
+            },
+            {
+              "x": 56,
+              "y": 6
+            },
+            {
+              "x": 74,
+              "y": 26
+            },
+            {
+              "x": 90,
+              "y": 14
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 103,
+          "y": 208,
+          "width": 92,
+          "height": 18
+        },
+        "node": {
+          "type": "text",
+          "align": "center",
+          "runs": [
+            {
+              "text": "折线",
+              "font": "ui",
+              "size": 16,
+              "ink": "black"
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 202,
+          "y": 162,
+          "width": 92,
+          "height": 44
+        },
+        "node": {
+          "type": "polygon",
+          "fill": "black",
+          "points": [
+            {
+              "x": 46,
+              "y": 2
+            },
+            {
+              "x": 90,
+              "y": 22
+            },
+            {
+              "x": 68,
+              "y": 42
+            },
+            {
+              "x": 24,
+              "y": 42
+            },
+            {
+              "x": 2,
+              "y": 22
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 202,
+          "y": 208,
+          "width": 92,
+          "height": 18
+        },
+        "node": {
+          "type": "text",
+          "align": "center",
+          "runs": [
+            {
+              "text": "多边形填充",
+              "font": "ui",
+              "size": 16,
+              "ink": "black"
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 301,
+          "y": 162,
+          "width": 92,
+          "height": 44
+        },
+        "node": {
+          "type": "polygon",
+          "stroke": {
+            "ink": "red",
+            "width": 2
+          },
+          "points": [
+            {
+              "x": 46,
+              "y": 3
+            },
+            {
+              "x": 89,
+              "y": 22
+            },
+            {
+              "x": 68,
+              "y": 41
+            },
+            {
+              "x": 24,
+              "y": 41
+            },
+            {
+              "x": 3,
+              "y": 22
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 301,
+          "y": 208,
+          "width": 92,
+          "height": 18
+        },
+        "node": {
+          "type": "text",
+          "align": "center",
+          "runs": [
+            {
+              "text": "多边形描边",
+              "font": "ui",
+              "size": 16,
+              "ink": "black"
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 4,
+          "y": 228,
+          "width": 92,
+          "height": 44
+        },
+        "node": {
+          "type": "path",
+          "stroke": {
+            "ink": "black",
+            "width": 2
+          },
+          "commands": [
+            {
+              "op": "move",
+              "to": {
+                "x": 3,
+                "y": 38
+              }
+            },
+            {
+              "op": "quadratic",
+              "control": {
+                "x": 24,
+                "y": -6
+              },
+              "to": {
+                "x": 46,
+                "y": 24
+              }
+            },
+            {
+              "op": "cubic",
+              "control1": {
+                "x": 60,
+                "y": 44
+              },
+              "control2": {
+                "x": 74,
+                "y": 0
+              },
+              "to": {
+                "x": 89,
+                "y": 20
+              }
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 4,
+          "y": 274,
+          "width": 92,
+          "height": 18
+        },
+        "node": {
+          "type": "text",
+          "align": "center",
+          "runs": [
+            {
+              "text": "曲线路径",
+              "font": "ui",
+              "size": 16,
+              "ink": "black"
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 103,
+          "y": 228,
+          "width": 92,
+          "height": 44
+        },
+        "node": {
+          "type": "path",
+          "fill": "red",
+          "stroke": {
+            "ink": "black",
+            "width": 2
+          },
+          "commands": [
+            {
+              "op": "move",
+              "to": {
+                "x": 8,
+                "y": 40
+              }
+            },
+            {
+              "op": "line",
+              "to": {
+                "x": 30,
+                "y": 6
+              }
+            },
+            {
+              "op": "arc",
+              "bounds": {
+                "x": 30,
+                "y": 6,
+                "width": 34,
+                "height": 34
+              },
+              "start": 180,
+              "sweep": -180
+            },
+            {
+              "op": "line",
+              "to": {
+                "x": 84,
+                "y": 40
+              }
+            },
+            {
+              "op": "close"
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 103,
+          "y": 274,
+          "width": 92,
+          "height": 18
+        },
+        "node": {
+          "type": "text",
+          "align": "center",
+          "runs": [
+            {
+              "text": "路径填充",
+              "font": "ui",
+              "size": 16,
+              "ink": "black"
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 202,
+          "y": 228,
+          "width": 92,
+          "height": 44
+        },
+        "node": {
+          "type": "pattern",
+          "rows": [
+            "xx..",
+            "xx..",
+            "..rr",
+            "..rr"
+          ],
+          "inks": {
+            "x": "black",
+            "r": "red"
+          }
+        }
+      },
+      {
+        "bounds": {
+          "x": 202,
+          "y": 274,
+          "width": 92,
+          "height": 18
+        },
+        "node": {
+          "type": "text",
+          "align": "center",
+          "runs": [
+            {
+              "text": "图案",
+              "font": "ui",
+              "size": 16,
+              "ink": "black"
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 301,
+          "y": 228,
+          "width": 92,
+          "height": 44
+        },
+        "node": {
+          "type": "stack",
+          "children": [
+            {
+              "type": "line",
+              "from": {
+                "x": 2,
+                "y": 8
+              },
+              "to": {
+                "x": 90,
+                "y": 8
+              },
+              "stroke": {
+                "ink": "black",
+                "width": 1
+              }
+            },
+            {
+              "type": "line",
+              "from": {
+                "x": 2,
+                "y": 20
+              },
+              "to": {
+                "x": 90,
+                "y": 20
+              },
+              "stroke": {
+                "ink": "black",
+                "width": 2
+              }
+            },
+            {
+              "type": "line",
+              "from": {
+                "x": 2,
+                "y": 32
+              },
+              "to": {
+                "x": 90,
+                "y": 32
+              },
+              "stroke": {
+                "ink": "red",
+                "width": 1
+              }
+            },
+            {
+              "type": "line",
+              "from": {
+                "x": 2,
+                "y": 41
+              },
+              "to": {
+                "x": 90,
+                "y": 41
+              },
+              "stroke": {
+                "ink": "red",
+                "width": 2
+              }
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 301,
+          "y": 274,
+          "width": 92,
+          "height": 18
+        },
+        "node": {
+          "type": "text",
+          "align": "center",
+          "runs": [
+            {
+              "text": "1px vs 2px",
+              "font": "monaco",
+              "size": 14,
+              "ink": "black"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

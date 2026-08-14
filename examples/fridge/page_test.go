@@ -23,12 +23,13 @@
 // line count barely changed either. What changed is that the checkbox width
 // now appears once instead of six times.
 //
-// # This page cannot be pushed
+// # This page is 400x300
 //
-// It is 400x300, for the 4.2" panel in the model table rather than the 2.9"
-// one this repository drives, so there is no Payload assertion below: encoding
-// refuses any page that is not the device's own size. It renders, and that is
-// all it is here to do.
+// That is the 4.2" part rather than the 2.9" one the Gicisky driver writes to,
+// so there is no Payload assertion below: that encoding refuses any page which
+// is not its device's own size. The page is not unreachable for it, though. It
+// goes to a 4.2" panel through the EPD-nRF5 driver, which asks the panel what
+// it is and builds the page for the answer.
 package fridge
 
 import (

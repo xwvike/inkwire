@@ -121,6 +121,23 @@ panel is UC8179_750_BWR 800x480 BWR (unverified), link carries 244 bytes and can
 
 未实现的两类会明确拒绝。UC8159 用的是两像素一字节的半字节流，和双平面产出的字节数都不一样；BWRY 需要给 `Ink` 加第四色，会牵动抖动、图像自动处理和 Scene Schema 的 `ink` 枚举。
 
+### 这块面板上的字号与配色
+
+在实机验证过的 `0x03`（4.2" 400x300 BWR）上实测。**其他型号未测。**
+
+| 组合 | 最小可用字号 |
+|---|---|
+| 黑底白字 | 12 |
+| 白底红字 | 16 |
+| 白底黑字 | **24** |
+| 黑底红字 | 不要用 |
+
+白底黑字要到 24 是因为笔画：12/14/16 的字模笔画只有 1 像素，而这块面板上孤立的一像素黑点走不到饱和，看着发虚。24 的笔画是 2 像素就没这个问题。字模支持整数倍放大，`ui` / `hzk` 可用 12 14 16 24 28 32 36 42 48，`monaco` 另有 10 20 30。
+
+图元同理：**描边一律 2px 起**。
+
+黑底红字是另一回事，和字号无关——渲染是完美的，没有任何一个像素变淡，纯粹是红与黑的明度太接近。放大到多少都不会变好，换配色是唯一的办法。
+
 ### 刷新期间须保持连接
 
 刷新未完成就断开连接，标签会立刻休眠，这一页就白推了——**每一帧都写成功、日志一切正常、屏幕纹丝不动**。
@@ -1036,6 +1053,7 @@ Data URL 写法：
 
 完整 JSON：
 
+- [面板判据](examples/panel_check/primitives.json)：图元能力与[极性对照](examples/panel_check/polarity.json)，400x300，拿到没驱动过的面板时先推这两张
 - [布局节点](examples/layout_showcase/page.json)：`grid`、`anchored`、`transformed`、`clip`、`clipShape` 各司其职的一页
 - [冰箱贴待办](examples/fridge/page.json)
 - [综合页面](examples/compose_showcase/page.json)
