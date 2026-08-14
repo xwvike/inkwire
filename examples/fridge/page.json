@@ -1,0 +1,1375 @@
+{
+  "version": 1,
+  "orientation": "landscape",
+  "size": {
+    "width": 400,
+    "height": 300
+  },
+  "background": "white",
+  "root": {
+    "type": "absolute",
+    "clip": true,
+    "children": [
+      {
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "width": 400,
+          "height": 300
+        },
+        "node": {
+          "type": "rectangle",
+          "fill": "white"
+        }
+      },
+      {
+        "bounds": {
+          "x": 2,
+          "y": 2,
+          "width": 396,
+          "height": 296
+        },
+        "node": {
+          "type": "rectangle",
+          "radius": 8,
+          "stroke": {
+            "ink": "black",
+            "width": 2
+          }
+        }
+      },
+      {
+        "bounds": {
+          "x": 5,
+          "y": 5,
+          "width": 390,
+          "height": 290
+        },
+        "node": {
+          "type": "rectangle",
+          "radius": 6,
+          "stroke": {
+            "ink": "black",
+            "width": 1,
+            "dash": [
+              3,
+              2
+            ]
+          }
+        }
+      },
+      {
+        "bounds": {
+          "x": 0,
+          "y": 3,
+          "width": 400,
+          "height": 10
+        },
+        "node": {
+          "type": "anchored",
+          "children": [
+            {
+              "left": 24,
+              "top": 0,
+              "width": 20,
+              "height": 10,
+              "node": {
+                "type": "stack",
+                "children": [
+                  {
+                    "type": "rectangle",
+                    "radius": 3,
+                    "fill": "black"
+                  },
+                  {
+                    "type": "padding",
+                    "insets": {
+                      "top": 2,
+                      "right": 2,
+                      "bottom": 2,
+                      "left": 2
+                    },
+                    "child": {
+                      "type": "rectangle",
+                      "radius": 2,
+                      "fill": "red"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "right": 24,
+              "top": 0,
+              "width": 20,
+              "height": 10,
+              "node": {
+                "type": "stack",
+                "children": [
+                  {
+                    "type": "rectangle",
+                    "radius": 3,
+                    "fill": "black"
+                  },
+                  {
+                    "type": "padding",
+                    "insets": {
+                      "top": 2,
+                      "right": 2,
+                      "bottom": 2,
+                      "left": 2
+                    },
+                    "child": {
+                      "type": "rectangle",
+                      "radius": 2,
+                      "fill": "red"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 10,
+          "y": 14,
+          "width": 380,
+          "height": 36
+        },
+        "node": {
+          "type": "stack",
+          "children": [
+            {
+              "type": "rectangle",
+              "radius": 5,
+              "fill": "black"
+            },
+            {
+              "type": "padding",
+              "insets": {
+                "top": 4,
+                "right": 8,
+                "bottom": 4,
+                "left": 8
+              },
+              "child": {
+                "type": "row",
+                "crossAlign": "center",
+                "children": [
+                  {
+                    "basis": 36,
+                    "cross": 20,
+                    "node": {
+                      "type": "stack",
+                      "children": [
+                        {
+                          "type": "rectangle",
+                          "radius": 3,
+                          "fill": "red"
+                        },
+                        {
+                          "type": "text",
+                          "align": "center",
+                          "verticalAlign": "middle",
+                          "runs": [
+                            {
+                              "text": "今日",
+                              "font": "ui",
+                              "size": 12,
+                              "ink": "white"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "basis": 6,
+                    "node": {
+                      "type": "spacer"
+                    }
+                  },
+                  {
+                    "node": {
+                      "type": "text",
+                      "verticalAlign": "middle",
+                      "runs": [
+                        {
+                          "text": "家庭当日待办",
+                          "font": "ui",
+                          "size": 16,
+                          "ink": "white"
+                        },
+                        {
+                          "text": " DAILY AGENDA",
+                          "font": "monaco",
+                          "size": 10,
+                          "ink": "red"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "node": {
+                      "type": "spacer"
+                    },
+                    "grow": 1
+                  },
+                  {
+                    "node": {
+                      "type": "text",
+                      "align": "end",
+                      "verticalAlign": "middle",
+                      "runs": [
+                        {
+                          "text": "08-14 星期五 | ",
+                          "font": "ui",
+                          "size": 12,
+                          "ink": "white"
+                        },
+                        {
+                          "text": "晴 28℃",
+                          "font": "ui",
+                          "size": 12,
+                          "ink": "red"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 10,
+          "y": 54,
+          "width": 242,
+          "height": 210
+        },
+        "node": {
+          "type": "stack",
+          "children": [
+            {
+              "type": "rectangle",
+              "radius": 5,
+              "fill": "white",
+              "stroke": {
+                "ink": "black",
+                "width": 1
+              }
+            },
+            {
+              "type": "padding",
+              "insets": {
+                "top": 6,
+                "right": 8,
+                "bottom": 6,
+                "left": 8
+              },
+              "child": {
+                "type": "column",
+                "gap": 3,
+                "crossAlign": "stretch",
+                "children": [
+                  {
+                    "basis": 20,
+                    "node": {
+                      "type": "row",
+                      "crossAlign": "center",
+                      "children": [
+                        {
+                          "basis": 4,
+                          "cross": 14,
+                          "node": {
+                            "type": "rectangle",
+                            "radius": 1,
+                            "fill": "red"
+                          }
+                        },
+                        {
+                          "basis": 5,
+                          "node": {
+                            "type": "spacer"
+                          }
+                        },
+                        {
+                          "node": {
+                            "type": "text",
+                            "verticalAlign": "middle",
+                            "runs": [
+                              {
+                                "text": "重点事项清单",
+                                "font": "ui",
+                                "size": 14,
+                                "ink": "black"
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "node": {
+                            "type": "spacer"
+                          },
+                          "grow": 1
+                        },
+                        {
+                          "node": {
+                            "type": "text",
+                            "align": "end",
+                            "verticalAlign": "middle",
+                            "runs": [
+                              {
+                                "text": "已完成 ",
+                                "font": "ui",
+                                "size": 12,
+                                "ink": "black"
+                              },
+                              {
+                                "text": "3/6",
+                                "font": "monaco",
+                                "size": 12,
+                                "ink": "red"
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "basis": 1,
+                    "node": {
+                      "type": "line",
+                      "from": {
+                        "x": 0,
+                        "y": 0
+                      },
+                      "to": {
+                        "x": 224,
+                        "y": 0
+                      },
+                      "stroke": {
+                        "ink": "black",
+                        "width": 1,
+                        "dash": [
+                          2,
+                          2
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "basis": 159,
+                    "node": {
+                      "type": "grid",
+                      "columns": [
+                        14,
+                        6,
+                        "1fr",
+                        20
+                      ],
+                      "rows": [
+                        24,
+                        24,
+                        24,
+                        24,
+                        24,
+                        24
+                      ],
+                      "rowGap": 3,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "column": 1,
+                          "row": 1,
+                          "node": {
+                            "type": "stack",
+                            "children": [
+                              {
+                                "type": "rectangle",
+                                "radius": 2,
+                                "fill": "black"
+                              },
+                              {
+                                "type": "path",
+                                "commands": [
+                                  {
+                                    "op": "move",
+                                    "to": {
+                                      "x": 2,
+                                      "y": 7
+                                    }
+                                  },
+                                  {
+                                    "op": "line",
+                                    "to": {
+                                      "x": 5,
+                                      "y": 10
+                                    }
+                                  },
+                                  {
+                                    "op": "line",
+                                    "to": {
+                                      "x": 11,
+                                      "y": 3
+                                    }
+                                  }
+                                ],
+                                "stroke": {
+                                  "ink": "white",
+                                  "width": 2
+                                }
+                              }
+                            ],
+                            "size": {
+                              "width": 14,
+                              "height": 14
+                            }
+                          }
+                        },
+                        {
+                          "column": 3,
+                          "row": 1,
+                          "node": {
+                            "type": "text",
+                            "verticalAlign": "middle",
+                            "runs": [
+                              {
+                                "text": "07:30 ",
+                                "font": "monaco",
+                                "size": 10,
+                                "ink": "black"
+                              },
+                              {
+                                "text": "晨起遛狗与喂猫",
+                                "font": "ui",
+                                "size": 12,
+                                "ink": "black"
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "column": 4,
+                          "row": 1,
+                          "node": {
+                            "type": "stack",
+                            "children": [
+                              {
+                                "type": "rectangle",
+                                "radius": 2,
+                                "stroke": {
+                                  "ink": "black",
+                                  "width": 1
+                                }
+                              },
+                              {
+                                "type": "text",
+                                "align": "center",
+                                "verticalAlign": "middle",
+                                "runs": [
+                                  {
+                                    "text": "爸",
+                                    "font": "ui",
+                                    "size": 12,
+                                    "ink": "black"
+                                  }
+                                ]
+                              }
+                            ],
+                            "size": {
+                              "width": 20,
+                              "height": 16
+                            }
+                          }
+                        },
+                        {
+                          "column": 1,
+                          "row": 2,
+                          "node": {
+                            "type": "stack",
+                            "children": [
+                              {
+                                "type": "rectangle",
+                                "radius": 2,
+                                "fill": "black"
+                              },
+                              {
+                                "type": "path",
+                                "commands": [
+                                  {
+                                    "op": "move",
+                                    "to": {
+                                      "x": 2,
+                                      "y": 7
+                                    }
+                                  },
+                                  {
+                                    "op": "line",
+                                    "to": {
+                                      "x": 5,
+                                      "y": 10
+                                    }
+                                  },
+                                  {
+                                    "op": "line",
+                                    "to": {
+                                      "x": 11,
+                                      "y": 3
+                                    }
+                                  }
+                                ],
+                                "stroke": {
+                                  "ink": "white",
+                                  "width": 2
+                                }
+                              }
+                            ],
+                            "size": {
+                              "width": 14,
+                              "height": 14
+                            }
+                          }
+                        },
+                        {
+                          "column": 3,
+                          "row": 2,
+                          "node": {
+                            "type": "text",
+                            "verticalAlign": "middle",
+                            "runs": [
+                              {
+                                "text": "08:15 ",
+                                "font": "monaco",
+                                "size": 10,
+                                "ink": "black"
+                              },
+                              {
+                                "text": "阳台绿植浇水通风",
+                                "font": "ui",
+                                "size": 12,
+                                "ink": "black"
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "column": 4,
+                          "row": 2,
+                          "node": {
+                            "type": "stack",
+                            "children": [
+                              {
+                                "type": "rectangle",
+                                "radius": 2,
+                                "stroke": {
+                                  "ink": "black",
+                                  "width": 1
+                                }
+                              },
+                              {
+                                "type": "text",
+                                "align": "center",
+                                "verticalAlign": "middle",
+                                "runs": [
+                                  {
+                                    "text": "妈",
+                                    "font": "ui",
+                                    "size": 12,
+                                    "ink": "black"
+                                  }
+                                ]
+                              }
+                            ],
+                            "size": {
+                              "width": 20,
+                              "height": 16
+                            }
+                          }
+                        },
+                        {
+                          "column": 1,
+                          "row": 3,
+                          "node": {
+                            "type": "stack",
+                            "children": [
+                              {
+                                "type": "rectangle",
+                                "radius": 2,
+                                "fill": "black"
+                              },
+                              {
+                                "type": "path",
+                                "commands": [
+                                  {
+                                    "op": "move",
+                                    "to": {
+                                      "x": 2,
+                                      "y": 7
+                                    }
+                                  },
+                                  {
+                                    "op": "line",
+                                    "to": {
+                                      "x": 5,
+                                      "y": 10
+                                    }
+                                  },
+                                  {
+                                    "op": "line",
+                                    "to": {
+                                      "x": 11,
+                                      "y": 3
+                                    }
+                                  }
+                                ],
+                                "stroke": {
+                                  "ink": "white",
+                                  "width": 2
+                                }
+                              }
+                            ],
+                            "size": {
+                              "width": 14,
+                              "height": 14
+                            }
+                          }
+                        },
+                        {
+                          "column": 3,
+                          "row": 3,
+                          "node": {
+                            "type": "text",
+                            "verticalAlign": "middle",
+                            "runs": [
+                              {
+                                "text": "11:30 ",
+                                "font": "monaco",
+                                "size": 10,
+                                "ink": "black"
+                              },
+                              {
+                                "text": "生鲜超市采购食材",
+                                "font": "ui",
+                                "size": 12,
+                                "ink": "black"
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "column": 4,
+                          "row": 3,
+                          "node": {
+                            "type": "stack",
+                            "children": [
+                              {
+                                "type": "rectangle",
+                                "radius": 2,
+                                "stroke": {
+                                  "ink": "black",
+                                  "width": 1
+                                }
+                              },
+                              {
+                                "type": "text",
+                                "align": "center",
+                                "verticalAlign": "middle",
+                                "runs": [
+                                  {
+                                    "text": "爸",
+                                    "font": "ui",
+                                    "size": 12,
+                                    "ink": "black"
+                                  }
+                                ]
+                              }
+                            ],
+                            "size": {
+                              "width": 20,
+                              "height": 16
+                            }
+                          }
+                        },
+                        {
+                          "column": 1,
+                          "row": 4,
+                          "node": {
+                            "type": "rectangle",
+                            "radius": 2,
+                            "stroke": {
+                              "ink": "red",
+                              "width": 1
+                            },
+                            "size": {
+                              "width": 14,
+                              "height": 14
+                            }
+                          }
+                        },
+                        {
+                          "column": 3,
+                          "row": 4,
+                          "node": {
+                            "type": "text",
+                            "verticalAlign": "middle",
+                            "runs": [
+                              {
+                                "text": "16:00 ",
+                                "font": "monaco",
+                                "size": 10,
+                                "ink": "red"
+                              },
+                              {
+                                "text": "辅导小宝暑假作业",
+                                "font": "ui",
+                                "size": 12,
+                                "ink": "black"
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "column": 4,
+                          "row": 4,
+                          "node": {
+                            "type": "stack",
+                            "children": [
+                              {
+                                "type": "rectangle",
+                                "radius": 2,
+                                "stroke": {
+                                  "ink": "red",
+                                  "width": 1
+                                }
+                              },
+                              {
+                                "type": "text",
+                                "align": "center",
+                                "verticalAlign": "middle",
+                                "runs": [
+                                  {
+                                    "text": "妈",
+                                    "font": "ui",
+                                    "size": 12,
+                                    "ink": "red"
+                                  }
+                                ]
+                              }
+                            ],
+                            "size": {
+                              "width": 20,
+                              "height": 16
+                            }
+                          }
+                        },
+                        {
+                          "column": 1,
+                          "row": 5,
+                          "node": {
+                            "type": "rectangle",
+                            "radius": 2,
+                            "stroke": {
+                              "ink": "red",
+                              "width": 1
+                            },
+                            "size": {
+                              "width": 14,
+                              "height": 14
+                            }
+                          }
+                        },
+                        {
+                          "column": 3,
+                          "row": 5,
+                          "node": {
+                            "type": "text",
+                            "verticalAlign": "middle",
+                            "runs": [
+                              {
+                                "text": "19:00 ",
+                                "font": "monaco",
+                                "size": 10,
+                                "ink": "red"
+                              },
+                              {
+                                "text": "缴纳本月燃气水电",
+                                "font": "ui",
+                                "size": 12,
+                                "ink": "black"
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "column": 4,
+                          "row": 5,
+                          "node": {
+                            "type": "stack",
+                            "children": [
+                              {
+                                "type": "rectangle",
+                                "radius": 2,
+                                "fill": "red"
+                              },
+                              {
+                                "type": "text",
+                                "align": "center",
+                                "verticalAlign": "middle",
+                                "runs": [
+                                  {
+                                    "text": "急",
+                                    "font": "ui",
+                                    "size": 12,
+                                    "ink": "white"
+                                  }
+                                ]
+                              }
+                            ],
+                            "size": {
+                              "width": 20,
+                              "height": 16
+                            }
+                          }
+                        },
+                        {
+                          "column": 1,
+                          "row": 6,
+                          "node": {
+                            "type": "rectangle",
+                            "radius": 2,
+                            "stroke": {
+                              "ink": "black",
+                              "width": 1
+                            },
+                            "size": {
+                              "width": 14,
+                              "height": 14
+                            }
+                          }
+                        },
+                        {
+                          "column": 3,
+                          "row": 6,
+                          "node": {
+                            "type": "text",
+                            "verticalAlign": "middle",
+                            "runs": [
+                              {
+                                "text": "20:30 ",
+                                "font": "monaco",
+                                "size": 10,
+                                "ink": "black"
+                              },
+                              {
+                                "text": "全家饭后散步垃圾",
+                                "font": "ui",
+                                "size": 12,
+                                "ink": "black"
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "column": 4,
+                          "row": 6,
+                          "node": {
+                            "type": "stack",
+                            "children": [
+                              {
+                                "type": "rectangle",
+                                "radius": 2,
+                                "stroke": {
+                                  "ink": "black",
+                                  "width": 1
+                                }
+                              },
+                              {
+                                "type": "text",
+                                "align": "center",
+                                "verticalAlign": "middle",
+                                "runs": [
+                                  {
+                                    "text": "全",
+                                    "font": "ui",
+                                    "size": 12,
+                                    "ink": "black"
+                                  }
+                                ]
+                              }
+                            ],
+                            "size": {
+                              "width": 20,
+                              "height": 16
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 256,
+          "y": 54,
+          "width": 134,
+          "height": 102
+        },
+        "node": {
+          "type": "stack",
+          "children": [
+            {
+              "type": "rectangle",
+              "radius": 5,
+              "fill": "white",
+              "stroke": {
+                "ink": "black",
+                "width": 1
+              }
+            },
+            {
+              "type": "padding",
+              "insets": {
+                "top": 6,
+                "right": 6,
+                "bottom": 5,
+                "left": 6
+              },
+              "child": {
+                "type": "column",
+                "gap": 3,
+                "children": [
+                  {
+                    "basis": 16,
+                    "node": {
+                      "type": "row",
+                      "crossAlign": "center",
+                      "children": [
+                        {
+                          "node": {
+                            "type": "text",
+                            "runs": [
+                              {
+                                "text": "今日餐单",
+                                "font": "ui",
+                                "size": 12,
+                                "ink": "red"
+                              },
+                              {
+                                "text": " MENU",
+                                "font": "monaco",
+                                "size": 10,
+                                "ink": "black"
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "basis": 1,
+                    "node": {
+                      "type": "line",
+                      "from": {
+                        "x": 0,
+                        "y": 0
+                      },
+                      "to": {
+                        "x": 120,
+                        "y": 0
+                      },
+                      "stroke": {
+                        "ink": "black",
+                        "width": 1
+                      }
+                    }
+                  },
+                  {
+                    "basis": 15,
+                    "node": {
+                      "type": "text",
+                      "verticalAlign": "middle",
+                      "runs": [
+                        {
+                          "text": "午: ",
+                          "font": "ui",
+                          "size": 12,
+                          "ink": "red"
+                        },
+                        {
+                          "text": "番茄牛腩 时蔬",
+                          "font": "ui",
+                          "size": 12,
+                          "ink": "black"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "basis": 15,
+                    "node": {
+                      "type": "text",
+                      "verticalAlign": "middle",
+                      "runs": [
+                        {
+                          "text": "晚: ",
+                          "font": "ui",
+                          "size": 12,
+                          "ink": "red"
+                        },
+                        {
+                          "text": "清蒸鲈鱼 鸡汤",
+                          "font": "ui",
+                          "size": 12,
+                          "ink": "black"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "basis": 22,
+                    "node": {
+                      "type": "stack",
+                      "children": [
+                        {
+                          "type": "rectangle",
+                          "radius": 3,
+                          "fill": "red"
+                        },
+                        {
+                          "type": "text",
+                          "align": "center",
+                          "verticalAlign": "middle",
+                          "runs": [
+                            {
+                              "text": "需补: 鲜牛奶 鸡蛋",
+                              "font": "ui",
+                              "size": 12,
+                              "ink": "white"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 256,
+          "y": 160,
+          "width": 134,
+          "height": 104
+        },
+        "node": {
+          "type": "stack",
+          "children": [
+            {
+              "type": "rectangle",
+              "radius": 5,
+              "fill": "white",
+              "stroke": {
+                "ink": "black",
+                "width": 1
+              }
+            },
+            {
+              "type": "padding",
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              },
+              "child": {
+                "type": "anchored",
+                "children": [
+                  {
+                    "left": "calc(50% - 22px)",
+                    "top": 0,
+                    "width": 44,
+                    "height": 6,
+                    "node": {
+                      "type": "rectangle",
+                      "radius": 1,
+                      "fill": "black"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "padding",
+              "insets": {
+                "top": 8,
+                "right": 6,
+                "bottom": 5,
+                "left": 6
+              },
+              "child": {
+                "type": "column",
+                "gap": 3,
+                "children": [
+                  {
+                    "basis": 15,
+                    "node": {
+                      "type": "text",
+                      "runs": [
+                        {
+                          "text": "留言便签",
+                          "font": "ui",
+                          "size": 12,
+                          "ink": "black"
+                        },
+                        {
+                          "text": " NOTE",
+                          "font": "monaco",
+                          "size": 10,
+                          "ink": "red"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "basis": 1,
+                    "node": {
+                      "type": "line",
+                      "from": {
+                        "x": 0,
+                        "y": 0
+                      },
+                      "to": {
+                        "x": 120,
+                        "y": 0
+                      },
+                      "stroke": {
+                        "ink": "black",
+                        "width": 1,
+                        "dash": [
+                          2,
+                          2
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "basis": 44,
+                    "node": {
+                      "type": "text",
+                      "wrap": "runes",
+                      "lineHeight": 14,
+                      "runs": [
+                        {
+                          "text": "爸爸今晚加班稍晚回，留好热汤。晚间记得给净水器更换滤芯！",
+                          "font": "ui",
+                          "size": 12,
+                          "ink": "black"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "basis": 14,
+                    "node": {
+                      "type": "text",
+                      "align": "end",
+                      "verticalAlign": "middle",
+                      "runs": [
+                        {
+                          "text": "祝好心情 ~",
+                          "font": "ui",
+                          "size": 12,
+                          "ink": "red"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "bounds": {
+          "x": 10,
+          "y": 268,
+          "width": 380,
+          "height": 24
+        },
+        "node": {
+          "type": "stack",
+          "children": [
+            {
+              "type": "rectangle",
+              "radius": 4,
+              "fill": "black"
+            },
+            {
+              "type": "padding",
+              "insets": {
+                "top": 3,
+                "right": 8,
+                "bottom": 3,
+                "left": 8
+              },
+              "child": {
+                "type": "row",
+                "crossAlign": "center",
+                "children": [
+                  {
+                    "node": {
+                      "type": "text",
+                      "verticalAlign": "middle",
+                      "runs": [
+                        {
+                          "text": "饮水打卡",
+                          "font": "ui",
+                          "size": 12,
+                          "ink": "white"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "basis": 4,
+                    "node": {
+                      "type": "spacer"
+                    }
+                  },
+                  {
+                    "basis": 48,
+                    "cross": 8,
+                    "node": {
+                      "type": "grid",
+                      "columns": [
+                        8,
+                        8,
+                        8,
+                        8,
+                        8
+                      ],
+                      "rows": [
+                        8
+                      ],
+                      "columnGap": 2,
+                      "children": [
+                        {
+                          "column": 1,
+                          "row": 1,
+                          "node": {
+                            "type": "rectangle",
+                            "radius": 1,
+                            "fill": "red"
+                          }
+                        },
+                        {
+                          "column": 2,
+                          "row": 1,
+                          "node": {
+                            "type": "rectangle",
+                            "radius": 1,
+                            "fill": "red"
+                          }
+                        },
+                        {
+                          "column": 3,
+                          "row": 1,
+                          "node": {
+                            "type": "rectangle",
+                            "radius": 1,
+                            "fill": "red"
+                          }
+                        },
+                        {
+                          "column": 4,
+                          "row": 1,
+                          "node": {
+                            "type": "rectangle",
+                            "radius": 1,
+                            "stroke": {
+                              "ink": "white",
+                              "width": 1
+                            }
+                          }
+                        },
+                        {
+                          "column": 5,
+                          "row": 1,
+                          "node": {
+                            "type": "rectangle",
+                            "radius": 1,
+                            "stroke": {
+                              "ink": "white",
+                              "width": 1
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "basis": 4,
+                    "node": {
+                      "type": "spacer"
+                    }
+                  },
+                  {
+                    "node": {
+                      "type": "text",
+                      "verticalAlign": "middle",
+                      "runs": [
+                        {
+                          "text": "1500ml",
+                          "font": "monaco",
+                          "size": 10,
+                          "ink": "red"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "node": {
+                      "type": "spacer"
+                    },
+                    "grow": 1
+                  },
+                  {
+                    "node": {
+                      "type": "text",
+                      "align": "end",
+                      "verticalAlign": "middle",
+                      "runs": [
+                        {
+                          "text": "愿今天充满欢声与笑语",
+                          "font": "ui",
+                          "size": 12,
+                          "ink": "white"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

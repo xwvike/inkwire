@@ -127,7 +127,7 @@ curl \
 
 ### 写入的并发与超时
 
-`/v1/display` 是互斥的——**跨设备互斥，不只是同一个标签**。第二个请求不排队，立刻返回 409 并带上当前占用者的状态：
+一个蓝牙适配器同时只能进行一次会话，所以 `/v1/display` 是互斥的——**跨设备互斥，不只是同一个标签**。第二个请求不会排队，而是立刻返回 409 并附带当前占用者的状态：
 
 ```json
 {
@@ -386,39 +386,21 @@ curl \
 | `dash` | integer[] | 交替的实线、空白长度，每项必须大于 `0` | 实线 |
 | `dashOffset` | integer | 虚线起始偏移 | `0` |
 
-所有节点都需要 `type`。
-
-`size: {width, height}` 给节点定尺寸，在 `row`、`column`、`grid`、`stack`、`padding` 和裁剪节点里有效；不写就按内容自动测量。
-
-`absolute` 的子节点用 `bounds` 定尺寸，`anchored` 的子节点用四边距离定尺寸。在这两者里给子节点写 `size` 会报错。
+所有节点都需要 `type`。节点可选的 `size: {width, height}` 用作流式布局中的首选尺寸；放在 `absolute.children[].bounds` 中时通常不需要再写 `size`。
 
 ### 长度
 
-表格里标注为 length 的字段有三种写法：
-
-| 写法 | 含义 |
-|---|---|
-| `64` | 像素 |
-| `"25%"` | 容器对应轴尺寸的百分比 |
-| `"calc(100% - 12px)"` | 百分比加减一个固定像素数，空格可有可无 |
+表格里标注为 length 的字段接受三种写法：
 
 ```json
 {"basis": 64, "cross": "25%", "maxMain": "calc(100% - 12px)"}
 ```
 
-`calc` 只有"百分比 ± 像素数"一种形式，两项都不能省。
-
-`0` 是一个长度，字段省略才是自动。在 `anchored` 上 `"right": 0` 贴右边缘，不写 `right` 则不约束右边。
-
-**表示距离的字段可以写负数**，用来让内容出血到容器外面：`anchored` 的 `top` / `right` / `bottom` / `left`、`clipShape` 里 `inset` 的四个值、`circle` 和 `ellipse` 的 `center`、`polygon` 的 `points`。三种写法都支持负号：
-
-```json
-{"left": -6, "right": "-10%", "top": "calc(0% - 6px)"}
-```
-
-表示尺寸的字段不能为负，写了会报错——`basis`、`cross`、`width`、`height`、`minMain` 一族、grid 轨道、`radius`、`corner` 都属于这一类。
-
-想让一个节点参与"内容有多大"的测量，给它写像素值。百分比和 `fr` 要等容器尺寸出来才有值，在测量阶段不计入。
+| 写法 | 含义 |
+|---|---|
+| `64` | 像素 |
+| `"25%"` | 容器对应轴尺寸的百分比 |
+| `"calc(100% - 12px)"` | 百分比加减一个固定像素数 |
 
 
 ## 布局节点
@@ -488,7 +470,6 @@ curl \
 
 ### grid
 
-多行要对齐同一列时用 `grid`。`auto` 轨道会跨所有行量一次，不用手写列宽。
 
 ```json
 {
@@ -529,7 +510,6 @@ curl \
 
 ### anchored
 
-按到各边的距离摆放子节点，可以叠放。距离用百分比或要等容器排完才算得出的，用 `anchored`；坐标写文档时就确定的，用 `absolute`。
 
 ```json
 {
@@ -551,8 +531,6 @@ curl \
 | `children[].layer` | integer | 数值大的后画，压在上面；相同则按文档顺序 | `0` |
 | `children[].node` | node | 子节点 | 必填 |
 
-同一轴上给了两侧距离就不要再给尺寸（`left` + `right` + `width`），三者同时出现会报错。被 `anchored` 摆放的子节点不影响容器的测量尺寸。
-
 
 ### transformed
 
@@ -571,8 +549,6 @@ curl \
 | `scale` | integer | 放大倍数，不得为负 | `1` |
 | `turns` | integer | 顺时针转过的四分之一圈数 | `0` |
 | `child` | node | 子节点 | 必填 |
-
-子节点拿到的是变换前的框：`scale` 为 2 时它只有一半的地方，画出来是原尺寸。放大倍数和圈数都只能取整数。
 
 
 ### stack / padding / spacer
@@ -637,23 +613,13 @@ curl \
 
 可用字体和字号：
 
-| 字体 | 内置字号 | 整数倍放大 | 字符范围 |
+| 字体 | 内置字号 | 整数倍放大 | 用途 |
 |---|---|---|---|
-| `ui` | `12`、`14`、`16` | `24`、`28`、`32`、`36`、`42`、`48` | 中英文、数字，以及 GB2312 的符号（`■ □ ● ★ ※ →` 等） |
-| `hzk` | `12`、`14`、`16` | `24`、`28`、`32`、`36`、`42`、`48` | 同上，中文点阵字 |
-| `monaco` | `10`、`12`、`14`、`16` | `20`、`24`、`28`、`30`、`32`、`36`、`42`、`48` | **仅 ASCII**，等宽，适合数字对齐 |
-
-**中文和符号不要写在 `monaco` 的 run 里**，它只有 ASCII。一行里中英文混排，要么整行用 `ui`，要么把数字单独拆成一个 `monaco` 的 run。
+| `ui` | `12`、`14`、`16` | `24`、`28`、`32`、`36`、`42`、`48` | 中英文、数字和常用符号混排 |
+| `hzk` | `12`、`14`、`16` | `24`、`28`、`32`、`36`、`42`、`48` | 中文点阵字 |
+| `monaco` | `10`、`12`、`14`、`16` | `20`、`24`、`28`、`30`、`32`、`36`、`42`、`48` | 英文、数字和 ASCII 符号 |
 
 **字号是枚举，不是范围。** 表里没有的值（例如 `13`）会直接报错，不会四舍五入。
-
-写了字体没有的字符会得到 `missing-runes` 警告，警告里会点名哪个字体缺、换哪个字体有：
-
-```
-font "monaco" has no glyphs for "周五"; "hzk" and "ui" do
-```
-
-三个字体都没有的字符（`▓ ✔ ❤` 这类非 GB2312 符号）警告会明说 `no bundled font does`。这种情况用图元画：勾选用 `path`，色块和进度条用 `rectangle`，边缘比字形更工整可控。
 
 字体中不存在的字符会出现在渲染报告和 HTTP 响应头计数中。
 
@@ -859,22 +825,7 @@ Data URL 写法：
 
 ## 裁剪节点
 
-四个节点都需要一个 `child`，都可以写可选的 `size`。
-
-| 节点 | 裁成 | 用字段 |
-|---|---|---|
-| `clip` | 排版分给它的那个框 | 无 |
-| `clipRect` | 指定矩形 | `rect` |
-| `clipShape` | 圆角矩形、圆、椭圆、多边形 | `shape` |
-| `clipPath` | 任意路径 | `path` |
-
-裁到排版分给它的框，尺寸不用自己算：
-
-```json
-{"type": "clip", "child": {"type": "text", "runs": [{"text": "很长的一行"}]}}
-```
-
-裁到指定矩形：
+矩形裁剪：
 
 ```json
 {
@@ -884,26 +835,7 @@ Data URL 写法：
 }
 ```
 
-按形状裁剪。形状用 length 描述，可以写百分比：
-
-```json
-{
-  "type": "clipShape",
-  "shape": {"kind": "circle", "radius": "50%"},
-  "child": {"type": "image", "source": "portrait.png", "processing": "auto"}
-}
-```
-
-| `kind` | 用到的字段 |
-|---|---|
-| `inset` | `insets`（四个 length，上右下左）、可选 `corner` 圆角 |
-| `circle` | `radius`、可选 `center` |
-| `ellipse` | `radiusX`、`radiusY`、可选 `center` |
-| `polygon` | `points`（至少三个 `{x, y}`，每个分量都是 length） |
-
-`center` 只能写在 `circle` 和 `ellipse` 上。
-
-裁到任意路径：
+路径裁剪：
 
 ```json
 {
@@ -922,6 +854,31 @@ Data URL 写法：
   }
 }
 ```
+
+
+```json
+{"type": "clip", "child": {"type": "text", "runs": [{"text": "很长的一行"}]}}
+```
+
+
+```json
+{
+  "type": "clipShape",
+  "shape": {"kind": "circle", "radius": "50%"},
+  "child": {"type": "image", "source": "portrait.png", "processing": "auto"}
+}
+```
+
+| `kind` | 用到的字段 |
+|---|---|
+| `inset` | `insets`（四个 length，上右下左）、可选 `corner` 圆角 |
+| `circle` | `radius`、可选 `center` |
+| `ellipse` | `radiusX`、`radiusY`、可选 `center` |
+| `polygon` | `points`（至少三个 `{x, y}`，每个分量都是 length） |
+
+`center` 只有 `circle` 和 `ellipse` 有；写在别的形状上会报错，而不是被默默忽略。
+
+`clipRect` 使用 `rect`，`clipPath` 使用 `path`，`clip` 两者都不需要，`clipShape` 使用 `shape`；四者都需要一个 `child`，也都可以设置可选的 `size`。
 
 ## 示例
 
@@ -947,6 +904,7 @@ Data URL 写法：
 完整 JSON：
 
 - [布局节点](examples/layout_showcase/page.json)：`grid`、`anchored`、`transformed`、`clip`、`clipShape` 各司其职的一页
+- [冰箱贴待办](examples/fridge/page.json)：400x300 的密集版面，用 `grid` 和 `anchored` 替掉手算坐标
 - [综合页面](examples/compose_showcase/page.json)
 - [图元和文字](examples/showcase/page.json)
 - [裁剪、图案和虚线](examples/paint_showcase/page.json)
@@ -978,6 +936,23 @@ Data URL 写法：
     <td></td>
   </tr>
 </table>
+
+[冰箱贴待办](examples/fridge/page.json) 是别人写的一页，用这些节点重排了一遍，**一个像素没动**：
+
+<a href="examples/fridge/page.json"><img src="examples/fridge/fridge.png" alt="冰箱贴待办" width="400"></a>
+
+原版把六行待办写成六个结构相同的 `row`，每行重复同样的勾选框宽度、间距和徽章宽度；五个饮水格是五个方块夹四个 `spacer`；右上角磁吸扣的 `x: 356` 是 400−356−20=24 算出来的；便签胶带的 `x: 45` 是 (134−44)/2 算出来的。
+
+重排后这些数只写一次：一个 `grid` 管六行（`columns: [14, 6, "1fr", 20]`），一个 `grid` 管饮水格（`columnGap: 2`），一个 `anchored` 管两个磁吸扣（`left: 24` / `right: 24`），胶带用 `left: "calc(50% - 22px)"`。
+
+| | 节点数 | `basis` | `cross` |
+|---|---:|---:|---:|
+| 手写坐标 | 124 | 50 | 19 |
+| 用这些节点 | 111 | 19 | 3 |
+
+行数几乎没变。**这些节点不是用来缩短文档的**，是用来把"同一个数字抄六遍"变成"写一次"——改勾选框宽度，原来要动六处，现在动一处。
+
+这页是 400x300（型号表里的 4.2" 面板），只能 `render` 预览，`encode` 和 `push` 会拒绝任何和目标面板尺寸不一致的页面。
 
 ## 参考
 

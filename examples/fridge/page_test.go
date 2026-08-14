@@ -1,0 +1,167 @@
+// Package fridge is a dense page written by somebody using this schema for the
+// first time, laid out again with the nodes that were meant for it.
+//
+// The original placed everything by hand. Six to-do rows were six separate row
+// nodes, each repeating the same four measurements for the checkbox, the gap,
+// the task and the member badge; the five water slots were five blocks with
+// four spacers threaded between them; the second magnet clip sat at x 356
+// because 400 minus 356 minus 20 is 24; the tape on the note card sat at x 45
+// because 134 minus 44 over 2 is 45. Every one of those numbers is a sum
+// somebody did and then wrote down.
+//
+// The rewrite says the sums instead. One grid holds the to-do rows and states
+// its four columns once. One grid holds the water slots with a gap of two. An
+// anchored strip holds both clips at left 24 and right 24. The tape is
+// left: calc(50% - 22px).
+//
+//	                nodes   basis   cross
+//	by hand           124      50      19
+//	with the nodes    111      19       3
+//
+// Not one pixel moved, which is the part that matters: these nodes are a way
+// of saying the same drawing, not a different drawing with a shorter name. The
+// line count barely changed either. What changed is that the checkbox width
+// now appears once instead of six times.
+//
+// # This page cannot be pushed
+//
+// It is 400x300, for the 4.2" panel in the model table rather than the 2.9"
+// one this repository drives, so there is no Payload assertion below: encoding
+// refuses any page that is not the device's own size. It renders, and that is
+// all it is here to do.
+package fridge
+
+import (
+	"image"
+	"testing"
+
+	"github.com/xwvike/inkwire/internal/display"
+	"github.com/xwvike/inkwire/internal/scene"
+	"github.com/xwvike/inkwire/internal/testscene"
+)
+
+func renderPage(t *testing.T) scene.Result {
+	t.Helper()
+	result, err := (scene.Decoder{BaseDir: "."}).RenderFile("page.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+func TestPageMatchesReference(t *testing.T) {
+	result := renderPage(t)
+	if size := result.Frame.Bounds().Size(); size != image.Pt(400, 300) {
+		t.Fatalf("frame is %v, want 400x300", size)
+	}
+	if len(result.Report.Warnings) != 0 {
+		t.Errorf("warnings: %v", result.Report.Warnings)
+	}
+	if len(result.Report.MissingRunes) != 0 {
+		t.Errorf("missing runes: %q", string(result.Report.MissingRunes))
+	}
+	testscene.AssertMatchesPNG(t, "fridge.png", result.Frame)
+}
+
+// The six checkboxes line up because one grid column says how wide they are.
+// In the original the same 14 was written into all six rows, and the way that
+// page would have gone wrong is one of them being changed and the others not.
+func TestOneColumnHoldsEveryCheckbox(t *testing.T) {
+	frame := renderPage(t).Frame
+	var edges []int
+	for _, top := range []int{118, 145, 172, 199, 226, 253} {
+		edges = append(edges, firstMark(t, frame, top, top+14, 18, 60))
+	}
+	for index, edge := range edges {
+		if edge != edges[0] {
+			t.Errorf("checkbox %d starts at x=%d, the first at x=%d", index+1, edge, edges[0])
+		}
+	}
+}
+
+// Both clips are the same distance from their own edge, said once each rather
+// than worked out from the page width.
+func TestBothMagnetClipsAreInsetTheSame(t *testing.T) {
+	frame := renderPage(t).Frame
+	left := firstMark(t, frame, 6, 10, 10, 120)
+	right := lastMark(t, frame, 6, 10, 280, 380)
+	const width = 400
+	if left != 24 {
+		t.Errorf("the left clip starts at x=%d, want 24", left)
+	}
+	if gap := width - 1 - right; gap != 24 {
+		t.Errorf("the right clip ends %d from the edge, want 24", gap)
+	}
+}
+
+// calc(50% - 22px) puts the tape in the middle of the card whatever the card
+// is, rather than at the 45 somebody worked out for this one.
+func TestTheTapeIsCentredOnItsCard(t *testing.T) {
+	frame := renderPage(t).Frame
+	start := firstMark(t, frame, 161, 164, 270, 380)
+	end := lastMark(t, frame, 161, 164, 270, 380)
+	if width := end - start + 1; width != 44 {
+		t.Fatalf("the tape is %d wide, want 44", width)
+	}
+	// The card spans x 256 to 389 inclusive.
+	const cardStart, cardEnd = 256, 389
+	if before, after := start-cardStart, cardEnd-end; before != after {
+		t.Errorf("the tape sits %d from the left of the card and %d from the right", before, after)
+	}
+}
+
+// A gap of two, once, instead of four spacers.
+func TestTheWaterSlotsAreEvenlySpaced(t *testing.T) {
+	frame := renderPage(t).Frame
+	var starts []int
+	running := false
+	// Five eights and four twos is forty-eight, so the slots end at 107 and
+	// the millilitre figure beyond that is not one of them.
+	for x := 60; x < 108; x++ {
+		marked := false
+		for y := 276; y < 284; y++ {
+			if ink, _ := frame.InkAt(x, y); ink != display.InkBlack {
+				marked = true
+				break
+			}
+		}
+		if marked && !running {
+			starts = append(starts, x)
+		}
+		running = marked
+	}
+	if len(starts) != 5 {
+		t.Fatalf("found %d water slots at %v, want 5", len(starts), starts)
+	}
+	for index := 1; index < len(starts); index++ {
+		if pitch := starts[index] - starts[index-1]; pitch != 10 {
+			t.Errorf("slot %d starts %d after the one before, want 10 (eight wide and a gap of two)", index+1, pitch)
+		}
+	}
+}
+
+func firstMark(t *testing.T, frame *display.Frame, top, bottom, from, to int) int {
+	t.Helper()
+	for x := from; x < to; x++ {
+		for y := top; y < bottom; y++ {
+			if ink, _ := frame.InkAt(x, y); ink != display.InkWhite {
+				return x
+			}
+		}
+	}
+	t.Fatalf("nothing drawn in x[%d..%d) y[%d..%d)", from, to, top, bottom)
+	return 0
+}
+
+func lastMark(t *testing.T, frame *display.Frame, top, bottom, from, to int) int {
+	t.Helper()
+	for x := to - 1; x >= from; x-- {
+		for y := top; y < bottom; y++ {
+			if ink, _ := frame.InkAt(x, y); ink != display.InkWhite {
+				return x
+			}
+		}
+	}
+	t.Fatalf("nothing drawn in x[%d..%d) y[%d..%d)", from, to, top, bottom)
+	return 0
+}
