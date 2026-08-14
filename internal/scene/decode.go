@@ -4,17 +4,22 @@
 //
 // # What this describes
 //
-// A scene document can describe a whole page, and it is the only thing that
-// can describe geometry: arcs, polygons, paths, patterns and single pixels.
-// Those are what a generator produces, not what a person writes, which is why
-// they are stated as coordinates rather than as a style.
+// Everything compose can draw. A document lays out a page with rows, columns,
+// grids and anchored boxes, and it states geometry as coordinates: arcs,
+// polygons, paths, patterns and single pixels. The second kind is what a
+// generator produces rather than what a person writes, which is why it is
+// stated as numbers and not as a style.
 //
-// A page written in HTML and CSS reaches them through a scene element, and
-// DecodeNode is the entry point for that: one node, no page size, drawn
-// wherever the page puts it.
+// That the two lists are the same list is checked rather than asserted.
+// coverage_test.go walks compose for everything implementing Node and fails
+// if this package cannot build one, because the gap it is looking for opened
+// once already and stayed open: grid, quarter turns, shape clipping and
+// anchored boxes all reached compose long before they reached the schema, and
+// no test noticed, since every document in the suite was written against the
+// schema as it stood.
 //
-// The division between the two formats is enforced in internal/compose, which
-// carries the table of which nodes belong to which and a test that checks it.
+// A page compiled from HTML and CSS was the other way in for a while. It lives
+// on the html-frontend branch now and nothing here depends on it.
 package scene
 
 import (
@@ -87,18 +92,6 @@ func (d Decoder) Decode(reader io.Reader) (compose.Document, error) {
 	return document, nil
 }
 
-// DecodeNode reads a single node rather than a whole document, for the case
-// where a page is written some other way and only part of it is described
-// here. A fragment has no page size, orientation or background: it is drawn
-// wherever the thing embedding it puts it.
-func (d Decoder) DecodeNode(source []byte) (compose.Node, error) {
-	node, err := d.decodeNode(source, "node")
-	if err != nil {
-		return nil, err
-	}
-	return node, nil
-}
-
 func (d Decoder) DecodeFile(path string) (compose.Document, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -164,8 +157,19 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 			if err != nil {
 				return nil, err
 			}
+			alignSelf, err := optionalCrossAlign(child.AlignSelf, childPath+".alignSelf")
+			if err != nil {
+				return nil, err
+			}
 			children[index] = compose.LayoutChild{
-				Node: node, Basis: child.Basis.length, Grow: child.Grow,
+				Node: node, Basis: child.Basis.length, Cross: child.Cross.length,
+				Grow:      child.Grow,
+				MinMain:   child.MinMain.length,
+				MaxMain:   child.MaxMain.length,
+				MinCross:  child.MinCross.length,
+				MaxCross:  child.MaxCross.length,
+				AlignSelf: alignSelf,
+				Ratio:     child.Ratio,
 			}
 		}
 		mainAlign, err := parseMainAlign(value.MainAlign)
@@ -180,6 +184,32 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 			return compose.Row{Size: value.Size.point(), Gap: value.Gap, MainAlign: mainAlign, CrossAlign: crossAlign, Children: children}, nil
 		}
 		return compose.Column{Size: value.Size.point(), Gap: value.Gap, MainAlign: mainAlign, CrossAlign: crossAlign, Children: children}, nil
+	case "grid":
+		var value gridJSON
+		if err := decodeStrictBytes(raw, &value); err != nil {
+			return nil, nodeError(path, err)
+		}
+		return d.decodeGrid(value, path)
+	case "anchored":
+		var value anchoredJSON
+		if err := decodeStrictBytes(raw, &value); err != nil {
+			return nil, nodeError(path, err)
+		}
+		children := make([]compose.Anchor, len(value.Children))
+		for index, child := range value.Children {
+			childPath := fmt.Sprintf("%s.children[%d]", path, index)
+			node, err := d.decodeNode(child.Node, childPath+".node")
+			if err != nil {
+				return nil, err
+			}
+			children[index] = compose.Anchor{
+				Top: child.Top.length, Right: child.Right.length,
+				Bottom: child.Bottom.length, Left: child.Left.length,
+				Width: child.Width.length, Height: child.Height.length,
+				Layer: child.Layer, Node: node,
+			}
+		}
+		return compose.Anchored{Size: value.Size.point(), Children: children}, nil
 	case "stack":
 		var value stackJSON
 		if err := decodeStrictBytes(raw, &value); err != nil {
@@ -363,6 +393,49 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 			return nil, err
 		}
 		return compose.ClipRect{Size: value.Size.point(), Rect: value.Rect.rect(), Child: child}, nil
+	case "clip":
+		var value clipJSON
+		if err := decodeStrictBytes(raw, &value); err != nil {
+			return nil, nodeError(path, err)
+		}
+		child, err := d.decodeNode(value.Child, path+".child")
+		if err != nil {
+			return nil, err
+		}
+		return compose.Clip{Size: value.Size.point(), Child: child}, nil
+	case "clipShape":
+		var value clipShapeJSON
+		if err := decodeStrictBytes(raw, &value); err != nil {
+			return nil, nodeError(path, err)
+		}
+		shape, err := value.Shape.shape(path + ".shape")
+		if err != nil {
+			return nil, err
+		}
+		child, err := d.decodeNode(value.Child, path+".child")
+		if err != nil {
+			return nil, err
+		}
+		return compose.ClipShape{Size: value.Size.point(), Shape: shape, Child: child}, nil
+	case "transformed":
+		var value transformedJSON
+		if err := decodeStrictBytes(raw, &value); err != nil {
+			return nil, nodeError(path, err)
+		}
+		// Transform quietly rounds a nonsense scale up to one. A document that
+		// asked for something else should be told it cannot have it.
+		if value.Scale < 0 {
+			return nil, fmt.Errorf("%s.scale: must not be negative", path)
+		}
+		child, err := d.decodeNode(value.Child, path+".child")
+		if err != nil {
+			return nil, err
+		}
+		return compose.Transformed{
+			Size:      value.Size.point(),
+			Transform: display.Transform{Scale: value.Scale, Turns: value.Turns},
+			Child:     child,
+		}, nil
 	default:
 		return nil, fmt.Errorf("%s.type: unknown node type %q", path, header.Type)
 	}
@@ -413,14 +486,236 @@ type flowJSON struct {
 	Children   []layoutChildJSON `json:"children,omitempty"`
 }
 type layoutChildJSON struct {
-	Node  json.RawMessage `json:"node"`
-	Basis lengthJSON      `json:"basis,omitempty"`
-	Grow  int             `json:"grow,omitempty"`
+	Node      json.RawMessage `json:"node"`
+	Basis     lengthJSON      `json:"basis,omitempty"`
+	Cross     lengthJSON      `json:"cross,omitempty"`
+	Grow      int             `json:"grow,omitempty"`
+	MinMain   lengthJSON      `json:"minMain,omitempty"`
+	MaxMain   lengthJSON      `json:"maxMain,omitempty"`
+	MinCross  lengthJSON      `json:"minCross,omitempty"`
+	MaxCross  lengthJSON      `json:"maxCross,omitempty"`
+	AlignSelf *string         `json:"alignSelf,omitempty"`
+	Ratio     float64         `json:"ratio,omitempty"`
+}
+
+type gridJSON struct {
+	Type         string          `json:"type"`
+	Size         sizeJSON        `json:"size,omitempty"`
+	Columns      []trackJSON     `json:"columns,omitempty"`
+	Rows         []trackJSON     `json:"rows,omitempty"`
+	ColumnGap    int             `json:"columnGap,omitempty"`
+	RowGap       int             `json:"rowGap,omitempty"`
+	AlignItems   string          `json:"alignItems,omitempty"`
+	JustifyItems string          `json:"justifyItems,omitempty"`
+	Children     []gridChildJSON `json:"children,omitempty"`
+}
+type gridChildJSON struct {
+	Node        json.RawMessage `json:"node"`
+	Column      int             `json:"column,omitempty"`
+	Row         int             `json:"row,omitempty"`
+	ColumnSpan  int             `json:"columnSpan,omitempty"`
+	RowSpan     int             `json:"rowSpan,omitempty"`
+	AlignSelf   *string         `json:"alignSelf,omitempty"`
+	JustifySelf *string         `json:"justifySelf,omitempty"`
+}
+
+// trackJSON accepts the three ways a grid track can be sized, spelled the way
+// CSS spells them because there is no reason to invent a second spelling:
+// "auto" takes the size of the widest thing in the track, "2fr" takes a share
+// of what no other track claimed, and a number or a percentage states it.
+type trackJSON struct {
+	track compose.Track
+}
+
+func (t *trackJSON) UnmarshalJSON(data []byte) error {
+	var text string
+	if err := json.Unmarshal(data, &text); err == nil {
+		trimmed := strings.TrimSpace(text)
+		if trimmed == "auto" {
+			t.track = compose.Track{}
+			return nil
+		}
+		if fraction, found := strings.CutSuffix(trimmed, "fr"); found {
+			count, err := strconv.Atoi(strings.TrimSpace(fraction))
+			if err != nil || count <= 0 {
+				return fmt.Errorf("%q is not a fraction; write a whole number of fr such as \"1fr\"", text)
+			}
+			t.track = compose.Track{Fraction: count}
+			return nil
+		}
+	}
+	var length lengthJSON
+	if err := length.UnmarshalJSON(data); err != nil {
+		return fmt.Errorf("a track is \"auto\", a number of fr such as \"2fr\", a number of pixels or a percentage")
+	}
+	t.track = compose.Track{Size: length.length}
+	return nil
+}
+
+func tracks(source []trackJSON) []compose.Track {
+	if len(source) == 0 {
+		return nil
+	}
+	result := make([]compose.Track, len(source))
+	for index, track := range source {
+		result[index] = track.track
+	}
+	return result
+}
+
+func (d Decoder) decodeGrid(value gridJSON, path string) (compose.Node, error) {
+	children := make([]compose.GridChild, len(value.Children))
+	for index, child := range value.Children {
+		childPath := fmt.Sprintf("%s.children[%d]", path, index)
+		node, err := d.decodeNode(child.Node, childPath+".node")
+		if err != nil {
+			return nil, err
+		}
+		alignSelf, err := optionalCrossAlign(child.AlignSelf, childPath+".alignSelf")
+		if err != nil {
+			return nil, err
+		}
+		justifySelf, err := optionalCrossAlign(child.JustifySelf, childPath+".justifySelf")
+		if err != nil {
+			return nil, err
+		}
+		children[index] = compose.GridChild{
+			Node: node, Column: child.Column, Row: child.Row,
+			ColumnSpan: child.ColumnSpan, RowSpan: child.RowSpan,
+			AlignSelf: alignSelf, JustifySelf: justifySelf,
+		}
+	}
+	alignItems, err := parseCrossAlign(value.AlignItems)
+	if err != nil {
+		return nil, fmt.Errorf("%s.alignItems: %w", path, err)
+	}
+	justifyItems, err := parseCrossAlign(value.JustifyItems)
+	if err != nil {
+		return nil, fmt.Errorf("%s.justifyItems: %w", path, err)
+	}
+	return compose.Grid{
+		Size:       value.Size.point(),
+		Columns:    tracks(value.Columns),
+		Rows:       tracks(value.Rows),
+		ColumnGap:  value.ColumnGap,
+		RowGap:     value.RowGap,
+		AlignItems: alignItems, JustifyItems: justifyItems,
+		Children: children,
+	}, nil
+}
+
+func optionalCrossAlign(value *string, path string) (*compose.CrossAlignment, error) {
+	if value == nil {
+		return nil, nil
+	}
+	alignment, err := parseCrossAlign(*value)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return &alignment, nil
+}
+
+type anchoredJSON struct {
+	Type     string       `json:"type"`
+	Size     sizeJSON     `json:"size,omitempty"`
+	Children []anchorJSON `json:"children,omitempty"`
+}
+type anchorJSON struct {
+	Node   json.RawMessage `json:"node"`
+	Top    lengthJSON      `json:"top,omitempty"`
+	Right  lengthJSON      `json:"right,omitempty"`
+	Bottom lengthJSON      `json:"bottom,omitempty"`
+	Left   lengthJSON      `json:"left,omitempty"`
+	Width  lengthJSON      `json:"width,omitempty"`
+	Height lengthJSON      `json:"height,omitempty"`
+	Layer  int             `json:"layer,omitempty"`
+}
+
+type clipJSON struct {
+	Type  string          `json:"type"`
+	Size  sizeJSON        `json:"size,omitempty"`
+	Child json.RawMessage `json:"child"`
+}
+
+type transformedJSON struct {
+	Type  string          `json:"type"`
+	Size  sizeJSON        `json:"size,omitempty"`
+	Scale int             `json:"scale,omitempty"`
+	Turns int             `json:"turns,omitempty"`
+	Child json.RawMessage `json:"child"`
+}
+
+type clipShapeJSON struct {
+	Type  string          `json:"type"`
+	Size  sizeJSON        `json:"size,omitempty"`
+	Shape shapeJSON       `json:"shape"`
+	Child json.RawMessage `json:"child"`
+}
+type shapeJSON struct {
+	Kind    string            `json:"kind"`
+	Insets  []lengthJSON      `json:"insets,omitempty"`
+	Corner  lengthJSON        `json:"corner,omitempty"`
+	Radius  lengthJSON        `json:"radius,omitempty"`
+	RadiusX lengthJSON        `json:"radiusX,omitempty"`
+	RadiusY lengthJSON        `json:"radiusY,omitempty"`
+	Center  *lengthPointJSON  `json:"center,omitempty"`
+	Points  []lengthPointJSON `json:"points,omitempty"`
+}
+type lengthPointJSON struct {
+	X lengthJSON `json:"x"`
+	Y lengthJSON `json:"y"`
+}
+
+func (s shapeJSON) shape(path string) (compose.Shape, error) {
+	var shape compose.Shape
+	switch s.Kind {
+	case "inset":
+		shape.Kind = compose.ShapeInset
+		if len(s.Insets) != 4 {
+			return compose.Shape{}, fmt.Errorf("%s.insets: an inset shape needs four lengths: top, right, bottom, left", path)
+		}
+		for index, inset := range s.Insets {
+			shape.Insets[index] = inset.length
+		}
+		shape.Corner = s.Corner.length
+	case "circle":
+		shape.Kind = compose.ShapeCircle
+		shape.Radius = s.Radius.length
+	case "ellipse":
+		shape.Kind = compose.ShapeEllipse
+		shape.RadiusX, shape.RadiusY = s.RadiusX.length, s.RadiusY.length
+	case "polygon":
+		shape.Kind = compose.ShapePolygon
+		if len(s.Points) < 3 {
+			return compose.Shape{}, fmt.Errorf("%s.points: a polygon needs at least three corners, got %d", path, len(s.Points))
+		}
+		shape.Points = make([][2]compose.Length, len(s.Points))
+		for index, point := range s.Points {
+			shape.Points[index] = [2]compose.Length{point.X.length, point.Y.length}
+		}
+	default:
+		return compose.Shape{}, fmt.Errorf("%s.kind: %w", path, enumError(s.Kind, "inset", "circle", "ellipse", "polygon"))
+	}
+	if s.Center != nil {
+		// Only a circle and an ellipse have one. Accepting it elsewhere would
+		// mean accepting a document that says something and gets nothing.
+		if shape.Kind != compose.ShapeCircle && shape.Kind != compose.ShapeEllipse {
+			return compose.Shape{}, fmt.Errorf("%s.center: only a circle or an ellipse has a centre", path)
+		}
+		shape.Centre = [2]compose.Length{s.Center.X.length, s.Center.Y.length}
+	}
+	return shape, nil
 }
 
 // lengthJSON accepts a number of pixels or a percentage written as a string,
 // because compose resolves both and a document that can only say one of them
 // would be the poorer description.
+//
+// Zero is a length like any other. This method only runs when the field is
+// present, so an absent field still leaves the zero value, which is automatic;
+// there is no need to spend zero on saying so. Spending it that way was a bug:
+// an anchored box asking for "right": 0 is asking to sit against the right
+// edge, and it silently got no horizontal constraint at all.
 type lengthJSON struct {
 	length compose.Length
 }
@@ -428,10 +723,10 @@ type lengthJSON struct {
 func (l *lengthJSON) UnmarshalJSON(data []byte) error {
 	var pixels int
 	if err := json.Unmarshal(data, &pixels); err == nil {
-		// Zero and absent are the same in JSON, and absent means measure it.
-		if pixels > 0 {
-			l.length = compose.Pixels(pixels)
+		if pixels < 0 {
+			return fmt.Errorf("a length must not be negative")
 		}
+		l.length = compose.Pixels(pixels)
 		return nil
 	}
 	var text string

@@ -91,22 +91,32 @@ func resolveOr(length Length, available, fallback int) int {
 	return fallback
 }
 
+// appendRoundRect traces the outline of box.
+//
+// A path names pixels and image.Rectangle names the space between them: the
+// last pixel of a box is at Max-1, not Max. Tracing to Max instead puts the
+// outline a pixel past the box on each far edge, which is a whole extra row
+// and column of a clip that is supposed to be exactly the size it was given.
+// display.roundRectPoints has the same corners and gets this right.
 func appendRoundRect(path *display.Path, box image.Rectangle, corner int) {
+	right, bottom := box.Max.X-1, box.Max.Y-1
 	if corner <= 0 {
 		path.MoveTo(box.Min)
-		path.LineTo(image.Pt(box.Max.X, box.Min.Y))
-		path.LineTo(box.Max)
-		path.LineTo(image.Pt(box.Min.X, box.Max.Y))
+		path.LineTo(image.Pt(right, box.Min.Y))
+		path.LineTo(image.Pt(right, bottom))
+		path.LineTo(image.Pt(box.Min.X, bottom))
 		path.Close()
 		return
 	}
 	corner = min(corner, min(box.Dx(), box.Dy())/2)
+	// The arcs take half-open rectangles, which display already reads the same
+	// way; only the straight runs between them are stated as pixels.
 	path.MoveTo(image.Pt(box.Min.X+corner, box.Min.Y))
-	path.LineTo(image.Pt(box.Max.X-corner, box.Min.Y))
+	path.LineTo(image.Pt(right-corner, box.Min.Y))
 	path.Arc(image.Rect(box.Max.X-2*corner, box.Min.Y, box.Max.X, box.Min.Y+2*corner), -90, 90)
-	path.LineTo(image.Pt(box.Max.X, box.Max.Y-corner))
+	path.LineTo(image.Pt(right, bottom-corner))
 	path.Arc(image.Rect(box.Max.X-2*corner, box.Max.Y-2*corner, box.Max.X, box.Max.Y), 0, 90)
-	path.LineTo(image.Pt(box.Min.X+corner, box.Max.Y))
+	path.LineTo(image.Pt(box.Min.X+corner, bottom))
 	path.Arc(image.Rect(box.Min.X, box.Max.Y-2*corner, box.Min.X+2*corner, box.Max.Y), 90, 90)
 	path.LineTo(image.Pt(box.Min.X, box.Min.Y+corner))
 	path.Arc(image.Rect(box.Min.X, box.Min.Y, box.Min.X+2*corner, box.Min.Y+2*corner), 180, 90)
