@@ -51,7 +51,23 @@ func (l Length) String() string {
 // Resolve turns the length into pixels against the space it is a length of.
 // An absent length reports false, which is not the same as zero: a box with no
 // stated size is measured, and a box stated as zero is not drawn.
+// Resolve works the length out against a container of this size, for the
+// places a length is a size. Nothing is smaller than empty, so a size that
+// works out below zero comes back as zero.
 func (l Length) Resolve(available int) (int, bool) {
+	value, ok := l.Offset(available)
+	if ok && value < 0 {
+		value = 0
+	}
+	return value, ok
+}
+
+// Offset works the same length out without that floor, for the places a length
+// is a distance rather than a size: an inset from an edge, the centre of a
+// circle, a corner of a polygon. Those are measured from somewhere, and the
+// far side of where they are measured from is a real place. An anchored box at
+// left -6 hangs six pixels off the edge, which is how a thing is made to bleed.
+func (l Length) Offset(available int) (int, bool) {
 	if !l.set {
 		return 0, false
 	}
@@ -59,13 +75,15 @@ func (l Length) Resolve(available int) (int, bool) {
 		available = 0
 	}
 	// Rounded rather than truncated, so that halves do not always fall the
-	// same way and a row of percentages adds up to what it should.
-	share := (available*l.percent + 500) / 1000
-	total := share + l.pixels
-	if total < 0 {
-		total = 0
+	// same way and a row of percentages adds up to what it should. Go divides
+	// towards zero, so the half has to be added in the direction the value is
+	// already going or a negative share rounds the short way.
+	product := available * l.percent
+	half := 500
+	if product < 0 {
+		half = -500
 	}
-	return total, true
+	return (product+half)/1000 + l.pixels, true
 }
 
 // valid allows a negative pixel part, because calc(100% - 10px) is a perfectly

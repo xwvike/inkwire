@@ -410,6 +410,14 @@ curl \
 
 `0` 是一个长度，字段省略才是自动。在 `anchored` 上 `"right": 0` 贴右边缘，不写 `right` 则不约束右边。
 
+**表示距离的字段可以写负数**，用来让内容出血到容器外面：`anchored` 的 `top` / `right` / `bottom` / `left`、`clipShape` 里 `inset` 的四个值、`circle` 和 `ellipse` 的 `center`、`polygon` 的 `points`。三种写法都支持负号：
+
+```json
+{"left": -6, "right": "-10%", "top": "calc(0% - 6px)"}
+```
+
+表示尺寸的字段不能为负，写了会报错——`basis`、`cross`、`width`、`height`、`minMain` 一族、grid 轨道、`radius`、`corner` 都属于这一类。
+
 想让一个节点参与"内容有多大"的测量，给它写像素值。百分比和 `fr` 要等容器尺寸出来才有值，在测量阶段不计入。
 
 

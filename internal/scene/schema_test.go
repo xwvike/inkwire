@@ -531,3 +531,76 @@ func TestSchemaStillAcceptsEachOfThoseAlone(t *testing.T) {
 		}
 	}
 }
+
+// A length is a size in some fields and a distance in others, and only one of
+// those has a floor at zero. An anchored box at left -6 hangs off the edge;
+// a basis of -6 is not a width.
+func TestADistanceMayBeNegativeAndASizeMayNot(t *testing.T) {
+	bleed := func(inset string) Result {
+		return renderScene(t, `{
+			"version": 1, "background": "white",
+			"root": {
+				"type": "absolute",
+				"children": [{
+					"bounds": {"x": 20, "y": 0, "width": 100, "height": 20},
+					"node": {"type": "anchored", "children": [
+						{"left": `+inset+`, "top": 0, "width": 40, "height": 20,
+						 "node": {"type": "rectangle", "fill": "black"}}
+					]}
+				}]
+			}
+		}`)
+	}
+	// The container starts at x=20, so an inset of -6 puts the box at 14.
+	for _, spelling := range []string{`-6`, `"calc(0% - 6px)"`} {
+		t.Run(spelling, func(t *testing.T) {
+			result := bleed(spelling)
+			assertInk(t, result, 14, 10, display.InkBlack, "the box hangs six pixels off the left edge")
+			assertInk(t, result, 13, 10, display.InkWhite, "and no further")
+		})
+	}
+	// A tenth of a hundred-wide container is ten.
+	result := bleed(`"-10%"`)
+	assertInk(t, result, 10, 10, display.InkBlack, "a negative percentage is a share measured the other way")
+	assertInk(t, result, 9, 10, display.InkWhite, "and no further")
+}
+
+// The same distinction inside a shape: an inset of -4 grows the outline past
+// the box it was measured against.
+func TestANegativeInsetGrowsTheShape(t *testing.T) {
+	result := renderScene(t, `{
+		"version": 1, "background": "white",
+		"root": {
+			"type": "absolute",
+			"children": [{
+				"bounds": {"x": 10, "y": 0, "width": 40, "height": 20},
+				"node": {
+					"type": "clipShape",
+					"shape": {"kind": "inset", "insets": [-4, -4, -4, -4]},
+					"child": {"type": "rectangle", "fill": "black"}
+				}
+			}]
+		}
+	}`)
+
+	assertInk(t, result, 10, 10, display.InkBlack, "the clip no longer takes anything off the left")
+	assertInk(t, result, 49, 10, display.InkBlack, "nor off the right")
+}
+
+func TestASizeStillRefusesToBeNegative(t *testing.T) {
+	tests := []struct{ name, root string }{
+		{"basis", `{"type":"row","children":[{"basis":-10,"node":{"type":"rectangle"}}]}`},
+		{"basis as a percentage", `{"type":"row","children":[{"basis":"-10%","node":{"type":"rectangle"}}]}`},
+		{"an anchored width", `{"type":"anchored","children":[{"left":0,"width":-10,"node":{"type":"rectangle"}}]}`},
+		{"a grid track", `{"type":"grid","columns":[-10],"children":[]}`},
+		{"a circle's radius", `{"type":"clipShape","shape":{"kind":"circle","radius":-4},"child":{"type":"rectangle"}}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := (Decoder{}).Decode(strings.NewReader(`{"version":1,"root":` + test.root + `}`))
+			if err == nil {
+				t.Fatal("accepted a negative size")
+			}
+		})
+	}
+}

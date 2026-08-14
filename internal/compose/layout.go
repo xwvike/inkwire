@@ -548,8 +548,10 @@ func (a Anchored) paint(ctx *compileContext, list *display.DisplayList, bounds i
 func (a Anchor) resolve(bounds image.Rectangle) image.Rectangle {
 	span := func(startLen, endLen, sizeLen Length, low, high int) (int, int) {
 		available := high - low
-		start, hasStart := startLen.Resolve(available)
-		end, hasEnd := endLen.Resolve(available)
+		// The insets are distances and may be negative, so that a box can be
+		// hung off the edge of its container. The size between them cannot.
+		start, hasStart := startLen.Offset(available)
+		end, hasEnd := endLen.Offset(available)
 		size, hasSize := sizeLen.Resolve(available)
 		switch {
 		case hasStart && hasEnd:

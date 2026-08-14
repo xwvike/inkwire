@@ -44,10 +44,10 @@ func (s Shape) Path(size image.Point) display.Path {
 	var path display.Path
 	switch s.Kind {
 	case ShapeInset:
-		top := resolveOr(s.Insets[0], size.Y, 0)
-		right := resolveOr(s.Insets[1], size.X, 0)
-		bottom := resolveOr(s.Insets[2], size.Y, 0)
-		left := resolveOr(s.Insets[3], size.X, 0)
+		top := offsetOr(s.Insets[0], size.Y, 0)
+		right := offsetOr(s.Insets[1], size.X, 0)
+		bottom := offsetOr(s.Insets[2], size.Y, 0)
+		left := offsetOr(s.Insets[3], size.X, 0)
 		box := image.Rect(left, top, size.X-right, size.Y-bottom)
 		corner := resolveOr(s.Corner, min(box.Dx(), box.Dy()), 0)
 		appendRoundRect(&path, box, corner)
@@ -65,7 +65,7 @@ func (s Shape) Path(size image.Point) display.Path {
 		appendEllipse(&path, image.Rect(centre.X-radiusX, centre.Y-radiusY, centre.X+radiusX, centre.Y+radiusY))
 	case ShapePolygon:
 		for index, point := range s.Points {
-			at := image.Pt(resolveOr(point[0], size.X, 0), resolveOr(point[1], size.Y, 0))
+			at := image.Pt(offsetOr(point[0], size.X, 0), offsetOr(point[1], size.Y, 0))
 			if index == 0 {
 				path.MoveTo(at)
 				continue
@@ -79,13 +79,24 @@ func (s Shape) Path(size image.Point) display.Path {
 
 func (s Shape) centreOf(size image.Point) image.Point {
 	return image.Pt(
-		resolveOr(s.Centre[0], size.X, size.X/2),
-		resolveOr(s.Centre[1], size.Y, size.Y/2),
+		offsetOr(s.Centre[0], size.X, size.X/2),
+		offsetOr(s.Centre[1], size.Y, size.Y/2),
 	)
 }
 
+// resolveOr works out a size, which cannot be negative.
 func resolveOr(length Length, available, fallback int) int {
 	if value, ok := length.Resolve(available); ok {
+		return value
+	}
+	return fallback
+}
+
+// offsetOr works out a distance, which can. An inset of -4 grows the shape
+// past the box it was measured against, and a polygon corner is free to sit
+// outside it.
+func offsetOr(length Length, available, fallback int) int {
+	if value, ok := length.Offset(available); ok {
 		return value
 	}
 	return fallback

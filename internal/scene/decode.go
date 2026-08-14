@@ -675,10 +675,10 @@ type anchoredJSON struct {
 }
 type anchorJSON struct {
 	Node   json.RawMessage `json:"node"`
-	Top    lengthJSON      `json:"top,omitempty"`
-	Right  lengthJSON      `json:"right,omitempty"`
-	Bottom lengthJSON      `json:"bottom,omitempty"`
-	Left   lengthJSON      `json:"left,omitempty"`
+	Top    offsetJSON      `json:"top,omitempty"`
+	Right  offsetJSON      `json:"right,omitempty"`
+	Bottom offsetJSON      `json:"bottom,omitempty"`
+	Left   offsetJSON      `json:"left,omitempty"`
 	Width  lengthJSON      `json:"width,omitempty"`
 	Height lengthJSON      `json:"height,omitempty"`
 	Layer  int             `json:"layer,omitempty"`
@@ -706,7 +706,7 @@ type clipShapeJSON struct {
 }
 type shapeJSON struct {
 	Kind    string            `json:"kind"`
-	Insets  []lengthJSON      `json:"insets,omitempty"`
+	Insets  []offsetJSON      `json:"insets,omitempty"`
 	Corner  lengthJSON        `json:"corner,omitempty"`
 	Radius  lengthJSON        `json:"radius,omitempty"`
 	RadiusX lengthJSON        `json:"radiusX,omitempty"`
@@ -715,8 +715,8 @@ type shapeJSON struct {
 	Points  []lengthPointJSON `json:"points,omitempty"`
 }
 type lengthPointJSON struct {
-	X lengthJSON `json:"x"`
-	Y lengthJSON `json:"y"`
+	X offsetJSON `json:"x"`
+	Y offsetJSON `json:"y"`
 }
 
 func (s shapeJSON) shape(path string) (compose.Shape, error) {
@@ -773,10 +773,32 @@ type lengthJSON struct {
 	length compose.Length
 }
 
-func (l *lengthJSON) UnmarshalJSON(data []byte) error {
+// offsetJSON is a length for the fields that measure a distance rather than a
+// size, and so may be negative: an anchor's four edges, a shape's insets, the
+// centre of a circle and the corners of a polygon.
+//
+// A negative size is refused instead, because there is no such thing and
+// accepting one would only mean clamping it back to zero behind the author's
+// back.
+type offsetJSON struct {
+	length compose.Length
+}
+
+func (o *offsetJSON) UnmarshalJSON(data []byte) error {
+	var length lengthJSON
+	if err := length.unmarshal(data, true); err != nil {
+		return err
+	}
+	o.length = length.length
+	return nil
+}
+
+func (l *lengthJSON) UnmarshalJSON(data []byte) error { return l.unmarshal(data, false) }
+
+func (l *lengthJSON) unmarshal(data []byte, signed bool) error {
 	var pixels int
 	if err := json.Unmarshal(data, &pixels); err == nil {
-		if pixels < 0 {
+		if pixels < 0 && !signed {
 			return fmt.Errorf("a length must not be negative")
 		}
 		l.length = compose.Pixels(pixels)
@@ -793,14 +815,14 @@ func (l *lengthJSON) UnmarshalJSON(data []byte) error {
 		if !closed {
 			return fmt.Errorf("%q is missing its closing bracket", text)
 		}
-		length, err := parseCalc(body)
+		length, err := parseCalc(body, signed)
 		if err != nil {
 			return fmt.Errorf("%q: %w", text, err)
 		}
 		l.length = length
 		return nil
 	}
-	percent, err := parsePercent(trimmed)
+	percent, err := parsePercent(trimmed, signed)
 	if err != nil {
 		return fmt.Errorf("%q is not a length; write a number of pixels, "+
 			"a percentage such as \"25%%\", or \"calc(100%% - 10px)\"", text)
@@ -816,7 +838,7 @@ func (l *lengthJSON) UnmarshalJSON(data []byte) error {
 // there may be negative and "100%-10px" would be ambiguous; neither term here
 // may be, so the first sign after the opening term is always the operator and
 // there is nothing to be careful about.
-func parseCalc(body string) (compose.Length, error) {
+func parseCalc(body string, signed bool) (compose.Length, error) {
 	packed := strings.Join(strings.Fields(body), "")
 	at := strings.IndexAny(packed[1:], "+-") + 1
 	if at < 1 {
@@ -837,7 +859,7 @@ func parseCalc(body string) (compose.Length, error) {
 				"a fixed number of pixels minus a share of the container is not a length here")
 		}
 	}
-	percent, err := parsePercent(percentText)
+	percent, err := parsePercent(percentText, signed)
 	if err != nil {
 		return compose.Length{}, fmt.Errorf("%q is not a percentage", percentText)
 	}
@@ -853,13 +875,13 @@ func parseCalc(body string) (compose.Length, error) {
 }
 
 // parsePercent reads a percentage into the tenths compose counts them in.
-func parsePercent(text string) (int, error) {
+func parsePercent(text string, signed bool) (int, error) {
 	digits, isPercent := strings.CutSuffix(strings.TrimSpace(text), "%")
 	if !isPercent {
 		return 0, fmt.Errorf("%q does not end in %%", text)
 	}
 	value, err := strconv.ParseFloat(digits, 64)
-	if err != nil || value < 0 {
+	if err != nil || (value < 0 && !signed) {
 		return 0, fmt.Errorf("%q is not a percentage", text)
 	}
 	return int(value * 10), nil
