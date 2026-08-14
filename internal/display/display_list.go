@@ -53,24 +53,27 @@ const (
 	commandFillPath
 	commandDrawTextLayout
 	commandDrawImage
+	commandDrawFrame
 )
 
 type displayCommand struct {
-	kind    commandKind
-	point   image.Point
-	point2  image.Point
-	rect    image.Rectangle
-	points  []image.Point
-	ink     Ink
-	stroke  StrokeStyle
-	radius  int
-	start   float64
-	sweep   float64
-	path    Path
-	layout  *TextLayout
-	pattern *Pattern
-	source  *image.NRGBA
-	options ImageOptions
+	kind      commandKind
+	point     image.Point
+	point2    image.Point
+	rect      image.Rectangle
+	points    []image.Point
+	ink       Ink
+	stroke    StrokeStyle
+	radius    int
+	start     float64
+	sweep     float64
+	path      Path
+	layout    *TextLayout
+	pattern   *Pattern
+	source    *image.NRGBA
+	options   ImageOptions
+	frame     *Frame
+	transform Transform
 }
 
 // Len returns the number of recorded state and drawing commands.
@@ -392,6 +395,22 @@ func (d *DisplayList) DrawTextBox(registry *FontRegistry, box TextBox) (*TextLay
 }
 
 // DrawImage validates and snapshots source before recording it.
+// DrawFrame records an already-rasterised surface to be copied over with a
+// whole-number transform. It carries the surface itself rather than the
+// drawing that produced it, because the transform applies to the picture and
+// not to the commands: a magnified circle is not a larger circle.
+func (d *DisplayList) DrawFrame(source *Frame, at image.Point, transform Transform) error {
+	if source == nil {
+		return fmt.Errorf("source frame must not be nil")
+	}
+	size := transform.Apply(image.Pt(source.Width(), source.Height()))
+	destination := image.Rectangle{Min: at, Max: at.Add(size)}
+	d.appendDraw(displayCommand{
+		kind: commandDrawFrame, rect: destination, frame: source, transform: transform,
+	}, destination)
+	return nil
+}
+
 func (d *DisplayList) DrawImage(source image.Image, destination image.Rectangle, options ImageOptions) error {
 	if source == nil {
 		return fmt.Errorf("source image must not be nil")
@@ -500,6 +519,8 @@ func (c displayCommand) replay(canvas *Canvas) error {
 		c.layout.Draw(canvas)
 	case commandDrawImage:
 		return canvas.DrawImage(c.source, c.rect, c.options)
+	case commandDrawFrame:
+		return canvas.DrawFrame(c.frame, c.rect.Min, c.transform)
 	default:
 		return fmt.Errorf("unknown display command %d", c.kind)
 	}

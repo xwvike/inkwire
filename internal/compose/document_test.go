@@ -104,9 +104,9 @@ func TestRowAllocatesIntegerGrowthWithoutChangingOrder(t *testing.T) {
 	frame, _ := compileAndRender(t, Document{Root: Row{
 		Gap: 2,
 		Children: []LayoutChild{
-			{Basis: 10, Node: Rectangle{Fill: Ink(display.InkBlack)}},
-			{Basis: 10, Grow: 1, Node: Rectangle{Fill: Ink(display.InkRed)}},
-			{Basis: 10, Grow: 2, Node: Rectangle{Fill: Ink(display.InkBlack)}},
+			{Basis: Pixels(10), Node: Rectangle{Fill: Ink(display.InkBlack)}},
+			{Basis: Pixels(10), Grow: 1, Node: Rectangle{Fill: Ink(display.InkRed)}},
+			{Basis: Pixels(10), Grow: 2, Node: Rectangle{Fill: Ink(display.InkBlack)}},
 		},
 	}})
 
@@ -134,11 +134,11 @@ func TestColumnPaddingStackAndSpacerAreMechanical(t *testing.T) {
 	frame, _ := compileAndRender(t, Document{Root: Padding{
 		Insets: Insets{Top: 4, Right: 5, Bottom: 6, Left: 7},
 		Child: Column{Gap: 3, Children: []LayoutChild{
-			{Basis: 10, Node: Stack{Children: []Node{
+			{Basis: Pixels(10), Node: Stack{Children: []Node{
 				Rectangle{Fill: Ink(display.InkBlack)},
 				Absolute{Children: []Placed{{Bounds: image.Rect(2, 2, 6, 6), Node: Rectangle{Fill: Ink(display.InkRed)}}}},
 			}}},
-			{Basis: 5, Node: Spacer{}},
+			{Basis: Pixels(5), Node: Spacer{}},
 			{Grow: 1, Node: Rectangle{Fill: Ink(display.InkRed)}},
 		}},
 	}})

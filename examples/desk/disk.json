@@ -127,17 +127,17 @@
                "crossAlign": "stretch",
                "children": [
                 {
+                 "basis": "87.3%",
                  "node": {
                   "type": "rectangle",
                   "fill": "red"
-                 },
-                 "grow": 873
+                 }
                 },
                 {
+                 "grow": 1,
                  "node": {
                   "type": "spacer"
-                 },
-                 "grow": 127
+                 }
                 }
                ]
               }
@@ -216,17 +216,17 @@
                "crossAlign": "stretch",
                "children": [
                 {
+                 "basis": "31.7%",
                  "node": {
                   "type": "rectangle",
                   "fill": "black"
-                 },
-                 "grow": 317
+                 }
                 },
                 {
+                 "grow": 1,
                  "node": {
                   "type": "spacer"
-                 },
-                 "grow": 683
+                 }
                 }
                ]
               }
@@ -305,17 +305,17 @@
                "crossAlign": "stretch",
                "children": [
                 {
+                 "basis": "34.4%",
                  "node": {
                   "type": "rectangle",
                   "fill": "black"
-                 },
-                 "grow": 344
+                 }
                 },
                 {
+                 "grow": 1,
                  "node": {
                   "type": "spacer"
-                 },
-                 "grow": 656
+                 }
                 }
                ]
               }
@@ -394,17 +394,17 @@
                "crossAlign": "stretch",
                "children": [
                 {
+                 "basis": "87.6%",
                  "node": {
                   "type": "rectangle",
                   "fill": "red"
-                 },
-                 "grow": 876
+                 }
                 },
                 {
+                 "grow": 1,
                  "node": {
                   "type": "spacer"
-                 },
-                 "grow": 124
+                 }
                 }
                ]
               }

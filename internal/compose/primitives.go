@@ -325,6 +325,35 @@ func (c ClipPath) paint(ctx *compileContext, list *display.DisplayList, bounds i
 }
 
 // ClipRect clips Child to Rect in coordinates relative to its allocated box.
+// Clip confines its child to whatever rectangle the layout gives it. ClipRect
+// needs the rectangle stated, which suits a document that names coordinates;
+// this suits one that does not know its own box until it has been laid out.
+type Clip struct {
+	Size  image.Point
+	Child Node
+}
+
+func (Clip) composeNode() {}
+
+func (c Clip) measure(ctx *compileContext, maximum image.Point, path string) (image.Point, error) {
+	if nilNode(c.Child) {
+		return image.Point{}, fmt.Errorf("%s.child: node must not be nil", path)
+	}
+	size, err := c.Child.measure(ctx, maximum, path+".child")
+	if err != nil {
+		return image.Point{}, err
+	}
+	return preferredSize(size, c.Size, maximum)
+}
+
+func (c Clip) paint(ctx *compileContext, list *display.DisplayList, bounds image.Rectangle, path string) error {
+	list.Save()
+	list.ClipRect(bounds)
+	err := c.Child.paint(ctx, list, bounds, path+".child")
+	list.Restore()
+	return err
+}
+
 type ClipRect struct {
 	Size  image.Point
 	Rect  image.Rectangle
@@ -415,4 +444,56 @@ func offsetPoints(points []image.Point, offset image.Point) []image.Point {
 		result[index] = point.Add(offset)
 	}
 	return result
+}
+
+// Transformed magnifies or turns whatever its child draws.
+//
+// Unlike everything else here it does not pass the drawing straight through.
+// The child is drawn onto a surface of its own and that surface is copied over
+// with the transform applied, because a magnified circle is not a circle drawn
+// with a larger radius and a turned line is not a line with swapped endpoints:
+// the whole subtree has to move together.
+//
+// The child is given the box the transform would need to fill this one, so a
+// child under a doubling gets half the room and comes out at full size.
+type Transformed struct {
+	Size      image.Point
+	Transform display.Transform
+	Child     Node
+}
+
+func (Transformed) composeNode() {}
+
+func (t Transformed) measure(ctx *compileContext, maximum image.Point, path string) (image.Point, error) {
+	if nilNode(t.Child) {
+		return image.Point{}, fmt.Errorf("%s.child: node must not be nil", path)
+	}
+	inner, err := t.Child.measure(ctx, t.Transform.Invert(maximum), path+".child")
+	if err != nil {
+		return image.Point{}, err
+	}
+	return preferredSize(t.Transform.Apply(inner), t.Size, maximum)
+}
+
+func (t Transformed) paint(ctx *compileContext, list *display.DisplayList, bounds image.Rectangle, path string) error {
+	inner := t.Transform.Invert(bounds.Size())
+	if inner.X <= 0 || inner.Y <= 0 {
+		ctx.warn(path, "empty-layout", "the transformed box leaves its child no room")
+		return nil
+	}
+	// The child draws at its own size and orientation into a list of its own,
+	// starting at the origin so the surface it lands on is only as large as it
+	// needs to be.
+	sub := &display.DisplayList{}
+	if err := t.Child.paint(ctx, sub, image.Rectangle{Max: inner}, path+".child"); err != nil {
+		return err
+	}
+	surface, err := display.NewFrame(inner.X, inner.Y, display.InkWhite)
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	if err := sub.Replay(display.NewCanvas(surface)); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	return list.DrawFrame(surface, bounds.Min, t.Transform)
 }

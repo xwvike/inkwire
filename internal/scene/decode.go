@@ -1,6 +1,20 @@
 // Package scene decodes the versioned JSON page description used by the CLI
 // and transports. It is deliberately separate from compose: JSON is the
 // stable input contract, while compose remains an internal compiler model.
+//
+// # What this describes
+//
+// A scene document can describe a whole page, and it is the only thing that
+// can describe geometry: arcs, polygons, paths, patterns and single pixels.
+// Those are what a generator produces, not what a person writes, which is why
+// they are stated as coordinates rather than as a style.
+//
+// A page written in HTML and CSS reaches them through a scene element, and
+// DecodeNode is the entry point for that: one node, no page size, drawn
+// wherever the page puts it.
+//
+// The division between the two formats is enforced in internal/compose, which
+// carries the table of which nodes belong to which and a test that checks it.
 package scene
 
 import (
@@ -15,6 +29,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/xwvike/inkwire/internal/compose"
@@ -70,6 +85,18 @@ func (d Decoder) Decode(reader io.Reader) (compose.Document, error) {
 		}
 	}
 	return document, nil
+}
+
+// DecodeNode reads a single node rather than a whole document, for the case
+// where a page is written some other way and only part of it is described
+// here. A fragment has no page size, orientation or background: it is drawn
+// wherever the thing embedding it puts it.
+func (d Decoder) DecodeNode(source []byte) (compose.Node, error) {
+	node, err := d.decodeNode(source, "node")
+	if err != nil {
+		return nil, err
+	}
+	return node, nil
 }
 
 func (d Decoder) DecodeFile(path string) (compose.Document, error) {
@@ -137,7 +164,9 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 			if err != nil {
 				return nil, err
 			}
-			children[index] = compose.LayoutChild{Node: node, Basis: child.Basis, Grow: child.Grow}
+			children[index] = compose.LayoutChild{
+				Node: node, Basis: child.Basis.length, Grow: child.Grow,
+			}
 		}
 		mainAlign, err := parseMainAlign(value.MainAlign)
 		if err != nil {
@@ -385,9 +414,42 @@ type flowJSON struct {
 }
 type layoutChildJSON struct {
 	Node  json.RawMessage `json:"node"`
-	Basis int             `json:"basis,omitempty"`
+	Basis lengthJSON      `json:"basis,omitempty"`
 	Grow  int             `json:"grow,omitempty"`
 }
+
+// lengthJSON accepts a number of pixels or a percentage written as a string,
+// because compose resolves both and a document that can only say one of them
+// would be the poorer description.
+type lengthJSON struct {
+	length compose.Length
+}
+
+func (l *lengthJSON) UnmarshalJSON(data []byte) error {
+	var pixels int
+	if err := json.Unmarshal(data, &pixels); err == nil {
+		// Zero and absent are the same in JSON, and absent means measure it.
+		if pixels > 0 {
+			l.length = compose.Pixels(pixels)
+		}
+		return nil
+	}
+	var text string
+	if err := json.Unmarshal(data, &text); err != nil {
+		return fmt.Errorf("a length is a number of pixels or a percentage such as \"25%%\"")
+	}
+	trimmed := strings.TrimSpace(text)
+	if !strings.HasSuffix(trimmed, "%") {
+		return fmt.Errorf("%q is not a percentage; a length is a number of pixels or a string ending in %%", text)
+	}
+	percent, err := strconv.ParseFloat(strings.TrimSuffix(trimmed, "%"), 64)
+	if err != nil || percent < 0 {
+		return fmt.Errorf("%q is not a percentage", text)
+	}
+	l.length = compose.Tenths(int(percent * 10))
+	return nil
+}
+
 type stackJSON struct {
 	Type     string            `json:"type"`
 	Size     sizeJSON          `json:"size,omitempty"`
