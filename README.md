@@ -937,7 +937,7 @@ Data URL 写法：
 完整 JSON：
 
 - [布局节点](examples/layout_showcase/page.json)：`grid`、`anchored`、`transformed`、`clip`、`clipShape` 各司其职的一页
-- [冰箱贴待办](examples/fridge/page.json)：400x300 的密集版面，用 `grid` 和 `anchored` 替掉手算坐标
+- [冰箱贴待办](examples/fridge/page.json)
 - [综合页面](examples/compose_showcase/page.json)
 - [图元和文字](examples/showcase/page.json)
 - [裁剪、图案和虚线](examples/paint_showcase/page.json)
@@ -962,7 +962,7 @@ Data URL 写法：
   </tr>
   <tr>
     <td><a href="examples/text_showcase/page.json"><img src="examples/text_showcase/text_showcase.png" alt="纯文本效果"></a></td>
-    <td><img src="examples/gallery/gallery.png" alt="图片处理 Gallery"></td>
+    <td><a href="examples/fridge/page.json"><img src="examples/fridge/fridge.png" alt="冰箱贴待办" width="400"></a></td>
   </tr>
   <tr>
     <td><a href="examples/cookbook/main.go"><img src="examples/cookbook/cookbook.png" alt="底层 API Cookbook"></a></td>
@@ -970,22 +970,7 @@ Data URL 写法：
   </tr>
 </table>
 
-[冰箱贴待办](examples/fridge/page.json) 是别人写的一页，用这些节点重排了一遍，**一个像素没动**：
 
-<a href="examples/fridge/page.json"><img src="examples/fridge/fridge.png" alt="冰箱贴待办" width="400"></a>
-
-原版把六行待办写成六个结构相同的 `row`，每行重复同样的勾选框宽度、间距和徽章宽度；五个饮水格是五个方块夹四个 `spacer`；右上角磁吸扣的 `x: 356` 是 400−356−20=24 算出来的；便签胶带的 `x: 45` 是 (134−44)/2 算出来的。
-
-重排后这些数只写一次：一个 `grid` 管六行（`columns: [14, 6, "1fr", 20]`），一个 `grid` 管饮水格（`columnGap: 2`），一个 `anchored` 管两个磁吸扣（`left: 24` / `right: 24`），胶带用 `left: "calc(50% - 22px)"`。
-
-| | 节点数 | `basis` | `cross` |
-|---|---:|---:|---:|
-| 手写坐标 | 124 | 50 | 19 |
-| 用这些节点 | 111 | 19 | 3 |
-
-行数几乎没变。**这些节点不是用来缩短文档的**，是用来把"同一个数字抄六遍"变成"写一次"——改勾选框宽度，原来要动六处，现在动一处。
-
-这页是 400x300（型号表里的 4.2" 面板），只能 `render` 预览，`encode` 和 `push` 会拒绝任何和目标面板尺寸不一致的页面。
 
 ## 参考
 
