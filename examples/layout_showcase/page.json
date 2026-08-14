@@ -1,0 +1,160 @@
+{
+ "version": 1,
+ "orientation": "landscape",
+ "background": "white",
+ "root": {
+  "type": "row",
+  "crossAlign": "stretch",
+  "children": [
+   {
+    "basis": 16,
+    "node": {
+     "type": "stack",
+     "children": [
+      {"type": "rectangle", "fill": "black"},
+      {
+       "type": "transformed",
+       "turns": 3,
+       "child": {
+        "type": "text",
+        "align": "center",
+        "verticalAlign": "middle",
+        "runs": [{"text": "LAYOUT SHOWCASE", "font": "monaco", "size": 12, "ink": "white"}]
+       }
+      }
+     ]
+    }
+   },
+   {
+    "grow": 1,
+    "node": {
+     "type": "column",
+     "crossAlign": "stretch",
+     "children": [
+      {
+       "basis": 18,
+       "node": {
+        "type": "stack",
+        "children": [
+         {"type": "rectangle", "fill": "black"},
+         {
+          "type": "padding",
+          "insets": {"top": 0, "right": 5, "bottom": 0, "left": 5},
+          "child": {
+           "type": "row",
+           "crossAlign": "center",
+           "children": [
+            {"node": {"type": "text", "verticalAlign": "middle", "runs": [{"text": "布局节点", "font": "ui", "size": 12, "ink": "white"}]}},
+            {"grow": 1, "node": {"type": "spacer"}},
+            {"node": {"type": "text", "align": "end", "verticalAlign": "middle", "runs": [{"text": "08-14", "font": "monaco", "size": 12, "ink": "white"}]}}
+           ]
+          }
+         }
+        ]
+       }
+      },
+      {
+       "grow": 1,
+       "node": {
+        "type": "anchored",
+        "children": [
+         {
+          "top": 0, "right": 0, "bottom": 0, "left": 0,
+          "node": {
+           "type": "padding",
+           "insets": {"top": 5, "right": 54, "bottom": 5, "left": 5},
+           "child": {
+            "type": "grid",
+            "columns": ["auto", "1fr", "auto"],
+            "rows": [14, 14, 14, "auto"],
+            "columnGap": 5,
+            "rowGap": 4,
+            "children": [
+             {"node": {"type": "text", "verticalAlign": "middle", "runs": [{"text": "CPU", "font": "monaco", "size": 12, "ink": "black"}]}},
+             {"node": {
+              "type": "stack",
+              "children": [
+               {"type": "rectangle", "stroke": {"ink": "black", "width": 1}},
+               {"type": "padding", "insets": {"top": 2, "right": 2, "bottom": 2, "left": 2},
+                "child": {"type": "row", "crossAlign": "stretch", "children": [
+                 {"basis": "62%", "node": {"type": "rectangle", "fill": "black"}},
+                 {"grow": 1, "node": {"type": "spacer"}}
+                ]}}
+              ]
+             }},
+             {"node": {"type": "text", "align": "end", "verticalAlign": "middle", "runs": [{"text": "62%", "font": "monaco", "size": 12, "ink": "black"}]}},
+
+             {"node": {"type": "text", "verticalAlign": "middle", "runs": [{"text": "MEM", "font": "monaco", "size": 12, "ink": "black"}]}},
+             {"node": {
+              "type": "stack",
+              "children": [
+               {"type": "rectangle", "stroke": {"ink": "black", "width": 1}},
+               {"type": "padding", "insets": {"top": 2, "right": 2, "bottom": 2, "left": 2},
+                "child": {"type": "row", "crossAlign": "stretch", "children": [
+                 {"basis": "88%", "node": {"type": "rectangle", "fill": "red"}},
+                 {"grow": 1, "node": {"type": "spacer"}}
+                ]}}
+              ]
+             }},
+             {"node": {"type": "text", "align": "end", "verticalAlign": "middle", "runs": [{"text": "88%", "font": "monaco", "size": 12, "ink": "red"}]}},
+
+             {"node": {"type": "text", "verticalAlign": "middle", "runs": [{"text": "DISK", "font": "monaco", "size": 12, "ink": "black"}]}},
+             {"node": {
+              "type": "stack",
+              "children": [
+               {"type": "rectangle", "stroke": {"ink": "black", "width": 1}},
+               {"type": "padding", "insets": {"top": 2, "right": 2, "bottom": 2, "left": 2},
+                "child": {"type": "row", "crossAlign": "stretch", "children": [
+                 {"basis": "35%", "node": {"type": "rectangle", "fill": "black"}},
+                 {"grow": 1, "node": {"type": "spacer"}}
+                ]}}
+              ]
+             }},
+             {"node": {"type": "text", "align": "end", "verticalAlign": "middle", "runs": [{"text": "35%", "font": "monaco", "size": 12, "ink": "black"}]}},
+
+             {
+              "column": 1, "columnSpan": 3,
+              "node": {
+               "type": "clip",
+               "child": {
+                "type": "text",
+                "runs": [{"text": "内存吃紧，这一行故意写得比格子还长以便被裁掉", "font": "ui", "size": 12, "ink": "black"}]
+               }
+              }
+             }
+            ]
+           }
+          }
+         },
+         {
+          "right": 6, "bottom": 6, "width": 42, "height": 42, "layer": 1,
+          "node": {
+           "type": "clipShape",
+           "shape": {"kind": "circle", "radius": "50%"},
+           "child": {
+            "type": "stack",
+            "children": [
+             {"type": "rectangle", "fill": "red"},
+             {
+              "type": "transformed",
+              "scale": 2,
+              "child": {
+               "type": "text",
+               "align": "center",
+               "verticalAlign": "middle",
+               "runs": [{"text": "7", "font": "monaco", "size": 12, "ink": "white"}]
+              }
+             }
+            ]
+           }
+          }
+         }
+        ]
+       }
+      }
+     ]
+    }
+   }
+  ]
+ }
+}

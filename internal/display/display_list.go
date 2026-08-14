@@ -74,6 +74,7 @@ type displayCommand struct {
 	options   ImageOptions
 	frame     *Frame
 	transform Transform
+	covered   *Coverage
 }
 
 // Len returns the number of recorded state and drawing commands.
@@ -399,14 +400,14 @@ func (d *DisplayList) DrawTextBox(registry *FontRegistry, box TextBox) (*TextLay
 // whole-number transform. It carries the surface itself rather than the
 // drawing that produced it, because the transform applies to the picture and
 // not to the commands: a magnified circle is not a larger circle.
-func (d *DisplayList) DrawFrame(source *Frame, at image.Point, transform Transform) error {
+func (d *DisplayList) DrawFrame(source *Frame, at image.Point, transform Transform, covered *Coverage) error {
 	if source == nil {
 		return fmt.Errorf("source frame must not be nil")
 	}
 	size := transform.Apply(image.Pt(source.Width(), source.Height()))
 	destination := image.Rectangle{Min: at, Max: at.Add(size)}
 	d.appendDraw(displayCommand{
-		kind: commandDrawFrame, rect: destination, frame: source, transform: transform,
+		kind: commandDrawFrame, rect: destination, frame: source, transform: transform, covered: covered,
 	}, destination)
 	return nil
 }
@@ -520,7 +521,7 @@ func (c displayCommand) replay(canvas *Canvas) error {
 	case commandDrawImage:
 		return canvas.DrawImage(c.source, c.rect, c.options)
 	case commandDrawFrame:
-		return canvas.DrawFrame(c.frame, c.rect.Min, c.transform)
+		return canvas.DrawFrame(c.frame, c.rect.Min, c.transform, c.covered)
 	default:
 		return fmt.Errorf("unknown display command %d", c.kind)
 	}

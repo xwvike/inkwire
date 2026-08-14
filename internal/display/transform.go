@@ -59,11 +59,66 @@ func (t Transform) Invert(size image.Point) image.Point {
 	return image.Pt(size.X/normal.Scale, size.Y/normal.Scale)
 }
 
+// Coverage records which pixels of a frame a drawing actually reached.
+//
+// A frame has no transparent ink. Every pixel is black, white or red, so a
+// frame that has been drawn onto cannot say by itself which parts are the
+// drawing and which are the background it was created with. Copying one frame
+// over another therefore brings that background along, and a rotated label
+// laid over a filled bar erases the bar.
+//
+// It is worked out by drawing the same commands twice, onto one surface that
+// starts white and one that starts black. Where the two agree something was
+// drawn, whatever colour it was; where they differ nothing was, because all
+// that showed through was the background they started as.
+type Coverage struct {
+	width, height int
+	drawn         []bool
+}
+
+// NewCoverage compares two renderings of the same drawing over different
+// backgrounds. They must be the same size, and must be what the same commands
+// produced, or the answer means nothing.
+func NewCoverage(overWhite, overBlack *Frame) (*Coverage, error) {
+	if overWhite == nil || overBlack == nil {
+		return nil, fmt.Errorf("both renderings are needed to tell a drawing from its background")
+	}
+	width, height := overWhite.Width(), overWhite.Height()
+	if overBlack.Width() != width || overBlack.Height() != height {
+		return nil, fmt.Errorf("renderings differ in size: %dx%d and %dx%d",
+			width, height, overBlack.Width(), overBlack.Height())
+	}
+	coverage := &Coverage{width: width, height: height, drawn: make([]bool, width*height)}
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			light, _ := overWhite.InkAt(x, y)
+			dark, _ := overBlack.InkAt(x, y)
+			coverage.drawn[y*width+x] = light == dark
+		}
+	}
+	return coverage, nil
+}
+
+// At reports whether anything was drawn at this pixel.
+func (c *Coverage) At(x, y int) bool {
+	if c == nil {
+		return true
+	}
+	if x < 0 || y < 0 || x >= c.width || y >= c.height {
+		return false
+	}
+	return c.drawn[y*c.width+x]
+}
+
 // DrawFrame copies source onto the canvas with the transform applied, ink for
 // ink. It does not go through DrawImage: that reduces colours to the panel's
 // three, and this source already is those three, so passing it through a
 // reduction could only lose what is already exact.
-func (c *Canvas) DrawFrame(source *Frame, at image.Point, transform Transform) error {
+//
+// A nil covered copies every pixel, which is what a frame standing on its own
+// wants. Anything drawn over something else should pass one, or it carries its
+// own background over the top of whatever was already there.
+func (c *Canvas) DrawFrame(source *Frame, at image.Point, transform Transform, covered *Coverage) error {
 	if source == nil {
 		return fmt.Errorf("source frame must not be nil")
 	}
@@ -72,6 +127,9 @@ func (c *Canvas) DrawFrame(source *Frame, at image.Point, transform Transform) e
 	for y := 0; y < size.Y; y++ {
 		for x := 0; x < size.X; x++ {
 			from := normal.source(image.Pt(x, y), source.Width(), source.Height())
+			if !covered.At(from.X, from.Y) {
+				continue
+			}
 			ink, ok := source.InkAt(from.X, from.Y)
 			if !ok {
 				continue

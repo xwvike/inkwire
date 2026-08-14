@@ -921,6 +921,7 @@ BTC 那页的价格用 48px，来自点阵字形的整数倍放大。16px 在这
 
 完整 JSON：
 
+- [布局节点](examples/layout_showcase/page.json)：`grid`、`anchored`、`transformed`、`clip`、`clipShape` 各司其职的一页
 - [综合页面](examples/compose_showcase/page.json)
 - [图元和文字](examples/showcase/page.json)
 - [裁剪、图案和虚线](examples/paint_showcase/page.json)
@@ -932,20 +933,24 @@ BTC 那页的价格用 48px，来自点阵字形的整数倍放大。16px 在这
 
 <table>
   <tr>
+    <td><a href="examples/layout_showcase/page.json"><img src="examples/layout_showcase/layout_showcase.png" alt="布局节点"></a></td>
     <td><a href="examples/compose_showcase/page.json"><img src="examples/compose_showcase/compose_showcase.png" alt="综合页面"></a></td>
+  </tr>
+  <tr>
     <td><a href="examples/card_showcase/page.json"><img src="examples/card_showcase/card_showcase.png" alt="名片页面"></a></td>
-  </tr>
-  <tr>
     <td><a href="examples/showcase/page.json"><img src="examples/showcase/showcase.png" alt="图元和文字"></a></td>
+  </tr>
+  <tr>
     <td><a href="examples/paint_showcase/page.json"><img src="examples/paint_showcase/paint_showcase.png" alt="裁剪、图案和虚线"></a></td>
-  </tr>
-  <tr>
     <td><a href="examples/state_showcase/page.json"><img src="examples/state_showcase/state_showcase.png" alt="布局和状态"></a></td>
-    <td><a href="examples/text_showcase/page.json"><img src="examples/text_showcase/text_showcase.png" alt="纯文本效果"></a></td>
   </tr>
   <tr>
-      <td><img src="examples/gallery/gallery.png" alt="图片处理 Gallery"></td>
+    <td><a href="examples/text_showcase/page.json"><img src="examples/text_showcase/text_showcase.png" alt="纯文本效果"></a></td>
+    <td><img src="examples/gallery/gallery.png" alt="图片处理 Gallery"></td>
+  </tr>
+  <tr>
     <td><a href="examples/cookbook/main.go"><img src="examples/cookbook/cookbook.png" alt="底层 API Cookbook"></a></td>
+    <td></td>
   </tr>
 </table>
 

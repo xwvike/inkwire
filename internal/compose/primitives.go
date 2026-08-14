@@ -488,12 +488,27 @@ func (t Transformed) paint(ctx *compileContext, list *display.DisplayList, bound
 	if err := t.Child.paint(ctx, sub, image.Rectangle{Max: inner}, path+".child"); err != nil {
 		return err
 	}
+	// Twice, over opposite backgrounds. The surface has to be copied whole and
+	// a frame has no transparent ink, so without this the background the child
+	// happened to be drawn on goes over the top of whatever is underneath, and
+	// a transform inside a stack wipes out the layers below it.
 	surface, err := display.NewFrame(inner.X, inner.Y, display.InkWhite)
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	against, err := display.NewFrame(inner.X, inner.Y, display.InkBlack)
 	if err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	if err := sub.Replay(display.NewCanvas(surface)); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
-	return list.DrawFrame(surface, bounds.Min, t.Transform)
+	if err := sub.Replay(display.NewCanvas(against)); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	covered, err := display.NewCoverage(surface, against)
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	return list.DrawFrame(surface, bounds.Min, t.Transform, covered)
 }

@@ -34,7 +34,7 @@ func transformed(t *testing.T, source *Frame, transform Transform) *Frame {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := NewCanvas(target).DrawFrame(source, image.Point{}, transform); err != nil {
+	if err := NewCanvas(target).DrawFrame(source, image.Point{}, transform, nil); err != nil {
 		t.Fatal(err)
 	}
 	return target
@@ -130,5 +130,85 @@ func TestIdentityAndInversion(t *testing.T) {
 	// A child asked to fill 9x30 after the transform must be drawn 10x3.
 	if got := transform.Invert(image.Pt(9, 30)); got != image.Pt(10, 3) {
 		t.Errorf("Invert = %v, want (10,3)", got)
+	}
+}
+
+// A drawing has to be separable from the surface it was drawn on, because a
+// frame cannot say which of its pixels are which. Two renderings over opposite
+// backgrounds can: the drawing looks the same on both, and the background does
+// not.
+func TestCoverageTellsADrawingFromItsBackground(t *testing.T) {
+	overWhite, err := NewFrame(3, 1, InkWhite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	overBlack, err := NewFrame(3, 1, InkBlack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The same drawing on both: red at 0, and white at 1 to make the point
+	// that white can be drawn rather than merely left behind.
+	for _, frame := range []*Frame{overWhite, overBlack} {
+		frame.Set(0, 0, InkRed)
+		frame.Set(1, 0, InkWhite)
+	}
+
+	covered, err := NewCoverage(overWhite, overBlack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for x, want := range []bool{true, true, false} {
+		if got := covered.At(x, 0); got != want {
+			t.Errorf("covered.At(%d, 0) = %v, want %v", x, got, want)
+		}
+	}
+	if covered.At(3, 0) || covered.At(-1, 0) {
+		t.Error("a pixel outside the frame was never drawn to")
+	}
+}
+
+// The point of knowing that is that the untouched part must not be copied.
+func TestDrawFrameLeavesUncoveredPixelsAlone(t *testing.T) {
+	source, err := NewFrame(3, 1, InkWhite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe, err := NewFrame(3, 1, InkBlack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source.Set(0, 0, InkRed)
+	probe.Set(0, 0, InkRed)
+	covered, err := NewCoverage(source, probe)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	target, err := NewFrame(3, 1, InkBlack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := NewCanvas(target).DrawFrame(source, image.Point{}, Transform{}, covered); err != nil {
+		t.Fatal(err)
+	}
+	if got := inkAt(t, target, 0, 0); got != InkRed {
+		t.Errorf("(0,0) = %v, want the drawing to have been copied", got)
+	}
+	for x := 1; x < 3; x++ {
+		if got := inkAt(t, target, x, 0); got != InkBlack {
+			t.Errorf("(%d,0) = %v, want the target left as it was", x, got)
+		}
+	}
+
+	// Without the coverage the whole surface goes over, background and all.
+	plain, err := NewFrame(3, 1, InkBlack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := NewCanvas(plain).DrawFrame(source, image.Point{}, Transform{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := inkAt(t, plain, 2, 0); got != InkWhite {
+		t.Errorf("(2,0) = %v; a nil coverage should copy every pixel", got)
 	}
 }
