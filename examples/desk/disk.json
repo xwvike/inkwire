@@ -85,8 +85,19 @@
       "children": [
        {
         "node": {
-         "type": "row",
-         "crossAlign": "stretch",
+         "type": "grid",
+         "columns": [
+          "auto",
+          "1fr",
+          "auto"
+         ],
+         "rows": [
+          15,
+          15,
+          15,
+          15
+         ],
+         "rowGap": 3,
          "children": [
           {
            "node": {
@@ -100,8 +111,7 @@
              }
             ],
             "verticalAlign": "middle"
-           },
-           "basis": 50
+           }
           },
           {
            "node": {
@@ -143,8 +153,7 @@
               }
              }
             ]
-           },
-           "grow": 1
+           }
           },
           {
            "node": {
@@ -165,18 +174,8 @@
             ],
             "align": "end",
             "verticalAlign": "middle"
-           },
-           "basis": 70
-          }
-         ]
-        },
-        "basis": 15
-       },
-       {
-        "node": {
-         "type": "row",
-         "crossAlign": "stretch",
-         "children": [
+           }
+          },
           {
            "node": {
             "type": "text",
@@ -189,8 +188,7 @@
              }
             ],
             "verticalAlign": "middle"
-           },
-           "basis": 50
+           }
           },
           {
            "node": {
@@ -232,8 +230,7 @@
               }
              }
             ]
-           },
-           "grow": 1
+           }
           },
           {
            "node": {
@@ -254,18 +251,8 @@
             ],
             "align": "end",
             "verticalAlign": "middle"
-           },
-           "basis": 70
-          }
-         ]
-        },
-        "basis": 15
-       },
-       {
-        "node": {
-         "type": "row",
-         "crossAlign": "stretch",
-         "children": [
+           }
+          },
           {
            "node": {
             "type": "text",
@@ -278,8 +265,7 @@
              }
             ],
             "verticalAlign": "middle"
-           },
-           "basis": 50
+           }
           },
           {
            "node": {
@@ -321,8 +307,7 @@
               }
              }
             ]
-           },
-           "grow": 1
+           }
           },
           {
            "node": {
@@ -343,18 +328,8 @@
             ],
             "align": "end",
             "verticalAlign": "middle"
-           },
-           "basis": 70
-          }
-         ]
-        },
-        "basis": 15
-       },
-       {
-        "node": {
-         "type": "row",
-         "crossAlign": "stretch",
-         "children": [
+           }
+          },
           {
            "node": {
             "type": "text",
@@ -367,8 +342,7 @@
              }
             ],
             "verticalAlign": "middle"
-           },
-           "basis": 50
+           }
           },
           {
            "node": {
@@ -410,8 +384,7 @@
               }
              }
             ]
-           },
-           "grow": 1
+           }
           },
           {
            "node": {
@@ -432,12 +405,11 @@
             ],
             "align": "end",
             "verticalAlign": "middle"
-           },
-           "basis": 70
+           }
           }
-         ]
-        },
-        "basis": 15
+         ],
+         "columnGap": 5
+        }
        },
        {
         "node": {

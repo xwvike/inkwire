@@ -9,6 +9,14 @@
 // turned into polyline coordinates by whatever produced the file, which is the
 // dividing line worth keeping. Mapping values to pixels needs to know the axis,
 // the range and the padding; drawing a line does not.
+//
+// disk.json is the one that shows what a grid is for. It was four rows, each
+// holding a label, a bar and a figure, and four separate rows cannot agree on
+// how wide the label should be: the width was written into each of them as 50,
+// a number somebody arrived at by measuring the font. One grid with an
+// automatic column measures it once, across every row, and the number goes
+// away. The page changed slightly when it did, because 50 had been a pixel or
+// two too tight all along and /backup was touching its bar.
 package desk
 
 import (
