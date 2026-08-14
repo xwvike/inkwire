@@ -138,6 +138,9 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 		children := make([]compose.Placed, len(value.Children))
 		for index, child := range value.Children {
 			childPath := fmt.Sprintf("%s.children[%d]", path, index)
+			if err := rejectOwnSize(child.Node, childPath+".node", "bounds"); err != nil {
+				return nil, err
+			}
 			node, err := d.decodeNode(child.Node, childPath+".node")
 			if err != nil {
 				return nil, err
@@ -160,6 +163,11 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 			alignSelf, err := optionalCrossAlign(child.AlignSelf, childPath+".alignSelf")
 			if err != nil {
 				return nil, err
+			}
+			// ratio works out the cross size from the main one, so a stated
+			// cross size leaves it nothing to do.
+			if child.Ratio != 0 && child.Cross.length.IsSet() {
+				return nil, fmt.Errorf("%s: ratio works out the cross size and cross states it; give one or the other", childPath)
 			}
 			children[index] = compose.LayoutChild{
 				Node: node, Basis: child.Basis.length, Cross: child.Cross.length,
@@ -198,6 +206,12 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 		children := make([]compose.Anchor, len(value.Children))
 		for index, child := range value.Children {
 			childPath := fmt.Sprintf("%s.children[%d]", path, index)
+			if err := rejectOwnSize(child.Node, childPath+".node", "insets"); err != nil {
+				return nil, err
+			}
+			if err := child.overConstrained(childPath); err != nil {
+				return nil, err
+			}
 			node, err := d.decodeNode(child.Node, childPath+".node")
 			if err != nil {
 				return nil, err
@@ -604,6 +618,45 @@ func (d Decoder) decodeGrid(value gridJSON, path string) (compose.Node, error) {
 	}, nil
 }
 
+// rejectOwnSize refuses a node that states a size where its parent is going to
+// give it one.
+//
+// absolute and anchored do not measure their children; they hand each one a
+// rectangle. A size on such a child never reaches the drawing, and a field
+// that is read, accepted and then ignored is worse than one that is refused:
+// it is written in good faith and the page comes out wrong somewhere else.
+func rejectOwnSize(raw json.RawMessage, path, stated string) error {
+	var probe struct {
+		Size *sizeJSON `json:"size"`
+	}
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return nil // decodeNode is about to report this properly
+	}
+	if probe.Size == nil || (probe.Size.Width == 0 && probe.Size.Height == 0) {
+		return nil
+	}
+	return fmt.Errorf("%s.size: this node is placed by its parent's %s, which leaves nothing for a size to do; remove it", path, stated)
+}
+
+// overConstrained refuses an anchor that states both edges and a size on the
+// same axis, where one of the three has to be discarded to satisfy the others.
+func (a anchorJSON) overConstrained(path string) error {
+	axes := []struct {
+		start, end, size       compose.Length
+		startName, endName, of string
+	}{
+		{a.Left.length, a.Right.length, a.Width.length, "left", "right", "width"},
+		{a.Top.length, a.Bottom.length, a.Height.length, "top", "bottom", "height"},
+	}
+	for _, axis := range axes {
+		if axis.start.IsSet() && axis.end.IsSet() && axis.size.IsSet() {
+			return fmt.Errorf("%s: %s, %s and %s cannot all hold at once; drop one",
+				path, axis.startName, axis.endName, axis.of)
+		}
+	}
+	return nil
+}
+
 func optionalCrossAlign(value *string, path string) (*compose.CrossAlignment, error) {
 	if value == nil {
 		return nil, nil
@@ -759,30 +812,23 @@ func (l *lengthJSON) UnmarshalJSON(data []byte) error {
 // parseCalc reads the one expression a Length can hold: a share of the
 // container plus or minus a fixed number of pixels.
 //
-// CSS calc is a whole grammar and this is not it. A length here is a
-// percentage and a pixel count added together, so that is exactly what may be
-// written, and anything else is refused rather than approximated.
-//
-// The spaces around the sign are required, as they are in CSS, because without
-// them "calc(100%-10px)" could as easily be a percentage followed by a
-// negative number as a subtraction.
+// Spaces around the sign are optional. CSS insists on them because a term
+// there may be negative and "100%-10px" would be ambiguous; neither term here
+// may be, so the first sign after the opening term is always the operator and
+// there is nothing to be careful about.
 func parseCalc(body string) (compose.Length, error) {
-	fields := strings.Fields(body)
-	if len(fields) != 3 {
+	packed := strings.Join(strings.Fields(body), "")
+	at := strings.IndexAny(packed[1:], "+-") + 1
+	if at < 1 {
 		return compose.Length{}, fmt.Errorf(
-			"calc takes a percentage, a + or -, and a number of pixels, spaces and all")
+			"calc takes a percentage, a + or -, and a number of pixels")
 	}
-	sign := 0
-	switch fields[1] {
-	case "+":
-		sign = 1
-	case "-":
+	sign := 1
+	if packed[at] == '-' {
 		sign = -1
-	default:
-		return compose.Length{}, fmt.Errorf("%q is not + or -", fields[1])
 	}
 
-	percentText, pixelText := fields[0], fields[2]
+	percentText, pixelText := packed[:at], packed[at+1:]
 	// Either order reads naturally, and both mean the same sum.
 	if strings.HasSuffix(percentText, "px") {
 		percentText, pixelText = pixelText, percentText

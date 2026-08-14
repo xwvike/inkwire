@@ -127,7 +127,7 @@ curl \
 
 ### 写入的并发与超时
 
-一个蓝牙适配器同时只能进行一次会话，所以 `/v1/display` 是互斥的——**跨设备互斥，不只是同一个标签**。第二个请求不会排队，而是立刻返回 409 并附带当前占用者的状态：
+`/v1/display` 是互斥的——**跨设备互斥，不只是同一个标签**。第二个请求不排队，立刻返回 409 并带上当前占用者的状态：
 
 ```json
 {
@@ -388,27 +388,29 @@ curl \
 
 所有节点都需要 `type`。
 
-可选的 `size: {width, height}` 是**首选尺寸**：容器测量子节点时，写了 `size` 就用它，没写就用节点自己量出来的尺寸。`row`、`column`、`grid`、`stack`、`padding` 以及各种裁剪节点都属于这一类。
+`size: {width, height}` 给节点定尺寸，在 `row`、`column`、`grid`、`stack`、`padding` 和裁剪节点里有效；不写就按内容自动测量。
 
-`absolute` 和 `anchored` 不测量子节点——框由 `bounds` 或四边距离直接给定。**此时子节点上的 `size` 完全不起作用**，不是"可以省略"：`bounds` 是 40x20 的格子里放一个 `size` 写 10x10 的矩形，画出来仍然是 40x20。
+`absolute` 的子节点用 `bounds` 定尺寸，`anchored` 的子节点用四边距离定尺寸。在这两者里给子节点写 `size` 会报错。
 
 ### 长度
 
-表格里标注为 length 的字段接受三种写法：
-
-```json
-{"basis": 64, "cross": "25%", "maxMain": "calc(100% - 12px)"}
-```
+表格里标注为 length 的字段有三种写法：
 
 | 写法 | 含义 |
 |---|---|
 | `64` | 像素 |
 | `"25%"` | 容器对应轴尺寸的百分比 |
-| `"calc(100% - 12px)"` | 百分比加减一个固定像素数 |
+| `"calc(100% - 12px)"` | 百分比加减一个固定像素数，空格可有可无 |
 
-百分比要等容器算出尺寸才有值，所以它**不参与**"这个节点想要多大"的测量——一个只写了百分比的节点，在测量阶段等于没写。grid 的 `fr` 同理。
+```json
+{"basis": 64, "cross": "25%", "maxMain": "calc(100% - 12px)"}
+```
 
-`calc` 只支持"一个百分比 ± 一个像素数"这一种表达式，因为 length 内部就是这两个数相加，再多的语法会变成一个看起来像 CSS 但不是 CSS 的方言。加减号**两边必须有空格**，和 CSS 的理由一样：`calc(100%-10px)` 既能读成减法，也能读成百分比后面跟一个负数。`"30px - 50%"` 这种固定值减去容器份额存不下，会直接报错而不是硬凑。
+`calc` 只有"百分比 ± 像素数"一种形式，两项都不能省。
+
+`0` 是一个长度，字段省略才是自动。在 `anchored` 上 `"right": 0` 贴右边缘，不写 `right` 则不约束右边。
+
+想让一个节点参与"内容有多大"的测量，给它写像素值。百分比和 `fr` 要等容器尺寸出来才有值，在测量阶段不计入。
 
 
 ## 布局节点
@@ -478,6 +480,7 @@ curl \
 
 ### grid
 
+多行要对齐同一列时用 `grid`。`auto` 轨道会跨所有行量一次，不用手写列宽。
 
 ```json
 {
@@ -518,6 +521,7 @@ curl \
 
 ### anchored
 
+按到各边的距离摆放子节点，可以叠放。距离用百分比或要等容器排完才算得出的，用 `anchored`；坐标写文档时就确定的，用 `absolute`。
 
 ```json
 {
@@ -539,6 +543,8 @@ curl \
 | `children[].layer` | integer | 数值大的后画，压在上面；相同则按文档顺序 | `0` |
 | `children[].node` | node | 子节点 | 必填 |
 
+同一轴上给了两侧距离就不要再给尺寸（`left` + `right` + `width`），三者同时出现会报错。被 `anchored` 摆放的子节点不影响容器的测量尺寸。
+
 
 ### transformed
 
@@ -557,6 +563,8 @@ curl \
 | `scale` | integer | 放大倍数，不得为负 | `1` |
 | `turns` | integer | 顺时针转过的四分之一圈数 | `0` |
 | `child` | node | 子节点 | 必填 |
+
+子节点拿到的是变换前的框：`scale` 为 2 时它只有一半的地方，画出来是原尺寸。放大倍数和圈数都只能取整数。
 
 
 ### stack / padding / spacer
@@ -833,7 +841,22 @@ Data URL 写法：
 
 ## 裁剪节点
 
-矩形裁剪：
+四个节点都需要一个 `child`，都可以写可选的 `size`。
+
+| 节点 | 裁成 | 用字段 |
+|---|---|---|
+| `clip` | 排版分给它的那个框 | 无 |
+| `clipRect` | 指定矩形 | `rect` |
+| `clipShape` | 圆角矩形、圆、椭圆、多边形 | `shape` |
+| `clipPath` | 任意路径 | `path` |
+
+裁到排版分给它的框，尺寸不用自己算：
+
+```json
+{"type": "clip", "child": {"type": "text", "runs": [{"text": "很长的一行"}]}}
+```
+
+裁到指定矩形：
 
 ```json
 {
@@ -843,7 +866,26 @@ Data URL 写法：
 }
 ```
 
-路径裁剪：
+按形状裁剪。形状用 length 描述，可以写百分比：
+
+```json
+{
+  "type": "clipShape",
+  "shape": {"kind": "circle", "radius": "50%"},
+  "child": {"type": "image", "source": "portrait.png", "processing": "auto"}
+}
+```
+
+| `kind` | 用到的字段 |
+|---|---|
+| `inset` | `insets`（四个 length，上右下左）、可选 `corner` 圆角 |
+| `circle` | `radius`、可选 `center` |
+| `ellipse` | `radiusX`、`radiusY`、可选 `center` |
+| `polygon` | `points`（至少三个 `{x, y}`，每个分量都是 length） |
+
+`center` 只能写在 `circle` 和 `ellipse` 上。
+
+裁到任意路径：
 
 ```json
 {
@@ -862,31 +904,6 @@ Data URL 写法：
   }
 }
 ```
-
-
-```json
-{"type": "clip", "child": {"type": "text", "runs": [{"text": "很长的一行"}]}}
-```
-
-
-```json
-{
-  "type": "clipShape",
-  "shape": {"kind": "circle", "radius": "50%"},
-  "child": {"type": "image", "source": "portrait.png", "processing": "auto"}
-}
-```
-
-| `kind` | 用到的字段 |
-|---|---|
-| `inset` | `insets`（四个 length，上右下左）、可选 `corner` 圆角 |
-| `circle` | `radius`、可选 `center` |
-| `ellipse` | `radiusX`、`radiusY`、可选 `center` |
-| `polygon` | `points`（至少三个 `{x, y}`，每个分量都是 length） |
-
-`center` 只有 `circle` 和 `ellipse` 有；写在别的形状上会报错，而不是被默默忽略。
-
-`clipRect` 使用 `rect`，`clipPath` 使用 `path`，`clip` 两者都不需要，`clipShape` 使用 `shape`；四者都需要一个 `child`，也都可以设置可选的 `size`。
 
 ## 示例
 

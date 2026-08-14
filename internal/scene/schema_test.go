@@ -349,27 +349,34 @@ func TestSchemaRejectsWhatItCannotHonour(t *testing.T) {
 // calc is the one length that is neither a share of the container nor a fixed
 // number of pixels but both, and compose has held it since the length model
 // was written. Nothing could ask for it until now.
+//
+// The spaces are optional, and both spellings have to mean the same thing or
+// one of them is a trap.
 func TestCalcSubtractsPixelsFromAShare(t *testing.T) {
-	result := renderScene(t, `{
-		"version": 1, "background": "white",
-		"root": {
-			"type": "absolute",
-			"children": [{
-				"bounds": {"x": 0, "y": 0, "width": 100, "height": 10},
-				"node": {
-					"type": "row",
-					"crossAlign": "start",
-					"children": [
-						{"basis": "calc(100% - 10px)", "cross": 10,
-						 "node": {"type": "rectangle", "fill": "black"}}
-					]
+	for _, spelling := range []string{"calc(100% - 10px)", "calc(100%-10px)"} {
+		t.Run(spelling, func(t *testing.T) {
+			result := renderScene(t, `{
+				"version": 1, "background": "white",
+				"root": {
+					"type": "absolute",
+					"children": [{
+						"bounds": {"x": 0, "y": 0, "width": 100, "height": 10},
+						"node": {
+							"type": "row",
+							"crossAlign": "start",
+							"children": [
+								{"basis": "`+spelling+`", "cross": 10,
+								 "node": {"type": "rectangle", "fill": "black"}}
+							]
+						}
+					}]
 				}
-			}]
-		}
-	}`)
+			}`)
 
-	assertInk(t, result, 89, 5, display.InkBlack, "all of a hundred but ten is ninety")
-	assertInk(t, result, 90, 5, display.InkWhite, "and not a pixel more")
+			assertInk(t, result, 89, 5, display.InkBlack, "all of a hundred but ten is ninety")
+			assertInk(t, result, 90, 5, display.InkWhite, "and not a pixel more")
+		})
+	}
 }
 
 func TestCalcAddsPixelsToAShareEitherWayRound(t *testing.T) {
@@ -430,8 +437,7 @@ func TestCalcRefusesWhatALengthCannotHold(t *testing.T) {
 		basis string
 		want  string
 	}{
-		{"no spaces around the sign", `"calc(100%-10px)"`, "spaces and all"},
-		{"a sign that is not one", `"calc(100% * 2px)"`, "not + or -"},
+		{"a sign that is not one", `"calc(100% * 2px)"`, "a + or -"},
 		{"two percentages", `"calc(50% + 20%)"`, "not a number of pixels"},
 		{"pixels first and subtracted", `"calc(30px - 50%)"`, "not a length here"},
 		{"an unclosed bracket", `"calc(100% - 10px"`, "closing bracket"},
@@ -449,5 +455,79 @@ func TestCalcRefusesWhatALengthCannotHold(t *testing.T) {
 				t.Errorf("error = %q, want it to mention %q", err, test.want)
 			}
 		})
+	}
+}
+
+// A field that is read, accepted and then ignored is the worst kind, because
+// it was written in good faith and the page comes out wrong somewhere else.
+// These three used to be exactly that.
+func TestSchemaRefusesFieldsItWouldOtherwiseIgnore(t *testing.T) {
+	tests := []struct {
+		name string
+		root string
+		want string
+	}{
+		{
+			"a size where absolute gives the bounds",
+			`{"type":"absolute","children":[{"bounds":{"x":0,"y":0,"width":40,"height":20},
+			  "node":{"type":"rectangle","size":{"width":10,"height":10},"fill":"black"}}]}`,
+			"leaves nothing for a size to do",
+		},
+		{
+			"a size where anchored gives the insets",
+			`{"type":"anchored","children":[{"left":0,"top":0,"width":40,"height":20,
+			  "node":{"type":"rectangle","size":{"width":10,"height":10},"fill":"black"}}]}`,
+			"leaves nothing for a size to do",
+		},
+		{
+			"a ratio beside the cross size it would have worked out",
+			`{"type":"row","children":[{"basis":20,"cross":10,"ratio":2,
+			  "node":{"type":"rectangle"}}]}`,
+			"give one or the other",
+		},
+		{
+			"both horizontal edges and a width",
+			`{"type":"anchored","children":[{"left":4,"right":4,"width":20,
+			  "node":{"type":"rectangle"}}]}`,
+			"cannot all hold at once",
+		},
+		{
+			"both vertical edges and a height",
+			`{"type":"anchored","children":[{"top":4,"bottom":4,"height":20,
+			  "node":{"type":"rectangle"}}]}`,
+			"cannot all hold at once",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := (Decoder{}).Decode(strings.NewReader(`{"version":1,"root":` + test.root + `}`))
+			if err == nil {
+				t.Fatal("decoded without complaint")
+			}
+			if !strings.Contains(err.Error(), test.want) {
+				t.Errorf("error = %q, want it to mention %q", err, test.want)
+			}
+		})
+	}
+}
+
+// The point is to refuse only what would have been ignored. Each of these
+// states one of the three and has to keep working.
+func TestSchemaStillAcceptsEachOfThoseAlone(t *testing.T) {
+	documents := []string{
+		`{"type":"absolute","children":[{"bounds":{"x":0,"y":0,"width":40,"height":20},
+		  "node":{"type":"rectangle","fill":"black"}}]}`,
+		`{"type":"anchored","children":[{"left":0,"top":0,"width":40,"height":20,
+		  "node":{"type":"rectangle","fill":"black"}}]}`,
+		`{"type":"row","children":[{"basis":20,"ratio":2,"node":{"type":"rectangle"}}]}`,
+		`{"type":"row","children":[{"basis":20,"cross":10,"node":{"type":"rectangle"}}]}`,
+		`{"type":"anchored","children":[{"left":4,"right":4,"node":{"type":"rectangle"}}]}`,
+		`{"type":"anchored","children":[{"left":4,"width":20,"node":{"type":"rectangle"}}]}`,
+		`{"type":"row","children":[{"node":{"type":"rectangle","size":{"width":10,"height":10}}}]}`,
+	}
+	for _, document := range documents {
+		if _, err := (Decoder{}).Decode(strings.NewReader(`{"version":1,"root":` + document + `}`)); err != nil {
+			t.Errorf("refused a document it should accept: %v\n%s", err, document)
+		}
 	}
 }
