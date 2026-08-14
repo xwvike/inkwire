@@ -21,6 +21,7 @@ import (
 
 	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/gicisky"
+	"github.com/xwvike/inkwire/internal/nrfepd"
 	"tinygo.org/x/bluetooth"
 )
 
@@ -638,5 +639,183 @@ func TestScanFailureIsReportedWithACode(t *testing.T) {
 	handler.mu.Unlock()
 	if active != "" {
 		t.Errorf("the adapter is still held by %q after a failed scan", active)
+	}
+}
+
+// An EPD-nRF5 page cannot be encoded before the write starts, because the
+// panel has not said what it is yet. So this route hands over a page rather
+// than a payload, and the size check happens at the one moment both the page
+// and the panel are known.
+func TestDisplayBuildsAnNRFEPDPageForThePanelItFinds(t *testing.T) {
+	var gotTarget string
+	var black, colour []byte
+	handler := New(Config{Logf: func(string, ...any) {},
+		Push: func(context.Context, string, []byte) error {
+			t.Error("the Gicisky driver was used for an EPD-nRF5 target")
+			return nil
+		},
+		PushPage: func(_ context.Context, target string, page nrfepd.PageFor) error {
+			gotTarget = target
+			model, _ := nrfepd.LookupModelName("UC8176_420_BWR")
+			var err error
+			black, colour, err = page(model)
+			return err
+		}})
+
+	scene := `{"version":1,"size":{"width":400,"height":300},"root":{"type":"absolute","children":[]}}`
+	response := request(t, handler, "/v1/display?device=NRF_EPD_C1F8", scene)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	if gotTarget != "NRF_EPD_C1F8" {
+		t.Errorf("target = %q", gotTarget)
+	}
+	// Two planes of a 400x300 panel, fifty bytes to a row.
+	if len(black) != 50*300 || len(colour) != 50*300 {
+		t.Errorf("planes are %d and %d bytes, want %d each", len(black), len(colour), 50*300)
+	}
+	var body struct {
+		Family string `json:"family"`
+		Bytes  int    `json:"bytes"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Family != familyNRFEPD || body.Bytes != 2*50*300 {
+		t.Errorf("body reports family %q and %d bytes", body.Family, body.Bytes)
+	}
+}
+
+// A page of the wrong shape is the failure this family invites, and the server
+// is where a caller finds out rather than the panel.
+func TestDisplayRefusesAnNRFEPDPageOfTheWrongSize(t *testing.T) {
+	handler := New(Config{Logf: func(string, ...any) {},
+		PushPage: func(_ context.Context, _ string, page nrfepd.PageFor) error {
+			model, _ := nrfepd.LookupModelName("UC8176_420_BWR")
+			_, _, err := page(model)
+			return err
+		}})
+	response := request(t, handler, "/v1/display?device=NRF_EPD_C1F8", testScene)
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusBadGateway, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "400x300") {
+		t.Errorf("the error does not name the panel's size: %s", response.Body.String())
+	}
+}
+
+// An address says nothing about which family it belongs to, so reaching this
+// family by address means saying so. Getting it wrong is not a polite failure.
+func TestDisplayChoosesTheFamilyFromTheNameOrTheQuery(t *testing.T) {
+	tests := []struct {
+		query       string
+		wantGicisky bool
+	}{
+		{"?device=NRF_EPD_C1F8", false},
+		{"?device=PICKSMART", true},
+		{"?device=FF:FF:92:94:38:61", true},
+		{"?device=FF:FF:92:94:38:61&family=nrfepd", false},
+		{"?device=NRF_EPD_C1F8&family=gicisky", true},
+	}
+	for _, test := range tests {
+		gicisky, nrf := false, false
+		handler := New(Config{Logf: func(string, ...any) {},
+			Push:     func(context.Context, string, []byte) error { gicisky = true; return nil },
+			PushPage: func(context.Context, string, nrfepd.PageFor) error { nrf = true; return nil }})
+		// A 296x128 scene so the Gicisky route can encode it.
+		request(t, handler, "/v1/display"+test.query, testScene)
+		if gicisky != test.wantGicisky || nrf == test.wantGicisky {
+			t.Errorf("%s used gicisky=%v nrfepd=%v", test.query, gicisky, nrf)
+		}
+	}
+}
+
+func TestDisplayRefusesAnUnknownFamily(t *testing.T) {
+	handler := New(Config{Logf: func(string, ...any) {}})
+	response := request(t, handler, "/v1/display?family=nrf", testScene)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
+	}
+}
+
+// Both families come back from one listing, and the one that cannot say what
+// panel it has says that rather than looking like a tag that failed to be
+// recognised.
+func TestDevicesListsBothFamilies(t *testing.T) {
+	handler := New(Config{Logf: func(string, ...any) {},
+		Scan: func(context.Context) ([]gicisky.FoundDevice, error) {
+			return []gicisky.FoundDevice{{Name: "NEMR92943861", RSSI: -50}}, nil
+		},
+		ScanNRFEPD: func(context.Context) ([]nrfepd.FoundDevice, error) {
+			return []nrfepd.FoundDevice{{Name: "NRF_EPD_C1F8", RSSI: -59}}, nil
+		}})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/devices", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Devices []Device `json:"devices"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Devices) != 2 {
+		t.Fatalf("listed %d devices, want one of each family", len(body.Devices))
+	}
+	byFamily := map[string]Device{}
+	for _, device := range body.Devices {
+		byFamily[device.Family] = device
+	}
+	if _, ok := byFamily[familyGicisky]; !ok {
+		t.Error("no gicisky tag in the listing")
+	}
+	other, ok := byFamily[familyNRFEPD]
+	if !ok {
+		t.Fatal("no nrfepd tag in the listing")
+	}
+	if other.Model != "" || other.Width != 0 {
+		t.Errorf("an nrfepd tag reported a panel it cannot know: %+v", other)
+	}
+	if !other.Drivable {
+		t.Error("an nrfepd tag was reported as not drivable; it is written by asking it what it is")
+	}
+}
+
+// Supplying any transport hook means this handler has no radio. The families
+// left unstubbed must then do nothing, because the alternative is a test that
+// quietly scans the room for fifteen seconds per request.
+func TestAStubbedHandlerNeverReachesForTheRadio(t *testing.T) {
+	handler := New(Config{Logf: func(string, ...any) {},
+		Scan: func(context.Context) ([]gicisky.FoundDevice, error) {
+			return []gicisky.FoundDevice{{Name: "NEMR92943861"}}, nil
+		}})
+	start := time.Now()
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/devices", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("the listing took %s, which means it went to the radio", elapsed)
+	}
+	var body struct {
+		Devices []Device `json:"devices"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Devices) != 1 || body.Devices[0].Family != familyGicisky {
+		t.Errorf("listing = %+v, want only the stubbed family", body.Devices)
+	}
+
+	// And the write path says so outright rather than reaching for a radio it
+	// was told it does not have.
+	write := request(t, handler, "/v1/display?device=NRF_EPD_C1F8", testScene)
+	if write.Code != http.StatusBadGateway {
+		t.Fatalf("write status = %d, want %d: %s", write.Code, http.StatusBadGateway, write.Body.String())
+	}
+	if !strings.Contains(write.Body.String(), "PushPage") {
+		t.Errorf("the error does not name the missing hook: %s", write.Body.String())
 	}
 }

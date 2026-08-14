@@ -2,15 +2,7 @@
 
 使用 Scene Schema 驱动的电子纸标签
 
-支持两个互不相干的标签家族。它们的服务、命令、像素打包方式全都不同，只共用同一套 Scene Schema 和同一个渲染器——**一页写一次，两种标签都能收**。
-
-| | Gicisky | EPD-nRF5 |
-|---|---|---|
-| 是什么 | 出厂固件 | 刷进 nRF51/nRF52 的[替换固件](https://github.com/tsl0922/EPD-nRF5) |
-| 广播名称 | `PICKSMART`、`NEMR<MAC后八位>` | `NRF_EPD_<MAC后四位>` |
-| 型号来自 | 广播里的厂商数据，不连也能读 | **连上去问**，广播里没有 |
-| 尺寸 | 296x128 | 400x300 到 880x528，见下表 |
-| 颜色 | 黑白红 | 黑白 / 黑白红（黑白红黄暂不支持） |
+支持 Gicisky、EPD-nRF5 两个标签家族。
 
 ## 命令行
 
@@ -35,8 +27,6 @@
 
 `push` 按 `-family` 选择驱动，默认 `auto`：广播名以 `NRF_EPD` 开头走 EPD-nRF5，否则走 Gicisky。**BLE 地址不携带家族信息**，所以按地址寻址一台 EPD-nRF5 标签时必须显式写 `-family nrfepd`。
 
-一次扫描能同时看到两个家族：
-
 ```
 $ ./inkwire scan
 ADDRESS                                NAME           RSSI  BATT  FAMILY   MODEL           SIZE      PALETTE
@@ -44,7 +34,8 @@ e2ada7d1-187a-caea-21e4-d895f8240b62   NEMR92943861    -50  3.0V  gicisky  EPD 2
 eb6738a8-0b03-fbc0-b572-fe6dbe2517fb   NRF_EPD_C1F8    -59     -  nrfepd   ask on connect            not advertised
 ```
 
-一个无线电同时只能跑一次扫描，所以两个家族是依次扫的，`-timeout` 是**每个家族各自的额度**。
+两个家族依次扫描，`-timeout` 是各自的额度：写 `15s` 实际最多等 30 秒。
+
 
 ## Gicisky
 
@@ -93,9 +84,7 @@ byte   0       1        2   3        4
 ./inkwire push -device NRF_EPD_C1F8 examples/fridge/page.json
 ```
 
-`-family` 默认 `auto`：广播名以 `NRF_EPD` 开头就走这个家族，否则走 Gicisky。**BLE 地址不携带家族信息**，所以按地址寻址时必须显式写 `-family nrfepd`。
-
-### 型号由设备决定，不由你决定
+### 型号由设备决定
 
 这是和 Gicisky 最要紧的差别。Gicisky 标签在广播里就说明自己是什么屏；**这个家族不说**——型号存在固件自己的 flash 里，只有连上去发 `INIT` 才问得出来。
 
@@ -124,28 +113,17 @@ the page is 296x128 and the panel is UC8176_420_BWR 400x300 BWR; render it at th
 | `0x08` `0x09` `0x0e` `0x0f` | UC8159 系列 | 640x384 / 600x448 | BW / BWR | 半字节，**未实现** |
 | `0x05` `0x0c` `0x0d` | JD796xx 系列 | 400x300 / 800x480 / 648x480 | BWRY | **未实现** |
 
-**只有加粗的 `0x03` 经过实机验证**，其余按上游固件源码采信，在日志里标注 `unverified`：
+**`0x03` 经过实机验证**，其余按上游固件源码采信，在日志里标注 `unverified`：
 
 ```
 panel is UC8179_750_BWR 800x480 BWR (unverified), link carries 244 bytes and can decompress
 ```
 
-未实现的两类是明确拒绝而不是假装支持。UC8159 用的是两像素一字节的半字节流，和双平面产出的字节数都不一样；BWRY 需要给 `Ink` 加第四色，会牵动抖动、图像自动处理和 Scene Schema 的 `ink` 枚举。
+未实现的两类会明确拒绝。UC8159 用的是两像素一字节的半字节流，和双平面产出的字节数都不一样；BWRY 需要给 `Ink` 加第四色，会牵动抖动、图像自动处理和 Scene Schema 的 `ink` 枚举。
 
-### 刷新期间必须保持连接
+### 刷新期间须保持连接
 
-这条不注意就会遇到一个很难查的现象：**每一帧都写成功、日志一切正常、屏幕纹丝不动。**
-
-原因是两件事叠加。固件的刷新是阻塞的，三色屏满刷要几十秒；而 BLE 协议栈会**先自动回 ACK、再把写事件交给应用**，所以 `REFRESH` 的响应到达时固件还没开始刷。与此同时，固件的断连处理第一件事就是让面板睡眠：
-
-```c
-static void on_disconnect(...) {
-    p_epd->epd->drv->sleep(p_epd->epd);
-    ...
-}
-```
-
-**这时候断连不是走得早，是把刚下的刷新撤销了。**
+刷新未完成就断开连接，标签会立刻休眠，这一页就白推了——**每一帧都写成功、日志一切正常、屏幕纹丝不动**。
 
 所以发完 `REFRESH` 后会保持连接，默认 30 秒，期间可以 Ctrl-C 打断：
 
@@ -154,31 +132,25 @@ sending 40 frames compressed
 staying connected 30s while the panel refreshes; disconnecting now would cancel it
 ```
 
-大屏或黑白红面板更慢时用 `-settle 60s`。这段等待是纯粹的等待而非握手——固件在刷新完成时不发任何通知。
+大屏或黑白红面板更慢，刷不完就用 `-settle 60s`。
 
-### 标签自己会画：时钟与日历
+### 标签内置时钟与日历
 
-这个家族的标签有自己的处理器和 RTC，固件里带着一套 GUI（含农历），能不接任何指令自行重绘：
+EPD-nRF5 有自己的处理器和 RTC，固件里带着一套 GUI（含农历），能不接任何指令自行重绘：
 
 | 模式 | 行为 |
 |---|---|
-| `picture` | 显示最后收到的那一页，自己不动 |
-| `calendar` | 自己画日历，每天 `00:00:00` 重绘 |
-| `clock` | 自己画时钟，每分钟重绘 |
+| `picture` | 显示最后收到的那一页 |
+| `calendar` | 日历，每天 `00:00:00` 重绘 |
+| `clock` | 时钟，每分钟重绘 |
 
-**注意：每一次 `push` 都会把标签切回 `picture`。** 固件在 `EPD_CMD_REFRESH` 里就做了这件事，而每页的最后一条命令正是它。所以一个正在走时的标签，被推送一次之后就停了。
-
-`mode` 是回去的路：
+**每次 `push` 都会把标签切回 `picture`**，正在走时的标签推送一次就停了。`mode` 是回去的路，并顺带把标签的时钟对到本机当前时间：
 
 ```bash
 ./inkwire mode -device NRF_EPD_C1F8 -mode clock
 ```
 
-它会顺带把标签的时钟对到本机当前时间。`-week-start sunday|monday` 可选，不写就不动标签已有的设置。
-
-时区上有个实现细节值得记一笔：协议里的时区字段是 **int8、整小时**，而固件只是把它加进时间戳就丢掉。所以这里直接送"本地墙上时间当作时间戳"、时区字段送 0——同样的算术，但**印度（+5:30）和尼泊尔（+5:45）这种时区也能对准**，而整小时字段永远会让它们差半小时。
-
-这套 GUI 是**固件画的，不是 inkwire 画的**。这里只负责切模式和对时，没有预览，也不该有——渲染那一侧的东西一律走 Scene Schema。
+`-week-start sunday|monday` 可选，不写则不改动标签已有的设置。
 
 
 ## HTTP
@@ -194,11 +166,15 @@ staying connected 30s while the panel refreshes; disconnecting now would cancel 
 | 请求 | 返回值 |
 |---|---|
 | `POST /v1/render` | PNG，`Content-Type: image/png` |
-| `POST /v1/encode` | 9472 字节设备 payload，`Content-Type: application/octet-stream` |
+| `POST /v1/encode` | 9472 字节设备 payload，`Content-Type: application/octet-stream`；**仅 Gicisky** |
 | `POST /v1/display` | 写入设备后的 JSON 结果 |
-| `GET /v1/devices` | 扫描并列出附近所有标签及其型号信息 |
+| `GET /v1/devices` | 扫描并列出附近所有标签，每条带 `family` |
 
 `-listen` 只接受回环地址。
+
+`/v1/display` 用 `?family=auto|gicisky|nrfepd` 选驱动，规则和命令行一致：默认 `auto`，按 `?device=` 的广播名判断，**按地址寻址 EPD-nRF5 标签时必须显式写 `family=nrfepd`**。EPD-nRF5 的超时预算是 150 秒（Gicisky 是 45 秒），因为刷新期间必须保持连接。
+
+`/v1/encode` 只支持 Gicisky。EPD-nRF5 不连上去就不知道是什么屏，也就无法离线编码——请改用 `/v1/display`。
 
 发送纯 JSON：
 
@@ -530,17 +506,17 @@ curl \
 {"basis": 64, "cross": "25%", "maxMain": "calc(100% - 12px)"}
 ```
 
-`calc` 只有"百分比 ± 像素数"一种形式，两项都不能省。
+`calc` 只有“百分比 ± 像素数”一种形式，两项都不能省。
 
-`0` 是一个长度，字段省略才是自动。在 `anchored` 上 `"right": 0` 贴右边缘，不写 `right` 则不约束右边。
+`0` 是一个长度，字段省略才是自动：`anchored` 上 `"right": 0` 贴右边缘，不写 `right` 则不约束右边。
 
-**表示距离的字段可以写负数**，用来让内容出血到容器外面：`anchored` 的 `top` / `right` / `bottom` / `left`、`clipShape` 里 `inset` 的四个值、`circle` 和 `ellipse` 的 `center`、`polygon` 的 `points`。三种写法都支持负号：
+**表示距离的字段支持负数**，用来让内容出血到容器外面：`anchored` 的 `top` / `right` / `bottom` / `left`、`clipShape` 里 `inset` 的四个值、`circle` 和 `ellipse` 的 `center`、`polygon` 的 `points`。
 
 ```json
 {"left": -6, "right": "-10%", "top": "calc(0% - 6px)"}
 ```
 
-表示尺寸的字段不能为负，写了会报错——`basis`、`cross`、`width`、`height`、`minMain` 一族、grid 轨道、`radius`、`corner` 都属于这一类。
+表示尺寸的字段不能为负，`basis`、`cross`、`width`、`height`、`minMain` 一族、grid 轨道、`radius`、`corner` 都属于这一类。
 
 想让一个节点参与"内容有多大"的测量，给它写像素值。百分比和 `fr` 要等容器尺寸出来才有值，在测量阶段不计入。
 
