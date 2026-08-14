@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"image"
 	"slices"
+	"strconv"
+	"strings"
 )
 
 type HorizontalAlign uint8
@@ -73,6 +75,9 @@ type TextLayout struct {
 	width   int
 	height  int
 	missing []rune
+	// missingIn names the families that were asked for a glyph they do not
+	// have, so a warning can say which font to stop using.
+	missingIn []string
 }
 
 func LayoutText(registry *FontRegistry, box TextBox) (*TextLayout, error) {
@@ -124,6 +129,9 @@ func LayoutText(registry *FontRegistry, box TextBox) (*TextLayout, error) {
 			placement.metrics = metrics
 			placement.missing = true
 			layout.missing = append(layout.missing, r)
+			if !slices.Contains(layout.missingIn, style.Font) {
+				layout.missingIn = append(layout.missingIn, style.Font)
+			}
 		}
 		lastMetrics = placement.metrics
 		if box.Wrap == WrapRunes && lineHasContent && current.width+placement.glyph.Advance > box.Bounds.Dx() {
@@ -150,8 +158,11 @@ func LayoutText(registry *FontRegistry, box TextBox) (*TextLayout, error) {
 		}
 		set, ok := registry.Match(style.Font, style.Size)
 		if !ok {
-			if style.Size > 0 {
-				return nil, fmt.Errorf("font %q has no native %dpx strike", style.Font, style.Size)
+			// A size is one of a list rather than a number in a range, so the
+			// list is the answer to the question being asked here.
+			if sizes := registry.Sizes(style.Font); len(sizes) != 0 {
+				return nil, fmt.Errorf("font %q has no %dpx strike; it has %s",
+					style.Font, style.Size, joinSizes(sizes))
 			}
 			return nil, fmt.Errorf("unknown font %q", style.Font)
 		}
@@ -183,6 +194,14 @@ func (l *TextLayout) LineCount() int {
 
 func (l *TextLayout) MissingRunes() []rune {
 	return slices.Clone(l.missing)
+}
+
+// MissingFonts names the families that were asked for a glyph they do not
+// have. Wanting a character a font does not carry is nearly always a matter of
+// having reached for the wrong font, so the name of that font is half the
+// answer.
+func (l *TextLayout) MissingFonts() []string {
+	return slices.Clone(l.missingIn)
 }
 
 // Clipped reports whether drawing will actually lose content, which is not the
@@ -282,4 +301,14 @@ func drawMissingGlyph(canvas *Canvas, rect image.Rectangle, ink Ink) {
 	canvas.StrokeRect(inset, stroke)
 	canvas.DrawLine(inset.Min.Add(image.Pt(1, 1)), inset.Max.Sub(image.Pt(2, 2)), stroke)
 	canvas.DrawLine(image.Pt(inset.Max.X-2, inset.Min.Y+1), image.Pt(inset.Min.X+1, inset.Max.Y-2), stroke)
+}
+
+// joinSizes lists the strikes a family has, for an error that would otherwise
+// leave the reader to go and look them up.
+func joinSizes(sizes []int) string {
+	parts := make([]string, len(sizes))
+	for index, size := range sizes {
+		parts[index] = strconv.Itoa(size)
+	}
+	return strings.Join(parts, ", ")
 }

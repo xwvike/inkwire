@@ -5,6 +5,8 @@ import (
 	"image"
 	"reflect"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/xwvike/inkwire/internal/display"
 )
@@ -161,7 +163,7 @@ type compileContext struct {
 	seenRune map[rune]bool
 }
 
-func (c *compileContext) addMissing(path string, runes []rune) {
+func (c *compileContext) addMissing(path string, runes []rune, tried []string) {
 	if len(runes) == 0 {
 		return
 	}
@@ -182,7 +184,44 @@ func (c *compileContext) addMissing(path string, runes []rune) {
 		}
 	}
 	if len(missing) != 0 {
-		c.warn(path, "missing-runes", fmt.Sprintf("font registry has no glyphs for %q", string(missing)))
+		c.warn(path, "missing-runes", c.missingMessage(tried, missing))
+	}
+}
+
+// missingMessage says which font came up short and, where there is one, which
+// font to reach for instead.
+//
+// A character a font does not carry is nearly always the wrong font rather
+// than a character nothing can draw: monaco is ASCII, so a weekday written in
+// it goes missing while ui and hzk both have it. Naming the families that do
+// have the characters turns the warning into the fix.
+func (c *compileContext) missingMessage(tried []string, missing []rune) string {
+	asked := "the font"
+	if len(tried) != 0 {
+		asked = "font " + quoteList(tried)
+	}
+	if able := c.compiler.Fonts.FamiliesWith(missing); len(able) != 0 {
+		verb := "does"
+		if len(able) > 1 {
+			verb = "do"
+		}
+		return fmt.Sprintf("%s has no glyphs for %q; %s %s", asked, string(missing), quoteList(able), verb)
+	}
+	return fmt.Sprintf("%s has no glyphs for %q, and no bundled font does", asked, string(missing))
+}
+
+func quoteList(names []string) string {
+	quoted := make([]string, len(names))
+	for index, name := range names {
+		quoted[index] = strconv.Quote(name)
+	}
+	switch len(quoted) {
+	case 1:
+		return quoted[0]
+	case 2:
+		return quoted[0] + " and " + quoted[1]
+	default:
+		return strings.Join(quoted[:len(quoted)-1], ", ") + " and " + quoted[len(quoted)-1]
 	}
 }
 

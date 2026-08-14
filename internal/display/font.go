@@ -345,3 +345,47 @@ func (r *FontRegistry) Names() []string {
 	slices.Sort(names)
 	return names
 }
+
+// Families lists the font families the registry knows.
+func (r *FontRegistry) Families() []string {
+	seen := make(map[string]bool)
+	var names []string
+	for key := range r.families {
+		if !seen[key.family] {
+			seen[key.family] = true
+			names = append(names, key.family)
+		}
+	}
+	slices.Sort(names)
+	return names
+}
+
+// FamiliesWith lists the families that can draw every one of these runes.
+//
+// Coverage is a property of the family rather than the strike — the larger
+// sizes are the native ones magnified — so the smallest size stands in for all
+// of them.
+func (r *FontRegistry) FamiliesWith(runes []rune) []string {
+	var able []string
+	for _, family := range r.Families() {
+		sizes := r.Sizes(family)
+		if len(sizes) == 0 {
+			continue
+		}
+		set, ok := r.Match(family, sizes[0])
+		if !ok {
+			continue
+		}
+		complete := true
+		for _, value := range runes {
+			if _, found := set.Resolve(value); !found {
+				complete = false
+				break
+			}
+		}
+		if complete {
+			able = append(able, family)
+		}
+	}
+	return able
+}

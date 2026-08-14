@@ -58,7 +58,7 @@ func (t Text) paint(ctx *compileContext, list *display.DisplayList, bounds stdim
 	if err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
-	ctx.addMissing(path, layout.MissingRunes())
+	ctx.addMissing(path, layout.MissingRunes(), layout.MissingFonts())
 	if columns, lines := layout.Clipped(); columns > 0 || lines > 0 {
 		ctx.warn(path, "text-clipped", fmt.Sprintf(
 			"%q does not fit %dx%d: %d pixels of the line and %d whole lines are cut off",
