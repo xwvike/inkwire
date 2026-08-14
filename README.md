@@ -1,8 +1,18 @@
 # Inkwire
 
-使用 Scene Schema 驱动的 Gicisky 电子纸标签
+使用 Scene Schema 驱动的电子纸标签
 
-## 设备信息
+支持两个互不相干的标签家族。它们的服务、命令、像素打包方式全都不同，只共用同一套 Scene Schema 和同一个渲染器——**一页写一次，两种标签都能收**。
+
+| | Gicisky | EPD-nRF5 |
+|---|---|---|
+| 是什么 | 出厂固件 | 刷进 nRF51/nRF52 的[替换固件](https://github.com/tsl0922/EPD-nRF5) |
+| 广播名称 | `PICKSMART`、`NEMR<MAC后八位>` | `NRF_EPD_<MAC后四位>` |
+| 型号来自 | 广播里的厂商数据，不连也能读 | **连上去问**，广播里没有 |
+| 尺寸 | 296x128 | 400x300 到 880x528，见下表 |
+| 颜色 | 黑白红 | 黑白 / 黑白红（黑白红黄暂不支持） |
+
+## Gicisky
 
 | 项目 | 当前支持 |
 |---|---|
@@ -21,8 +31,9 @@
 |---|---|
 | `./inkwire render [-o preview.png] <scene.json>` | 渲染 PNG 预览；未指定 `-o` 时与 JSON 同名 |
 | `./inkwire encode [-o payload.bin] <scene.json>` | 生成设备 payload；未指定 `-o` 时与 JSON 同名 |
-| `./inkwire push [-device MAC-or-name] <scene.json>` | 渲染并写入设备 |
-| `./inkwire scan [-timeout 15s]` | 列出附近所有标签，并识别每个的型号、分辨率、颜色和电压 |
+| `./inkwire push [-device MAC-or-name] [-family auto\|gicisky\|nrfepd] [-settle 30s] <scene.json>` | 渲染并写入设备 |
+| `./inkwire scan [-timeout 15s]` | 列出附近所有标签；Gicisky 标签同时识别型号、分辨率、颜色和电压 |
+| `./inkwire mode [-device MAC-or-name] [-mode picture\|calendar\|clock]` | 仅 EPD-nRF5：交还给标签自己的时钟或日历，并对时 |
 | `./inkwire serve [-listen address] [-device MAC-or-name] [-assets directory]` | 启动 HTTP 服务 |
 | `./inkwire push-payload [MAC-or-name] <payload.bin>` | 写入已经编码的 payload |
 
@@ -48,13 +59,122 @@ byte   0       1        2   3        4
 
 ```
 $ ./inkwire scan
-ADDRESS                                NAME           RSSI  BATT  MODEL           SIZE      PALETTE
-e2ada7d1-187a-caea-21e4-d895f8240b62   NEMR92943861    -50  3.0V  EPD 2.9" BWR    296x128   BWR
+ADDRESS                                NAME           RSSI  BATT  FAMILY   MODEL           SIZE      PALETTE
+e2ada7d1-187a-caea-21e4-d895f8240b62   NEMR92943861    -50  3.0V  gicisky  EPD 2.9" BWR    296x128   BWR
+eb6738a8-0b03-fbc0-b572-fe6dbe2517fb   NRF_EPD_C1F8    -59     -  nrfepd   ask on connect            not advertised
 ```
+
+一个无线电同时只能跑一次扫描，所以两个家族是依次扫的，`-timeout` 是**每个家族各自的额度**。
 
 型号表覆盖 11 个型号（212×104 到 960×640，BW / BWR / BWRY），移植自 [hass-gicisky](https://github.com/eigger/hass-gicisky)（MIT，© 2025 eigger）。**其中只有 `0x0033`（2.9" BWR）经过实机验证**，其余按上游数据采信，在 `scan` 输出中标注 `unverified`。
 
 认不出型号的标签仍会被列出，但标记为不可驱动——此时页面尺寸只能靠猜，而猜错就是往面板写入形状错误的数据。
+
+
+## EPD-nRF5
+
+[EPD-nRF5](https://github.com/tsl0922/EPD-nRF5) 是刷进 nRF51822 / nRF51802 / nRF52811 / nRF52810 的替换固件。它和 Gicisky 没有任何共同之处：服务是厂商自定义的 128 位 UUID，命令集不同，像素打包方式也不同。
+
+| 项目 | 当前支持 |
+|---|---|
+| 广播名称 | `NRF_EPD_<MAC后四位>` |
+| BLE GATT | Service `62750001-d828-918d-fb46-b6c11c675aec`，读写与通知同用特征 `...0002`，版本 `...0003` |
+| 命令 | `INIT=0x01`、`REFRESH=0x05`、`WRITE_IMAGE=0x30` |
+| 图像数据 | 黑白平面 + 红色平面，逐行、高位在前；**置位为白**，颜色平面取反（清零为红） |
+| 压缩 | 固件自带 RLE，实测空白 400x300 平面 15000 字节压到 232 字节 |
+
+写入：
+
+```bash
+./inkwire push -device NRF_EPD_C1F8 examples/fridge/page.json
+```
+
+`-family` 默认 `auto`：广播名以 `NRF_EPD` 开头就走这个家族，否则走 Gicisky。**BLE 地址不携带家族信息**，所以按地址寻址时必须显式写 `-family nrfepd`。
+
+### 型号由设备决定，不由你决定
+
+这是和 Gicisky 最要紧的差别。Gicisky 标签在广播里就说明自己是什么屏；**这个家族不说**——型号存在固件自己的 flash 里，只有连上去发 `INIT` 才问得出来。
+
+所以流程被反了过来：先连接、先问型号，**再按问到的尺寸要页面**。页面尺寸和面板对不上会被直接拒绝：
+
+```
+the page is 296x128 and the panel is UC8176_420_BWR 400x300 BWR; render it at the panel's size
+```
+
+这条拒绝是必要的。尺寸错了不会有任何东西报错，那些字节会照样写进面板 RAM，只是从此代表别的意思。
+
+### 支持的型号
+
+| ID | 名称 | 尺寸 | 颜色 | 打包 |
+|---|---|---|---|---|
+| `0x01` | UC8176_420_BW | 400x300 | BW | 双平面 |
+| `0x02` | SSD1619_420_BWR | 400x300 | BWR | 双平面 |
+| **`0x03`** | **UC8176_420_BWR** | **400x300** | **BWR** | 双平面 |
+| `0x04` | SSD1619_420_BW | 400x300 | BW | 双平面 |
+| `0x06` | UC8179_750_BW | 800x480 | BW | 双平面 |
+| `0x07` | UC8179_750_BWR | 800x480 | BWR | 双平面 |
+| `0x0a` | SSD1677_750_HD_BW | 880x528 | BW | 双平面 |
+| `0x0b` | SSD1677_750_HD_BWR | 880x528 | BWR | 双平面 |
+| `0x10` | UC8179_583_BWR | 648x480 | BWR | 双平面 |
+| `0x11` | UC8179_583_BW | 648x480 | BW | 双平面 |
+| `0x08` `0x09` `0x0e` `0x0f` | UC8159 系列 | 640x384 / 600x448 | BW / BWR | 半字节，**未实现** |
+| `0x05` `0x0c` `0x0d` | JD796xx 系列 | 400x300 / 800x480 / 648x480 | BWRY | **未实现** |
+
+**只有加粗的 `0x03` 经过实机验证**，其余按上游固件源码采信，在日志里标注 `unverified`：
+
+```
+panel is UC8179_750_BWR 800x480 BWR (unverified), link carries 244 bytes and can decompress
+```
+
+未实现的两类是明确拒绝而不是假装支持。UC8159 用的是两像素一字节的半字节流，和双平面产出的字节数都不一样；BWRY 需要给 `Ink` 加第四色，会牵动抖动、图像自动处理和 Scene Schema 的 `ink` 枚举。
+
+### 刷新期间必须保持连接
+
+这条不注意就会遇到一个很难查的现象：**每一帧都写成功、日志一切正常、屏幕纹丝不动。**
+
+原因是两件事叠加。固件的刷新是阻塞的，三色屏满刷要几十秒；而 BLE 协议栈会**先自动回 ACK、再把写事件交给应用**，所以 `REFRESH` 的响应到达时固件还没开始刷。与此同时，固件的断连处理第一件事就是让面板睡眠：
+
+```c
+static void on_disconnect(...) {
+    p_epd->epd->drv->sleep(p_epd->epd);
+    ...
+}
+```
+
+**这时候断连不是走得早，是把刚下的刷新撤销了。**
+
+所以发完 `REFRESH` 后会保持连接，默认 30 秒，期间可以 Ctrl-C 打断：
+
+```
+sending 40 frames compressed
+staying connected 30s while the panel refreshes; disconnecting now would cancel it
+```
+
+大屏或黑白红面板更慢时用 `-settle 60s`。这段等待是纯粹的等待而非握手——固件在刷新完成时不发任何通知。
+
+### 标签自己会画：时钟与日历
+
+这个家族的标签有自己的处理器和 RTC，固件里带着一套 GUI（含农历），能不接任何指令自行重绘：
+
+| 模式 | 行为 |
+|---|---|
+| `picture` | 显示最后收到的那一页，自己不动 |
+| `calendar` | 自己画日历，每天 `00:00:00` 重绘 |
+| `clock` | 自己画时钟，每分钟重绘 |
+
+**注意：每一次 `push` 都会把标签切回 `picture`。** 固件在 `EPD_CMD_REFRESH` 里就做了这件事，而每页的最后一条命令正是它。所以一个正在走时的标签，被推送一次之后就停了。
+
+`mode` 是回去的路：
+
+```bash
+./inkwire mode -device NRF_EPD_C1F8 -mode clock
+```
+
+它会顺带把标签的时钟对到本机当前时间。`-week-start sunday|monday` 可选，不写就不动标签已有的设置。
+
+时区上有个实现细节值得记一笔：协议里的时区字段是 **int8、整小时**，而固件只是把它加进时间戳就丢掉。所以这里直接送"本地墙上时间当作时间戳"、时区字段送 0——同样的算术，但**印度（+5:30）和尼泊尔（+5:45）这种时区也能对准**，而整小时字段永远会让它们差半小时。
+
+这套 GUI 是**固件画的，不是 inkwire 画的**。这里只负责切模式和对时，没有预览，也不该有——渲染那一侧的东西一律走 Scene Schema。
 
 
 ## HTTP
