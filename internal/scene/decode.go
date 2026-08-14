@@ -731,18 +731,92 @@ func (l *lengthJSON) UnmarshalJSON(data []byte) error {
 	}
 	var text string
 	if err := json.Unmarshal(data, &text); err != nil {
-		return fmt.Errorf("a length is a number of pixels or a percentage such as \"25%%\"")
+		return fmt.Errorf("a length is a number of pixels, a percentage such as \"25%%\", " +
+			"or \"calc(100%% - 10px)\"")
 	}
 	trimmed := strings.TrimSpace(text)
-	if !strings.HasSuffix(trimmed, "%") {
-		return fmt.Errorf("%q is not a percentage; a length is a number of pixels or a string ending in %%", text)
+	if inner, isCalc := strings.CutPrefix(trimmed, "calc("); isCalc {
+		body, closed := strings.CutSuffix(inner, ")")
+		if !closed {
+			return fmt.Errorf("%q is missing its closing bracket", text)
+		}
+		length, err := parseCalc(body)
+		if err != nil {
+			return fmt.Errorf("%q: %w", text, err)
+		}
+		l.length = length
+		return nil
 	}
-	percent, err := strconv.ParseFloat(strings.TrimSuffix(trimmed, "%"), 64)
-	if err != nil || percent < 0 {
-		return fmt.Errorf("%q is not a percentage", text)
+	percent, err := parsePercent(trimmed)
+	if err != nil {
+		return fmt.Errorf("%q is not a length; write a number of pixels, "+
+			"a percentage such as \"25%%\", or \"calc(100%% - 10px)\"", text)
 	}
-	l.length = compose.Tenths(int(percent * 10))
+	l.length = compose.Tenths(percent)
 	return nil
+}
+
+// parseCalc reads the one expression a Length can hold: a share of the
+// container plus or minus a fixed number of pixels.
+//
+// CSS calc is a whole grammar and this is not it. A length here is a
+// percentage and a pixel count added together, so that is exactly what may be
+// written, and anything else is refused rather than approximated.
+//
+// The spaces around the sign are required, as they are in CSS, because without
+// them "calc(100%-10px)" could as easily be a percentage followed by a
+// negative number as a subtraction.
+func parseCalc(body string) (compose.Length, error) {
+	fields := strings.Fields(body)
+	if len(fields) != 3 {
+		return compose.Length{}, fmt.Errorf(
+			"calc takes a percentage, a + or -, and a number of pixels, spaces and all")
+	}
+	sign := 0
+	switch fields[1] {
+	case "+":
+		sign = 1
+	case "-":
+		sign = -1
+	default:
+		return compose.Length{}, fmt.Errorf("%q is not + or -", fields[1])
+	}
+
+	percentText, pixelText := fields[0], fields[2]
+	// Either order reads naturally, and both mean the same sum.
+	if strings.HasSuffix(percentText, "px") {
+		percentText, pixelText = pixelText, percentText
+		if sign < 0 {
+			return compose.Length{}, fmt.Errorf(
+				"a fixed number of pixels minus a share of the container is not a length here")
+		}
+	}
+	percent, err := parsePercent(percentText)
+	if err != nil {
+		return compose.Length{}, fmt.Errorf("%q is not a percentage", percentText)
+	}
+	digits, isPixels := strings.CutSuffix(pixelText, "px")
+	if !isPixels {
+		return compose.Length{}, fmt.Errorf("%q is not a number of pixels", pixelText)
+	}
+	pixels, err := strconv.Atoi(digits)
+	if err != nil || pixels < 0 {
+		return compose.Length{}, fmt.Errorf("%q is not a number of pixels", pixelText)
+	}
+	return compose.Calc(percent, sign*pixels), nil
+}
+
+// parsePercent reads a percentage into the tenths compose counts them in.
+func parsePercent(text string) (int, error) {
+	digits, isPercent := strings.CutSuffix(strings.TrimSpace(text), "%")
+	if !isPercent {
+		return 0, fmt.Errorf("%q does not end in %%", text)
+	}
+	value, err := strconv.ParseFloat(digits, 64)
+	if err != nil || value < 0 {
+		return 0, fmt.Errorf("%q is not a percentage", text)
+	}
+	return int(value * 10), nil
 }
 
 type stackJSON struct {

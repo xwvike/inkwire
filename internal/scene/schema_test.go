@@ -345,3 +345,109 @@ func TestSchemaRejectsWhatItCannotHonour(t *testing.T) {
 		})
 	}
 }
+
+// calc is the one length that is neither a share of the container nor a fixed
+// number of pixels but both, and compose has held it since the length model
+// was written. Nothing could ask for it until now.
+func TestCalcSubtractsPixelsFromAShare(t *testing.T) {
+	result := renderScene(t, `{
+		"version": 1, "background": "white",
+		"root": {
+			"type": "absolute",
+			"children": [{
+				"bounds": {"x": 0, "y": 0, "width": 100, "height": 10},
+				"node": {
+					"type": "row",
+					"crossAlign": "start",
+					"children": [
+						{"basis": "calc(100% - 10px)", "cross": 10,
+						 "node": {"type": "rectangle", "fill": "black"}}
+					]
+				}
+			}]
+		}
+	}`)
+
+	assertInk(t, result, 89, 5, display.InkBlack, "all of a hundred but ten is ninety")
+	assertInk(t, result, 90, 5, display.InkWhite, "and not a pixel more")
+}
+
+func TestCalcAddsPixelsToAShareEitherWayRound(t *testing.T) {
+	for _, spelling := range []string{"calc(50% + 8px)", "calc(8px + 50%)"} {
+		t.Run(spelling, func(t *testing.T) {
+			result := renderScene(t, `{
+				"version": 1, "background": "white",
+				"root": {
+					"type": "absolute",
+					"children": [{
+						"bounds": {"x": 0, "y": 0, "width": 100, "height": 10},
+						"node": {
+							"type": "row",
+							"crossAlign": "start",
+							"children": [
+								{"basis": "`+spelling+`", "cross": 10,
+								 "node": {"type": "rectangle", "fill": "black"}}
+							]
+						}
+					}]
+				}
+			}`)
+
+			assertInk(t, result, 57, 5, display.InkBlack, "half of a hundred plus eight is fifty-eight")
+			assertInk(t, result, 58, 5, display.InkWhite, "and no wider")
+		})
+	}
+}
+
+// A grid track is a length, so it gets calc without being told about it.
+func TestATrackCanBeCalculatedToo(t *testing.T) {
+	result := renderScene(t, `{
+		"version": 1, "background": "white",
+		"root": {
+			"type": "absolute",
+			"children": [{
+				"bounds": {"x": 0, "y": 0, "width": 100, "height": 10},
+				"node": {
+					"type": "grid",
+					"columns": ["calc(100% - 30px)", "1fr"],
+					"rows": [10],
+					"children": [
+						{"node": {"type": "rectangle", "fill": "black"}},
+						{"node": {"type": "rectangle", "fill": "red"}}
+					]
+				}
+			}]
+		}
+	}`)
+
+	assertInk(t, result, 69, 5, display.InkBlack, "the calculated track is seventy wide")
+	assertInk(t, result, 70, 5, display.InkRed, "and the fraction takes the thirty that are left")
+}
+
+func TestCalcRefusesWhatALengthCannotHold(t *testing.T) {
+	tests := []struct {
+		name  string
+		basis string
+		want  string
+	}{
+		{"no spaces around the sign", `"calc(100%-10px)"`, "spaces and all"},
+		{"a sign that is not one", `"calc(100% * 2px)"`, "not + or -"},
+		{"two percentages", `"calc(50% + 20%)"`, "not a number of pixels"},
+		{"pixels first and subtracted", `"calc(30px - 50%)"`, "not a length here"},
+		{"an unclosed bracket", `"calc(100% - 10px"`, "closing bracket"},
+		{"a bare unit", `"10px"`, "not a length"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := (Decoder{}).Decode(strings.NewReader(
+				`{"version":1,"root":{"type":"row","children":[{"basis":` + test.basis +
+					`,"node":{"type":"rectangle"}}]}}`))
+			if err == nil {
+				t.Fatal("decoded without complaint")
+			}
+			if !strings.Contains(err.Error(), test.want) {
+				t.Errorf("error = %q, want it to mention %q", err, test.want)
+			}
+		})
+	}
+}

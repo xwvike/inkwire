@@ -36,6 +36,91 @@ func TestTheSchemaCanReachEveryNode(t *testing.T) {
 	}
 }
 
+// The same gap one level down, which is where it hid the second time.
+//
+// The test above counts nodes, so it had nothing to say about compose.Calc: a
+// length that is a share of the container and a number of pixels added
+// together, written and commented and reachable from nothing, because
+// lengthJSON only ever read a bare number or a percentage. A node that cannot
+// be asked for and a length that cannot be asked for are the same bug.
+func TestTheSchemaCanReachEveryKindOfLength(t *testing.T) {
+	called := map[string]bool{}
+	for _, name := range calledFunctions(t, ".") {
+		called[name] = true
+	}
+	for _, name := range lengthConstructors(t, "../compose") {
+		// Auto is the zero value, which is what a document says by leaving the
+		// field out. There is nothing for this package to call.
+		if name == "Auto" {
+			continue
+		}
+		if !called[name] {
+			t.Errorf("compose.%s builds a Length and no document can ask for one; "+
+				"give it a spelling in lengthJSON or take it out of compose", name)
+		}
+	}
+}
+
+// lengthConstructors reports the exported package-level functions in compose
+// that hand back a Length.
+func lengthConstructors(t *testing.T, dir string) []string {
+	t.Helper()
+	var names []string
+	for _, file := range goFiles(t, dir) {
+		parsed, err := parser.ParseFile(token.NewFileSet(), file, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", file, err)
+		}
+		for _, declaration := range parsed.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Recv != nil || !function.Name.IsExported() {
+				continue
+			}
+			results := function.Type.Results
+			if results == nil || len(results.List) != 1 {
+				continue
+			}
+			if ident, ok := results.List[0].Type.(*ast.Ident); ok && ident.Name == "Length" {
+				names = append(names, function.Name.Name)
+			}
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// calledFunctions reports the names this package calls as compose.Name(...).
+func calledFunctions(t *testing.T, dir string) []string {
+	t.Helper()
+	found := map[string]bool{}
+	for _, file := range goFiles(t, dir) {
+		parsed, err := parser.ParseFile(token.NewFileSet(), file, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", file, err)
+		}
+		ast.Inspect(parsed, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			selector, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			if pkg, ok := selector.X.(*ast.Ident); ok && pkg.Name == "compose" {
+				found[selector.Sel.Name] = true
+			}
+			return true
+		})
+	}
+	var names []string
+	for name := range found {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // constructedNodes reports the compose node types this package builds, found by
 // looking for composite literals of the form compose.Name{}. Supporting types
 // are filtered out by checking each name against the nodes compose declares.
