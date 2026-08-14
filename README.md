@@ -12,19 +12,6 @@
 | 尺寸 | 296x128 | 400x300 到 880x528，见下表 |
 | 颜色 | 黑白红 | 黑白 / 黑白红（黑白红黄暂不支持） |
 
-## Gicisky
-
-| 项目 | 当前支持 |
-|---|---|
-| 设备 |  Gicisky / PICKSMART 电子纸标签 |
-| 广播名称 | `PICKSMART`、`NEMR<MAC后八位>` |
-| 默认 BLE Public 地址 | `FF:FF:92:94:38:61` |
-| 屏幕 | 296x128 像素，黑、白、红三色，无灰度 |
-| 页面方向 | 横屏 296x128；顺时针或逆时针竖屏 128x296 |
-| 图像数据 | 黑白平面和红色平面，共 9472 字节 |
-| BLE GATT | Service `FEF0`，控制特征 `FEF1`，数据特征 `FEF2` |
-
-
 ## 命令行
 
 | 命令 | 用途 |
@@ -44,7 +31,33 @@
 ./inkwire push -device PICKSMART page.json
 ```
 
-`-device` 支持 BLE 地址或广播名称。默认地址 `FF:FF:92:94:38:61`；
+`-device` 接受 BLE 地址或广播名称，不写时用 Gicisky 的默认地址 `FF:FF:92:94:38:61`。
+
+`push` 按 `-family` 选择驱动，默认 `auto`：广播名以 `NRF_EPD` 开头走 EPD-nRF5，否则走 Gicisky。**BLE 地址不携带家族信息**，所以按地址寻址一台 EPD-nRF5 标签时必须显式写 `-family nrfepd`。
+
+一次扫描能同时看到两个家族：
+
+```
+$ ./inkwire scan
+ADDRESS                                NAME           RSSI  BATT  FAMILY   MODEL           SIZE      PALETTE
+e2ada7d1-187a-caea-21e4-d895f8240b62   NEMR92943861    -50  3.0V  gicisky  EPD 2.9" BWR    296x128   BWR
+eb6738a8-0b03-fbc0-b572-fe6dbe2517fb   NRF_EPD_C1F8    -59     -  nrfepd   ask on connect            not advertised
+```
+
+一个无线电同时只能跑一次扫描，所以两个家族是依次扫的，`-timeout` 是**每个家族各自的额度**。
+
+## Gicisky
+
+| 项目 | 当前支持 |
+|---|---|
+| 设备 |  Gicisky / PICKSMART 电子纸标签 |
+| 广播名称 | `PICKSMART`、`NEMR<MAC后八位>` |
+| 默认 BLE Public 地址 | `FF:FF:92:94:38:61` |
+| 屏幕 | 296x128 像素，黑、白、红三色，无灰度 |
+| 页面方向 | 横屏 296x128；顺时针或逆时针竖屏 128x296 |
+| 图像数据 | 黑白平面和红色平面，共 9472 字节 |
+| BLE GATT | Service `FEF0`，控制特征 `FEF1`，数据特征 `FEF2` |
+
 
 ### 标签识别
 
@@ -56,15 +69,6 @@ byte   0       1        2   3        4
 ```
 
 型号 ID 取 `(data[4] << 8) | data[0]` 的低 14 位。广播名不携带型号信息——`NEMR` 后面是 MAC 后八位，不同尺寸的标签名字格式相同，而且有些广播包里名字直接是空的。**因此识别一律以 manufacturer data 为准。**
-
-```
-$ ./inkwire scan
-ADDRESS                                NAME           RSSI  BATT  FAMILY   MODEL           SIZE      PALETTE
-e2ada7d1-187a-caea-21e4-d895f8240b62   NEMR92943861    -50  3.0V  gicisky  EPD 2.9" BWR    296x128   BWR
-eb6738a8-0b03-fbc0-b572-fe6dbe2517fb   NRF_EPD_C1F8    -59     -  nrfepd   ask on connect            not advertised
-```
-
-一个无线电同时只能跑一次扫描，所以两个家族是依次扫的，`-timeout` 是**每个家族各自的额度**。
 
 型号表覆盖 11 个型号（212×104 到 960×640，BW / BWR / BWRY），移植自 [hass-gicisky](https://github.com/eigger/hass-gicisky)（MIT，© 2025 eigger）。**其中只有 `0x0033`（2.9" BWR）经过实机验证**，其余按上游数据采信，在 `scan` 输出中标注 `unverified`。
 
@@ -1089,7 +1093,6 @@ Data URL 写法：
     <td></td>
   </tr>
 </table>
-
 
 
 ## 参考
