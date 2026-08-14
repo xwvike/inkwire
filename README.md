@@ -393,6 +393,18 @@ curl \
 
 所有节点都需要 `type`。节点可选的 `size: {width, height}` 用作流式布局中的首选尺寸；放在 `absolute.children[].bounds` 中时通常不需要再写 `size`。
 
+### 长度
+
+表格里标注为 length 的字段接受两种写法：
+
+```json
+{"basis": 64, "cross": "25%"}
+```
+
+数字是像素，字符串百分号是容器对应轴尺寸的百分比。百分比要等容器算出尺寸才有值，所以它不参与"这个节点想要多大"的测量——一个只写了百分比的节点，在测量阶段等于没写。
+
+`0` 是一个长度，不是"没写"。字段整个省略才表示自动。这两者在 `anchored` 上区别很大：`"right": 0` 是贴着右边缘，省略 `right` 是不约束右边。
+
 ## 布局节点
 
 ### absolute
@@ -448,9 +460,106 @@ curl \
 | `gap` | integer | 子节点间距，不得为负 | `0` |
 | `mainAlign` | string | `start`、`center`、`end` | `start` |
 | `crossAlign` | string | `stretch`、`start`、`center`、`end` | `stretch` |
-| `children[].basis` | integer | 主轴基础尺寸，不得为负 | 节点测量尺寸 |
+| `children[].basis` | length | 主轴基础尺寸，不得为负 | 节点测量尺寸 |
+| `children[].cross` | length | 交叉轴尺寸；写了就不再被 `stretch` 拉伸 | 由 `crossAlign` 决定 |
 | `children[].grow` | integer | 剩余空间分配权重，不得为负 | `0` |
+| `children[].minMain` / `maxMain` | length | 主轴尺寸上下限 | 无限制 |
+| `children[].minCross` / `maxCross` | length | 交叉轴尺寸上下限 | 无限制 |
+| `children[].alignSelf` | string | `stretch`、`start`、`center`、`end`，覆盖容器的 `crossAlign` | 跟随容器 |
+| `children[].ratio` | number | 宽高比，由主轴尺寸推出交叉轴尺寸 | `0`，不启用 |
 | `children[].node` | node | 子节点 | 必填 |
+
+`ratio` 只从主轴推交叉轴。已经写了 `cross` 的子节点等于已经回答了这个问题，此时 `ratio` 让位而不是去和它打架。
+
+### grid
+
+`row` 套 `row` 排不齐。三个各含"标签 + 数值"的 `row`，各自量各自的标签宽度，结果就是参差不齐——要么手写一个 `basis` 把宽度钉死，要么用 `grid` 让这一列只量一次：
+
+```json
+{
+  "type": "grid",
+  "columns": ["auto", "1fr", "auto"],
+  "rows": [15, 15],
+  "columnGap": 5,
+  "rowGap": 3,
+  "children": [
+    {"node": {"type": "text", "runs": [{"text": "/data"}]}},
+    {"node": {"type": "rectangle", "stroke": {"ink": "black", "width": 1}}},
+    {"node": {"type": "text", "align": "end", "runs": [{"text": "1180G"}]}},
+    {"column": 1, "columnSpan": 3, "node": {"type": "spacer"}}
+  ]
+}
+```
+
+轨道有三种写法，和 CSS 一致：
+
+| 写法 | 含义 |
+|---|---|
+| `"auto"` | 取这一轨里最宽（或最高）内容的尺寸 |
+| `"2fr"` | 按整数份额瓜分其他轨道用剩的空间 |
+| `40` 或 `"25%"` | 直接写死 |
+
+| 字段 | 类型 | 可选值或用途 | 默认值 |
+|---|---|---|---|
+| `size` | size | 首选尺寸 | 内容尺寸 |
+| `columns` / `rows` | track[] | 轨道定义 | 单轨 `auto` |
+| `columnGap` / `rowGap` | integer | 轨道间距，不得为负 | `0` |
+| `alignItems` | string | `stretch`、`start`、`center`、`end`，纵向摆放 | `stretch` |
+| `justifyItems` | string | 同上，横向摆放 | `stretch` |
+| `children[].column` / `row` | integer | 从 1 开始的线号，`0` 表示放进下一个空格子 | `0` |
+| `children[].columnSpan` / `rowSpan` | integer | 跨几轨 | `1` |
+| `children[].alignSelf` / `justifySelf` | string | 覆盖 `alignItems` / `justifyItems` | 跟随容器 |
+| `children[].node` | node | 子节点 | 必填 |
+
+和 `fr` 有关的坑和百分比一样：`fr` 要等"还剩多少"算出来才有值，所以它同样不参与测量阶段。
+
+### anchored
+
+按到各边的距离摆放子节点。和 `absolute` 的区别是，`absolute` 的矩形写文档时就得算出来，而"距右边 0"这种要等容器排完版才知道是多少：
+
+```json
+{
+  "type": "anchored",
+  "children": [
+    {"left": "50%", "top": 0, "width": 40, "height": 12,
+     "node": {"type": "rectangle", "fill": "black"}},
+    {"right": 0, "bottom": 0, "width": 20, "height": 20, "layer": 1,
+     "node": {"type": "rectangle", "fill": "red"}}
+  ]
+}
+```
+
+| 字段 | 类型 | 用途 | 默认值 |
+|---|---|---|---|
+| `size` | size | 首选尺寸 | 容器给的尺寸 |
+| `children[].top` / `right` / `bottom` / `left` | length | 到对应边的距离 | 不约束该边 |
+| `children[].width` / `height` | length | 尺寸 | 由两侧距离推出 |
+| `children[].layer` | integer | 数值大的后画，压在上面；相同则按文档顺序 | `0` |
+| `children[].node` | node | 子节点 | 必填 |
+
+被 `anchored` 摆放的子节点脱离了流，不影响容器想要多大。
+
+### transformed
+
+整数倍放大和四分之一圈旋转——这块屏上仅有的两种无损变换。没有灰度，所以整数倍放大就是每个像素变成一个方块，转四分之一圈就是像素换个位置，不插值，不丢东西也不凭空造东西：
+
+```json
+{
+  "type": "transformed",
+  "scale": 2,
+  "turns": 1,
+  "child": {"type": "text", "runs": [{"text": "42"}]}
+}
+```
+
+| 字段 | 类型 | 用途 | 默认值 |
+|---|---|---|---|
+| `size` | size | 首选尺寸 | 变换后的内容尺寸 |
+| `scale` | integer | 放大倍数，不得为负 | `1` |
+| `turns` | integer | 顺时针转过的四分之一圈数 | `0` |
+| `child` | node | 子节点 | 必填 |
+
+子节点是先画在自己的画布上、再整体搬过来的，所以它拿到的是"变换后刚好填满这个框"所需要的尺寸：放大两倍的子节点只有一半的地方，画出来是原尺寸。
 
 ### stack / padding / spacer
 
@@ -758,7 +867,32 @@ Data URL 写法：
 }
 ```
 
-`clipRect` 使用 `rect`，`clipPath` 使用 `path`；两者都需要一个 `child`，也都可以设置可选的 `size`。
+裁到排版给的那个框，不用自己写坐标：
+
+```json
+{"type": "clip", "child": {"type": "text", "runs": [{"text": "很长的一行"}]}}
+```
+
+按形状裁剪。形状是用 length 描述的，因为在排完版之前那个框还没有尺寸——"半个宽度的圆"在有宽度之前不成立：
+
+```json
+{
+  "type": "clipShape",
+  "shape": {"kind": "circle", "radius": "50%"},
+  "child": {"type": "image", "source": "portrait.png", "processing": "auto"}
+}
+```
+
+| `kind` | 用到的字段 |
+|---|---|
+| `inset` | `insets`（四个 length，上右下左）、可选 `corner` 圆角 |
+| `circle` | `radius`、可选 `center` |
+| `ellipse` | `radiusX`、`radiusY`、可选 `center` |
+| `polygon` | `points`（至少三个 `{x, y}`，每个分量都是 length） |
+
+`center` 只有 `circle` 和 `ellipse` 有；写在别的形状上会报错，而不是被默默忽略。
+
+`clipRect` 使用 `rect`，`clipPath` 使用 `path`，`clip` 两者都不需要，`clipShape` 使用 `shape`；四者都需要一个 `child`，也都可以设置可选的 `size`。
 
 ## 示例
 
