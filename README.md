@@ -37,7 +37,7 @@
 
 ### 标签识别
 
-标签在 BLE 广播的 manufacturer data 里报告自己的型号，厂商 ID `0x5053`（ASCII `PS`，PICKSMART），**不需要连接即可读取**：
+标签在 BLE 广播的 manufacturer data 里报告自己的型号，厂商 ID `0x5053`（ASCII `PS`，PICKSMART）：
 
 ```
 byte   0       1        2   3        4
@@ -74,7 +74,7 @@ e2ada7d1-187a-caea-21e4-d895f8240b62   NEMR92943861    -50  3.0V  EPD 2.9" BWR  
 | `POST /v1/display` | 写入设备后的 JSON 结果 |
 | `GET /v1/devices` | 扫描并列出附近所有标签及其型号信息 |
 
-服务没有鉴权，而且每个请求都能驱动硬件，因此 `-listen` 只接受回环地址，绑定其他地址会直接退出。
+`-listen` 只接受回环地址。
 
 发送纯 JSON：
 
@@ -97,11 +97,11 @@ curl \
   'http://127.0.0.1:8080/v1/display?device=PICKSMART'
 ```
 
-响应报告位于 `X-Inkwire-Warnings`、`X-Inkwire-Missing-Runes` 和 `X-Inkwire-Image-Decisions` 响应头中。
+响应报告位于 `X-Inkwire-Warnings`、`X-Inkwire-Missing-Runes` 和 `X-Inkwire-Image-Decisions`。
 
 ### 渲染警告
 
-警告不会阻止渲染，但每一条都表示**画出来的东西和文档要求的不一样**。`render`、`encode`、`push` 会把它们打到标准输出，HTTP 的条数在 `X-Inkwire-Warnings` 里。
+警告不会阻止渲染。
 
 | `code` | 含义 |
 |---|---|
@@ -110,13 +110,8 @@ curl \
 | `empty-layout` | 内边距或尺寸使可绘制区域为零，该节点没有画出任何东西 |
 | `missing-runes` | 字库里没有这些字符 |
 
-`text-clipped` 值得单独说：**被裁掉的数字仍然是一个合法数字**。`3260` 少一位变成 `260`，屏幕上看不出任何异常。散文被裁看得出来，数字和标识符看不出来，所以这条警告出现时应该当作错误处理。
-
-判据是字形本体（ascent）放不放得下，而不是排版行盒。按行盒判断会把「框按字高裁剪、下伸部和行距溢出」也算成裁剪——在本仓库的场景里这类占 56/59，全部是误报，会把真正的 3 处淹没。
-
 ### 错误码
 
-所有失败响应都带 `code` 字段，可以直接分支判断，不需要匹配 `error` 文本。
 
 | `code` | 状态码 | 含义 |
 |---|---|---|
@@ -342,7 +337,7 @@ curl \
 ./inkwire push page.json
 ```
 
-这份示例的实际文件和渲染结果：
+示例的实际文件和渲染结果：
 
 - [page.json](examples/schema_quickstart/page.json)
 - [schema_quickstart.png](examples/schema_quickstart/schema_quickstart.png)
@@ -391,7 +386,11 @@ curl \
 | `dash` | integer[] | 交替的实线、空白长度，每项必须大于 `0` | 实线 |
 | `dashOffset` | integer | 虚线起始偏移 | `0` |
 
-所有节点都需要 `type`。节点可选的 `size: {width, height}` 用作流式布局中的首选尺寸；放在 `absolute.children[].bounds` 中时通常不需要再写 `size`。
+所有节点都需要 `type`。
+
+可选的 `size: {width, height}` 是**首选尺寸**：容器测量子节点时，写了 `size` 就用它，没写就用节点自己量出来的尺寸。`row`、`column`、`grid`、`stack`、`padding` 以及各种裁剪节点都属于这一类。
+
+`absolute` 和 `anchored` 不测量子节点——框由 `bounds` 或四边距离直接给定。**此时子节点上的 `size` 完全不起作用**，不是"可以省略"：`bounds` 是 40x20 的格子里放一个 `size` 写 10x10 的矩形，画出来仍然是 40x20。
 
 ### 长度
 
@@ -411,7 +410,6 @@ curl \
 
 `calc` 只支持"一个百分比 ± 一个像素数"这一种表达式，因为 length 内部就是这两个数相加，再多的语法会变成一个看起来像 CSS 但不是 CSS 的方言。加减号**两边必须有空格**，和 CSS 的理由一样：`calc(100%-10px)` 既能读成减法，也能读成百分比后面跟一个负数。`"30px - 50%"` 这种固定值减去容器份额存不下，会直接报错而不是硬凑。
 
-`0` 是一个长度，不是"没写"。字段整个省略才表示自动。这两者在 `anchored` 上区别很大：`"right": 0` 是贴着右边缘，省略 `right` 是不约束右边。
 
 ## 布局节点
 
@@ -477,11 +475,9 @@ curl \
 | `children[].ratio` | number | 宽高比，由主轴尺寸推出交叉轴尺寸 | `0`，不启用 |
 | `children[].node` | node | 子节点 | 必填 |
 
-`ratio` 只从主轴推交叉轴。已经写了 `cross` 的子节点等于已经回答了这个问题，此时 `ratio` 让位而不是去和它打架。
 
 ### grid
 
-`row` 套 `row` 排不齐。三个各含"标签 + 数值"的 `row`，各自量各自的标签宽度，结果就是参差不齐——要么手写一个 `basis` 把宽度钉死，要么用 `grid` 让这一列只量一次：
 
 ```json
 {
@@ -519,11 +515,9 @@ curl \
 | `children[].alignSelf` / `justifySelf` | string | 覆盖 `alignItems` / `justifyItems` | 跟随容器 |
 | `children[].node` | node | 子节点 | 必填 |
 
-和 `fr` 有关的坑和百分比一样：`fr` 要等"还剩多少"算出来才有值，所以它同样不参与测量阶段。
 
 ### anchored
 
-按到各边的距离摆放子节点。和 `absolute` 的区别是，`absolute` 的矩形写文档时就得算出来，而"距右边 0"这种要等容器排完版才知道是多少：
 
 ```json
 {
@@ -545,11 +539,8 @@ curl \
 | `children[].layer` | integer | 数值大的后画，压在上面；相同则按文档顺序 | `0` |
 | `children[].node` | node | 子节点 | 必填 |
 
-被 `anchored` 摆放的子节点脱离了流，不影响容器想要多大。
 
 ### transformed
-
-整数倍放大和四分之一圈旋转——这块屏上仅有的两种无损变换。没有灰度，所以整数倍放大就是每个像素变成一个方块，转四分之一圈就是像素换个位置，不插值，不丢东西也不凭空造东西：
 
 ```json
 {
@@ -567,7 +558,6 @@ curl \
 | `turns` | integer | 顺时针转过的四分之一圈数 | `0` |
 | `child` | node | 子节点 | 必填 |
 
-子节点是先画在自己的画布上、再整体搬过来的，所以它拿到的是"变换后刚好填满这个框"所需要的尺寸：放大两倍的子节点只有一半的地方，画出来是原尺寸。
 
 ### stack / padding / spacer
 
@@ -638,8 +628,6 @@ curl \
 | `monaco` | `10`、`12`、`14`、`16` | `20`、`24`、`28`、`30`、`32`、`36`、`42`、`48` | 英文、数字和 ASCII 符号 |
 
 **字号是枚举，不是范围。** 表里没有的值（例如 `13`）会直接报错，不会四舍五入。
-
-大于内置字号的部分由点阵字形按整数倍最近邻放大得到，不需要额外字库。这块屏没有灰阶，字形本身就是「亮/不亮」的位图，所以整数倍放大得到的正是原字形的形状，一个像素不多一个不少。放大倍数必须是整数：1.5 倍要处理半个像素，任何处理方式都会让笔画消失或不均匀变粗。
 
 字体中不存在的字符会出现在渲染报告和 HTTP 响应头计数中。
 
@@ -875,13 +863,11 @@ Data URL 写法：
 }
 ```
 
-裁到排版给的那个框，不用自己写坐标：
 
 ```json
 {"type": "clip", "child": {"type": "text", "runs": [{"text": "很长的一行"}]}}
 ```
 
-按形状裁剪。形状是用 length 描述的，因为在排完版之前那个框还没有尺寸——"半个宽度的圆"在有宽度之前不成立：
 
 ```json
 {
@@ -906,7 +892,6 @@ Data URL 写法：
 
 ### 桌面标签
 
-一块标签一个固定用途，所以版面是照着 296x128 写死的，不做运行时适配。
 
 - [Claude 用量](examples/desk/claude.json)、[磁盘用量](examples/desk/disk.json)、[当日任务](examples/desk/tasks.json)、[BTC 价格](examples/desk/btc.json)、[分时图](examples/desk/chart.json)
 
@@ -921,9 +906,6 @@ Data URL 写法：
   </tr>
 </table>
 
-画图表的方式是自己算好坐标，交一条 polyline 过来。分时图那 96 个点就是这么来的：值域映射、留边、刻度在生成文档的那一步决定，画线这一步只认坐标。K 线和柱状图把 polyline 换成 rectangle 或 polygon，路子一样。
-
-BTC 那页的价格用 48px，来自点阵字形的整数倍放大。16px 在这块屏上跟脚注一样大，隔着桌子读不了。
 
 ### 能力展示
 
@@ -961,20 +943,6 @@ BTC 那页的价格用 48px，来自点阵字形的整数倍放大。16px 在这
     <td></td>
   </tr>
 </table>
-
-### 参考图
-
-上面每张图都是对应 JSON 的渲染结果，`go test ./...` 会逐像素比对，改了 JSON 而没改图就会红。
-
-改动是有意的时候，重新生成：
-
-```bash
-INKWIRE_UPDATE_REFERENCES=1 go test ./...
-```
-
-用环境变量而不是 `-update` 参数，是因为 `go test` 会把参数发给每个包的测试二进制，而大部分包不认识它——加成 flag 就没法一条命令跑全套了。
-
-生成完请**看图**再提交。diff 只能告诉你有字节变了，告诉不了你画面变成什么样。
 
 ## 参考
 
