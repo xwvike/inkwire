@@ -324,9 +324,9 @@ func runMode(ctx context.Context, args []string, logger *log.Logger, stderr io.W
 	}
 	driver := nrfepd.NewDriver(bluetooth.DefaultAdapter, *target, logger.Printf)
 	driver.Timings.Settle = *settle
-	// The clock is read here rather than in the flag parsing, so that what the
-	// tag is told is the time when the command runs.
-	if err := driver.SetMode(ctx, time.Now(), chosen, day); err != nil {
+	// The clock is read per attempt rather than in the flag parsing, so that
+	// what the tag is told is the time the exchange actually happened.
+	if err := driver.SetModeWithRetry(ctx, time.Now, chosen, day); err != nil {
 		logger.Print(err)
 		return 1
 	}

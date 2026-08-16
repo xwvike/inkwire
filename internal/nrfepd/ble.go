@@ -298,6 +298,27 @@ func (d *Driver) logFirmwareVersion(characteristics []bluetooth.DeviceCharacteri
 }
 
 func (d *Driver) PushWithRetry(ctx context.Context, page PageFor) error {
+	return d.retrying(ctx, func() error { return d.Push(ctx, page) })
+}
+
+// SetModeWithRetry is SetMode, given the same second chance as a push.
+//
+// The time is asked for once per attempt rather than passed in, because a
+// retry that set the tag to the time the first attempt was made would put the
+// clock out by however long the failures took.
+func (d *Driver) SetModeWithRetry(ctx context.Context, now func() time.Time, mode Mode, weekStart *time.Weekday) error {
+	return d.retrying(ctx, func() error { return d.SetMode(ctx, now(), mode, weekStart) })
+}
+
+// retrying runs an attempt until one succeeds or they run out.
+//
+// A tag that has just been disconnected takes a while to advertise again, and
+// how long is not steady: measured on 2026-08-17, the same tag came back after
+// 6s, 18s and 12s. A single scan is 15s, so one attempt decides whether the
+// tag exists by looking during a window it may well be silent through — which
+// is what happened to `inkwire mode`, the one entry point that used to reach
+// the radio without this.
+func (d *Driver) retrying(ctx context.Context, attempt func() error) error {
 	attempts := d.Attempts
 	if attempts <= 0 {
 		attempts = DefaultAttempts
@@ -307,14 +328,14 @@ func (d *Driver) PushWithRetry(ctx context.Context, page PageFor) error {
 		delay = DefaultRetryDelay
 	}
 	var lastErr error
-	for attempt := 1; attempt <= attempts; attempt++ {
-		if err := d.Push(ctx, page); err == nil {
+	for number := 1; number <= attempts; number++ {
+		if err := attempt(); err == nil {
 			return nil
 		} else {
 			lastErr = err
-			d.logf("attempt %d/%d failed: %v", attempt, attempts, err)
+			d.logf("attempt %d/%d failed: %v", number, attempts, err)
 		}
-		if attempt < attempts {
+		if number < attempts {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
