@@ -161,7 +161,8 @@ inkwire serve -listen 127.0.0.1:8080 -device NEMR92943861
 
 `-listen` is loopback only. `/v1/display` takes `?device=` and
 `?family=auto|gicisky|nrfepd`. Budget: 45 s Gicisky, 150 s EPD-nRF5.
-`/v1/encode` needs a known size, which EPD-nRF5 only gives after connecting.
+`/v1/encode` refuses an EPD-nRF5 target with `size-unknown`: that panel reports
+its size only once connected. Send the scene to `/v1/display` instead.
 
 ```bash
 curl -H 'Content-Type: application/json' --data-binary @page.json \
@@ -193,6 +194,7 @@ Non-fatal.
 | `request-too-large` | 413 | Over the size limit |
 | `invalid-scene` | 422 | Will not decode or render |
 | `unprocessable-scene` | 422 | Renders, will not encode |
+| `size-unknown` | 400 | `/v1/encode` asked for an EPD-nRF5 target |
 | `render-failed` | 500 | PNG encoding failed |
 | `device-busy` | 409 | Adapter in use |
 | `push-failed` | 502 | Tag error or connection failure |

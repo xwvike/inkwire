@@ -156,7 +156,7 @@ inkwire serve -listen 127.0.0.1:8080 -device NEMR92943861
 | `POST /v1/display` | JSON 结果 |
 | `GET /v1/devices` | 标签列表，每条带 `family` |
 
-`-listen` 仅回环。`/v1/display` 接受 `?device=` 与 `?family=auto|gicisky|nrfepd`。预算：Gicisky 45 秒，EPD-nRF5 150 秒。`/v1/encode` 需要已知尺寸，EPD-nRF5 连接后才给出。
+`-listen` 仅回环。`/v1/display` 接受 `?device=` 与 `?family=auto|gicisky|nrfepd`。预算：Gicisky 45 秒，EPD-nRF5 150 秒。`/v1/encode` 对 EPD-nRF5 目标以 `size-unknown` 拒绝：该面板连接后才报出自身尺寸。请改用 `/v1/display`。
 
 ```bash
 curl -H 'Content-Type: application/json' --data-binary @page.json \
@@ -188,6 +188,7 @@ curl -H 'Content-Type: application/json' --data-binary @page.json \
 | `request-too-large` | 413 | 超出体积上限 |
 | `invalid-scene` | 422 | 无法解码或渲染 |
 | `unprocessable-scene` | 422 | 能渲染，无法编码 |
+| `size-unknown` | 400 | 对 EPD-nRF5 目标调用 `/v1/encode` |
 | `render-failed` | 500 | PNG 编码失败 |
 | `device-busy` | 409 | 适配器占用中 |
 | `push-failed` | 502 | 标签报错或连接失败 |

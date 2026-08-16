@@ -355,6 +355,25 @@ func (h *Handler) encode(writer http.ResponseWriter, request *http.Request) {
 	if !ok {
 		return
 	}
+	target := request.URL.Query().Get("device")
+	if target == "" {
+		target = h.target
+	}
+	family, err := resolveFamily(request.URL.Query().Get("family"), target)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid-request", err)
+		return
+	}
+	// Payload encodes for the Gicisky size, the only one known without
+	// connecting to anything. An EPD-nRF5 target used to fall through to it and
+	// be told its page had to be 296x128 — a complaint about the page, when the
+	// page was right and the endpoint was the wrong one to ask.
+	if family == familyNRFEPD {
+		writeError(writer, http.StatusBadRequest, "size-unknown",
+			fmt.Errorf("%s is an EPD-nRF5 tag, which reports its size only once connected; "+
+				"no payload can be built for it here, so send the scene to /v1/display instead", target))
+		return
+	}
 	payload, err := result.Payload()
 	if err != nil {
 		writeError(writer, http.StatusUnprocessableEntity, "unprocessable-scene", err)

@@ -48,6 +48,55 @@ func TestRenderAndEncode(t *testing.T) {
 	}
 }
 
+// /v1/encode builds for the Gicisky size, the only one known without
+// connecting. An EPD-nRF5 target used to fall through to that encoder and come
+// back with "landscape page must be 296x128" — which reads as a complaint about
+// the page, sends the caller off to resize a page that was already right, and
+// never mentions that this endpoint cannot serve that family at all.
+func TestEncodeRefusesAnNRFEPDTargetInsteadOfBlamingThePage(t *testing.T) {
+	handler := New(Config{Logf: func(string, ...any) {}})
+
+	for _, query := range []string{
+		"?device=NRF_EPD_C1F8",               // resolved from the name
+		"?device=NRF_EPD_C1F8&family=nrfepd", // said outright
+		"?device=anything&family=nrfepd",     // said outright about an unrecognisable name
+	} {
+		response := request(t, handler, "/v1/encode"+query, testScene)
+		if response.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400: %s", query, response.Code, response.Body.String())
+			continue
+		}
+		var body map[string]string
+		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+			t.Errorf("%s: %v", query, err)
+			continue
+		}
+		if body["code"] != "size-unknown" {
+			t.Errorf("%s: code = %q, want size-unknown", query, body["code"])
+		}
+		// The message has to point somewhere, or it is the old error with a
+		// new name on it.
+		if !strings.Contains(body["error"], "/v1/display") {
+			t.Errorf("%s: error %q does not say where to go instead", query, body["error"])
+		}
+		if strings.Contains(body["error"], "296x128") {
+			t.Errorf("%s: error %q still blames the page's size", query, body["error"])
+		}
+	}
+}
+
+// A Gicisky target is what this endpoint is for, and it keeps working whether
+// the family is worked out from the name or given.
+func TestEncodeStillServesGicisky(t *testing.T) {
+	handler := New(Config{Logf: func(string, ...any) {}})
+	for _, query := range []string{"", "?family=gicisky", "?device=NEMR92943861"} {
+		response := request(t, handler, "/v1/encode"+query, testScene)
+		if response.Code != http.StatusOK || response.Body.Len() != display.GiciskyPayloadSize {
+			t.Errorf("%q: %d, %d bytes: %s", query, response.Code, response.Body.Len(), response.Body.String())
+		}
+	}
+}
+
 func TestInvalidSceneReturnsJSONError(t *testing.T) {
 	handler := New(Config{Logf: func(string, ...any) {}})
 	response := request(t, handler, "/v1/render", `{"version":1,"root":{"type":"rectangle","colour":"red"}}`)
