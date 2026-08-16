@@ -312,12 +312,15 @@ func (d *Driver) SetModeWithRetry(ctx context.Context, now func() time.Time, mod
 
 // retrying runs an attempt until one succeeds or they run out.
 //
-// A tag that has just been disconnected takes a while to advertise again, and
-// how long is not steady: measured on 2026-08-17, the same tag came back after
-// 6s, 18s and 12s. A single scan is 15s, so one attempt decides whether the
-// tag exists by looking during a window it may well be silent through — which
-// is what happened to `inkwire mode`, the one entry point that used to reach
-// the radio without this.
+// A scan that finds nothing is not evidence that the tag is not there. On
+// 2026-08-17 `inkwire mode` reported no tag while that tag sat on the desk and
+// answered a scan seconds later — a whole 15s scan, not a clipped one. How
+// often that happens is not known here, and the first attempt to measure it
+// produced numbers that turned out to be the sampling period rather than the
+// tag. Twelve mode changes since have all found it first time. Once is enough:
+// what a single scan proves is that it saw nothing, which is a different claim
+// from the tag being absent, and only this one entry point used to confuse the
+// two.
 func (d *Driver) retrying(ctx context.Context, attempt func() error) error {
 	attempts := d.Attempts
 	if attempts <= 0 {

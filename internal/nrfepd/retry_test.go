@@ -7,29 +7,27 @@ import (
 	"time"
 )
 
-// slowestReappearance is how long the tag took to advertise again after a mode
-// change disconnected it, measured on 2026-08-17 over three runs: 6s, 18s and
-// 12s. The spread is the point rather than the maximum — a 15s scan lands on
-// either side of it depending on the run, so whether a single attempt finds
-// the tag is close to a coin toss.
-const slowestReappearance = 18 * time.Second
-
-// One attempt cannot decide that a tag is absent, because the scan it decides
-// on is shorter than the tag's own silence. The budget across attempts has to
-// outlast that silence.
-func TestTheRetryBudgetOutlastsATagsSilence(t *testing.T) {
-	if DefaultScanTimeout > slowestReappearance {
-		t.Skip("a single scan now covers the measured silence; this test guards the case where it does not")
+// A single scan has been seen to miss a tag that was present: on 2026-08-17 an
+// `inkwire mode` gave up after its full 15s while the tag answered a scan
+// seconds afterwards. So the budget has to be more than one scan — not because
+// the silence has been measured, but because it has been observed to outlast
+// one look at least once.
+//
+// It is worth saying what is not known. An attempt to measure how long a tag
+// stays quiet after a disconnect polled it with repeated short scans and
+// reported 6s, 18s and 12s; every one of those is a multiple of that poll's own
+// period, because `inkwire scan` sweeps both families in turn and so spends
+// twice its timeout per call. Those numbers described the measurement. They are
+// not used here, and no constant in this package claims to know that duration.
+func TestTheRetryBudgetIsMoreThanASingleScan(t *testing.T) {
+	if DefaultAttempts < 2 {
+		t.Fatalf("attempts = %d leaves no second look for a scan that saw nothing", DefaultAttempts)
 	}
 	budget := time.Duration(DefaultAttempts)*DefaultScanTimeout +
 		time.Duration(DefaultAttempts-1)*DefaultRetryDelay
-	if budget <= slowestReappearance {
-		t.Errorf("%d attempts of %s with %s between them allow %s, "+
-			"which does not outlast the %s a tag was measured to stay silent",
-			DefaultAttempts, DefaultScanTimeout, DefaultRetryDelay, budget, slowestReappearance)
-	}
-	if DefaultAttempts < 2 {
-		t.Errorf("attempts = %d leaves no second look for a scan that misses the advertising window", DefaultAttempts)
+	if budget <= DefaultScanTimeout {
+		t.Errorf("%d attempts of %s with %s between them allow %s, no more than the single scan that was seen to miss",
+			DefaultAttempts, DefaultScanTimeout, DefaultRetryDelay, budget)
 	}
 }
 
