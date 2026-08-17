@@ -2,6 +2,8 @@ module github.com/xwvike/inkwire
 
 go 1.23.8
 
+toolchain go1.26.5
+
 require (
 	golang.org/x/text v0.28.0
 	tinygo.org/x/bluetooth v0.15.0
