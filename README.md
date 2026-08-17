@@ -127,15 +127,35 @@ staying connected 30s while the panel refreshes; disconnecting now would cancel 
 | `-settle` | 30 s default. Disconnecting early cancels the draw. 60 s for large or BWR panels |
 | Between writes | ≥45 s to one tag; 26 s fails — the tag refuses connections while refreshing |
 
-Reliability tracks RSSI, not frame count:
+RSSI belongs to the whole link — the tag's transmitter, both antennas, the path
+and the receiver — so the distances below are one adapter's reach and not the
+tags' limit. Measured 2026-08-17 against a Realtek RTL8761BU dongle (USB
+`0bda:8771`, Bluetooth 5.1, integrated antenna, USB 2.0 full speed), tags
+standing upright with a clear line of sight:
 
-| RSSI | 39-frame page |
-|---|---|
-| −88 dBm | 0/8 |
-| −50 dBm | 12/12 |
+| Distance | Gicisky | EPD-nRF5 | Pushes |
+|---|---|---|---|
+| 1 m | −66 dBm | −68 dBm | 4/4 |
+| 2 m | −74 dBm | −78 dBm | 2/2 |
+| 3 m | −76 dBm | −80 dBm | 2/2 |
+| 5 m | −80 dBm | −86 dBm | 2/2 |
 
-A weak link surfaces as `le-connection-abort-by-local` at connect, a missing
-config reply, or `ATT error: 0x0e` at a random frame. Check RSSI first.
+A card with a better receiver and external antennas — an AX210, say — reads
+higher at the same distance and works at the same reading further away. Read the
+dBm column, not the metres.
+
+Transfer time does not follow RSSI: 18–29 s Gicisky and 40–48 s EPD-nRF5 across
+that whole 18 dB span, for 21-frame and 40-frame pages alike.
+
+Orientation is worth about 12 dB. One tag in one spot read −80 dBm lying flat
+and −68 dBm standing up, which is the difference between 1 m and 4 m. Stand
+tags up before moving them closer.
+
+An earlier session recorded 0/8 at −88 dBm. Nothing since reproduces a cliff
+there — −86 dBm is 2/2 — so it stands as an observation rather than a threshold.
+
+Failure looks like `le-connection-abort-by-local` at connect, a missing config
+reply, or `ATT error: 0x0e` at a random frame.
 
 ### Clock and calendar
 

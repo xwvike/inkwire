@@ -123,14 +123,24 @@ staying connected 30s while the panel refreshes; disconnecting now would cancel 
 | `-settle` | 默认 30 秒。提前断开取消绘制。大屏或 BWR 用 60 秒 |
 | 写入间隔 | 同一标签 ≥45 秒；26 秒失败——刷新期间标签拒绝连接 |
 
-可靠性取决于 RSSI，与帧数无关：
+RSSI 属于整条链路——标签的发射、两端天线、路径与接收机——所以下表的距离是某一个适配器能跑多远，不是标签的极限。实测于 2026-08-17，接收端为 Realtek RTL8761BU dongle（USB `0bda:8771`，蓝牙 5.1，内置天线，USB 2.0 全速），标签立放且视距无遮挡：
 
-| RSSI | 39 帧页面 |
-|---|---|
-| −88 dBm | 0/8 |
-| −50 dBm | 12/12 |
+| 距离 | Gicisky | EPD-nRF5 | 推送 |
+|---|---|---|---|
+| 1 m | −66 dBm | −68 dBm | 4/4 |
+| 2 m | −74 dBm | −78 dBm | 2/2 |
+| 3 m | −76 dBm | −80 dBm | 2/2 |
+| 5 m | −80 dBm | −86 dBm | 2/2 |
 
-弱链路表现为连接阶段 `le-connection-abort-by-local`、缺少 config 回复、或随机帧 `ATT error: 0x0e`。先查 RSSI。
+接收机更好、带外置天线的网卡（比如 AX210）在同一距离上读数更高，在同一读数下能跑得更远。看 dBm 列，不是米数。
+
+耗时不跟 RSSI 走：整个 18 dB 区间内，Gicisky 18–29 秒，EPD-nRF5 40–48 秒，21 帧与 40 帧页面同样如此。
+
+姿势约值 12 dB。同一标签在同一位置，躺平读 −80 dBm，立起读 −68 dBm，相当于 1 m 与 4 m 之差。先把标签立起来，再考虑搬近。
+
+更早一次运行在 −88 dBm 记录到 0/8。此后没有复现出那里存在悬崖——−86 dBm 是 2/2——所以它作为一条观察保留，不作为阈值。
+
+失败表现为连接阶段 `le-connection-abort-by-local`、缺少 config 回复、或随机帧 `ATT error: 0x0e`。
 
 ### 时钟与日历
 
