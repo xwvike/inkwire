@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to build and release
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  # workflow_dispatch has no ref name to take this from.
+  VERSION: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
+
+  build:
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, goos: linux, goarch: amd64, cgo: "0"}
+          - {os: ubuntu-latest, goos: linux, goarch: arm64, cgo: "0"}
+          - {os: ubuntu-latest, goos: windows, goarch: amd64, cgo: "0"}
+          # darwin needs cgo for CoreBluetooth, so it cannot be built anywhere
+          # but a macOS runner. One arm64 runner produces both architectures,
+          # because Apple's clang is a cross compiler.
+          - {os: macos-14, goos: darwin, goarch: arm64, cgo: "1"}
+          - {os: macos-14, goos: darwin, goarch: amd64, cgo: "1"}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.VERSION }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: ${{ matrix.cgo }}
+        run: |
+          set -eu
+          name="inkwire_${VERSION}_${GOOS}_${GOARCH}"
+          mkdir -p "staging/$name" dist
+          if [ "$GOOS" = windows ]; then
+            binary="staging/$name/inkwire.exe"
+          else
+            binary="staging/$name/inkwire"
+          fi
+          go build -trimpath -ldflags="-s -w" -o "$binary" ./cmd/inkwire
+          cp README.md README.zh-CN.md LICENSE "staging/$name/"
+          if [ "$GOOS" = windows ]; then
+            (cd staging && zip -qr "../dist/$name.zip" "$name")
+          else
+            tar -C staging -czf "dist/$name.tar.gz" "$name"
+          fi
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: inkwire_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.VERSION }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          set -eu
+          cd artifacts
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
+      # gh ships on the runner, so the release is cut without a third-party
+      # action holding the token that can write to this repository.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gh release create "$VERSION" artifacts/* --title "$VERSION" --generate-notes

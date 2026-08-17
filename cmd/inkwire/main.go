@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/xwvike/inkwire"
 	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/gicisky"
 	"github.com/xwvike/inkwire/internal/nrfepd"
@@ -50,11 +51,40 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runMode(ctx, args[1:], logger, stderr)
 	case "serve":
 		return runServe(ctx, args[1:], logger, stderr)
+	case "schema":
+		return runSchema(args[1:], stdout, stderr)
 	default:
 		// Preserve the original raw-payload invocation while the JSON commands
 		// become the normal user-facing path.
 		return runPushPayload(ctx, args, logger, stderr)
 	}
+}
+
+// runSchema prints the Scene Schema reference the binary carries. Whatever is
+// driving this program needs to know what a scene document may contain, and
+// asking the program it is already running beats finding the right version of a
+// file on the web.
+func runSchema(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("schema", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	lang := flags.String("lang", "en", "which translation to print: en or zh")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "usage: inkwire schema [-lang en|zh]")
+		return 2
+	}
+	switch strings.ToLower(*lang) {
+	case "en":
+		fmt.Fprint(stdout, inkwire.Schema)
+	case "zh":
+		fmt.Fprint(stdout, inkwire.SchemaChinese)
+	default:
+		fmt.Fprintf(stderr, "unknown language %q: use en or zh\n", *lang)
+		return 2
+	}
+	return 0
 }
 
 func runServe(ctx context.Context, args []string, logger *log.Logger, stderr io.Writer) int {
@@ -500,4 +530,5 @@ func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "       inkwire mode [-device MAC-or-name] [-mode picture|calendar|clock] [-week-start sunday|monday]")
 	fmt.Fprintln(writer, "       inkwire serve [-listen address] [-device MAC-or-name] [-assets directory]")
 	fmt.Fprintln(writer, "       inkwire push-payload [MAC-or-name] <payload.bin>")
+	fmt.Fprintln(writer, "       inkwire schema [-lang en|zh]")
 }

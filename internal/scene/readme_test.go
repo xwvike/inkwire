@@ -10,10 +10,22 @@ import (
 	"testing"
 )
 
-// readmes are the two documents describing this schema. They are kept as
+// readmes are the schema reference in its two translations. They are kept as
 // translations of one another, so an example that decodes in one and not the
 // other is a translation that changed the document rather than the prose.
-var readmes = []string{"../../README.md", "../../README.zh-CN.md"}
+//
+// The name is what it was when this file only had the READMEs to check; the
+// node model moved to SCHEMA.md when the usage documents were cut down to what
+// somebody needs in order to run the thing.
+var readmes = []string{"../../SCHEMA.md", "../../SCHEMA.zh-CN.md"}
+
+// pairs are the translated pairs this package checks against each other. The
+// usage documents carry scene examples too, and an example that does not decode
+// is just as wrong there.
+var pairs = [][]string{
+	readmes,
+	{"../../README.md", "../../README.zh-CN.md"},
+}
 
 // The README documents this schema node by node, which means it is full of
 // documents that either decode or are wrong. A reader who copies one and gets
@@ -23,35 +35,37 @@ var readmes = []string{"../../README.md", "../../README.zh-CN.md"}
 // Examples that elide part of their content with "..." are skipped: they are
 // showing a shape, not offering a document.
 func TestReadmeNodeExamplesDecode(t *testing.T) {
-	for _, path := range readmes {
-		t.Run(path, func(t *testing.T) {
-			checked := 0
-			for _, body := range jsonBlocks(t, path) {
-				var probe map[string]any
-				if json.Unmarshal([]byte(body), &probe) != nil {
-					continue
+	total := 0
+	for _, pair := range pairs {
+		for _, path := range pair {
+			t.Run(path, func(t *testing.T) {
+				for _, body := range jsonBlocks(t, path) {
+					var probe map[string]any
+					if json.Unmarshal([]byte(body), &probe) != nil {
+						continue
+					}
+					if _, isNode := probe["type"].(string); !isNode {
+						continue
+					}
+					total++
+					_, err := (Decoder{}).decodeNode([]byte(body), "readme")
+					// An example is allowed to name a picture the repository
+					// does not carry; that says nothing about whether the
+					// document is well formed.
+					if errors.Is(err, fs.ErrNotExist) {
+						continue
+					}
+					if err != nil {
+						t.Errorf("example does not decode: %v\n%s", err, body)
+					}
 				}
-				if _, isNode := probe["type"].(string); !isNode {
-					continue
-				}
-				checked++
-				_, err := (Decoder{}).decodeNode([]byte(body), "readme")
-				// An example is allowed to name a picture the repository does
-				// not carry; that says nothing about whether the document is
-				// well formed.
-				if errors.Is(err, fs.ErrNotExist) {
-					continue
-				}
-				if err != nil {
-					t.Errorf("example does not decode: %v\n%s", err, body)
-				}
-			}
-			// If the extractor ever stops matching, it would pass by finding
-			// nothing.
-			if checked < 15 {
-				t.Errorf("found only %d node examples, which cannot be right", checked)
-			}
-		})
+			})
+		}
+	}
+	// If the extractor ever stops matching, it would pass by finding nothing.
+	if total < 30 {
+		t.Errorf("found only %d node examples across %d documents, which cannot be right",
+			total, len(pairs)*2)
 	}
 }
 
@@ -60,16 +74,19 @@ func TestReadmeNodeExamplesDecode(t *testing.T) {
 // reader copies rather than reads, and a schema that differs between
 // translations is two schemas.
 func TestBothReadmesCarryTheSameExamples(t *testing.T) {
-	first := jsonBlocks(t, readmes[0])
-	for _, path := range readmes[1:] {
-		other := jsonBlocks(t, path)
-		if len(other) != len(first) {
-			t.Fatalf("%s has %d examples, %s has %d", path, len(other), readmes[0], len(first))
-		}
-		for index := range first {
-			if other[index] != first[index] {
-				t.Errorf("example %d differs between %s and %s:\n%s\n---\n%s",
-					index, readmes[0], path, first[index], other[index])
+	for _, pair := range pairs {
+		first := jsonBlocks(t, pair[0])
+		for _, path := range pair[1:] {
+			other := jsonBlocks(t, path)
+			if len(other) != len(first) {
+				t.Errorf("%s has %d examples, %s has %d", path, len(other), pair[0], len(first))
+				continue
+			}
+			for index := range first {
+				if other[index] != first[index] {
+					t.Errorf("example %d differs between %s and %s:\n%s\n---\n%s",
+						index, pair[0], path, first[index], other[index])
+				}
 			}
 		}
 	}
@@ -79,18 +96,20 @@ func TestBothReadmesCarryTheSameExamples(t *testing.T) {
 // apart is how one language quietly stops documenting something.
 func TestBothReadmesHaveTheSameSections(t *testing.T) {
 	headings := regexp.MustCompile(`(?m)^(#{1,3}) `)
-	counts := map[string]int{}
-	for _, path := range readmes {
-		source, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
+	for _, pair := range pairs {
+		counts := map[string]int{}
+		for _, path := range pair {
+			source, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			counts[path] = len(headings.FindAllString(string(source), -1))
 		}
-		counts[path] = len(headings.FindAllString(string(source), -1))
-	}
-	for _, path := range readmes[1:] {
-		if counts[path] != counts[readmes[0]] {
-			t.Errorf("%s has %d headings, %s has %d",
-				path, counts[path], readmes[0], counts[readmes[0]])
+		for _, path := range pair[1:] {
+			if counts[path] != counts[pair[0]] {
+				t.Errorf("%s has %d headings, %s has %d",
+					path, counts[path], pair[0], counts[pair[0]])
+			}
 		}
 	}
 }
