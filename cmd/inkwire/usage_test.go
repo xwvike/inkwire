@@ -68,16 +68,59 @@ func TestAnUnknownOptionIsRefusedRatherThanOpened(t *testing.T) {
 
 // Asking a command for its flags is not a failure either, and the flag package
 // reports it the same way it reports a genuine parse error.
-func TestCommandHelpExitsZeroButBadFlagsDoNot(t *testing.T) {
+//
+// What it prints matters as much as where it exits. Go's own text is
+// "Usage of push:" followed by the flags, which names neither the program nor
+// the arguments that are not flags — a reader of `inkwire push -h` would not
+// learn that it wants a scene document. Each command has a line saying the
+// whole shape, and this is what checks that -h is given that line.
+func TestEveryCommandAnswersHelpWithItsOwnUsage(t *testing.T) {
+	commands := []string{"push-payload"}
 	for command := range flagSets(t) {
+		commands = append(commands, command)
+	}
+	for _, command := range commands {
 		var out, errOut bytes.Buffer
 		if code := run([]string{command, "-h"}, &out, &errOut); code != 0 {
-			t.Errorf("%s -h exited %d", command, code)
+			t.Errorf("%s -h exited %d: %s", command, code, errOut.String())
+			continue
+		}
+		// Help goes to stdout: it is the answer, not a diagnostic.
+		if errOut.Len() != 0 {
+			t.Errorf("%s -h wrote to stderr: %q", command, errOut.String())
+		}
+		first, _, _ := strings.Cut(out.String(), "\n")
+		if want := "usage: inkwire " + command; !strings.HasPrefix(first, want) {
+			t.Errorf("%s -h begins %q, want a line starting %q", command, first, want)
 		}
 	}
+
 	var out, errOut bytes.Buffer
 	if code := run([]string{"render", "-nosuchflag"}, &out, &errOut); code == 0 {
 		t.Error("an unknown flag was accepted")
+	}
+}
+
+// The usage a command prints when it is asked, and the usage it prints when the
+// arguments are wrong, are the same sentence about the same command. They used
+// to be two: one written by hand for the argument-count case, and Go's default
+// for -h.
+func TestHelpAndTheArgumentErrorAgree(t *testing.T) {
+	// Commands that refuse an empty invocation, with what they refuse it over.
+	for _, command := range []string{"render", "encode", "push", "push-payload"} {
+		var help, ignored bytes.Buffer
+		run([]string{command, "-h"}, &help, &ignored)
+
+		var out, errOut bytes.Buffer
+		if code := run([]string{command}, &out, &errOut); code != 2 {
+			t.Errorf("%s with no arguments exited %d, want 2", command, code)
+		}
+		// The complaint belongs on stderr, and has to open with the same line.
+		helpFirst, _, _ := strings.Cut(help.String(), "\n")
+		errFirst, _, _ := strings.Cut(errOut.String(), "\n")
+		if helpFirst != errFirst {
+			t.Errorf("%s: -h says %q, the argument error says %q", command, helpFirst, errFirst)
+		}
 	}
 }
 

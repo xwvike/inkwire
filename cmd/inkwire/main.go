@@ -52,13 +52,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "scan":
 		return runScan(ctx, args[1:], logger, stdout, stderr)
 	case "push":
-		return runPushScene(ctx, args[1:], logger, stderr)
+		return runPushScene(ctx, args[1:], logger, stdout, stderr)
 	case "push-payload":
-		return runPushPayload(ctx, args[1:], logger, stderr)
+		return runPushPayload(ctx, args[1:], logger, stdout, stderr)
 	case "mode":
-		return runMode(ctx, args[1:], logger, stderr)
+		return runMode(ctx, args[1:], logger, stdout, stderr)
 	case "serve":
-		return runServe(ctx, args[1:], logger, stderr)
+		return runServe(ctx, args[1:], logger, stdout, stderr)
 	case "schema":
 		return runSchema(args[1:], stdout, stderr)
 	default:
@@ -71,7 +71,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			printUsage(stderr)
 			return 2
 		}
-		return runPushPayload(ctx, args, logger, stderr)
+		return runPushPayload(ctx, args, logger, stdout, stderr)
 	}
 }
 
@@ -79,7 +79,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 // the caller should stop. Asking for help is not a failure: the flag package
 // prints what was asked for and then reports ErrHelp, and exiting non-zero for
 // it makes `inkwire render -h` look like a command that went wrong.
-func parseFlags(flags *flag.FlagSet, args []string) (int, bool) {
+func parseFlags(flags *flag.FlagSet, args []string, help io.Writer) (int, bool) {
+	// The flag package answers -h itself, but it prints wherever parse errors
+	// go. Help is what was asked for rather than a complaint about what was
+	// typed, so it is answered here and written to help instead.
+	for _, arg := range args {
+		switch arg {
+		case "-h", "-help", "--help":
+			flags.SetOutput(help)
+			flags.Usage()
+			return 0, false
+		}
+	}
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0, false
@@ -87,6 +98,22 @@ func parseFlags(flags *flag.FlagSet, args []string) (int, bool) {
 		return 2, false
 	}
 	return 0, true
+}
+
+// command builds a flag set that knows the shape of its whole invocation.
+//
+// Go prints "Usage of push:" followed by the flags alone, which names neither
+// the program nor the arguments that are not flags. Every command here already
+// had the right line written for the case where the argument count was wrong;
+// this is that same line, wired to -h as well, so the two cannot disagree.
+func command(name, usage string, stderr io.Writer) *flag.FlagSet {
+	flags := flag.NewFlagSet(name, flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.Usage = func() {
+		fmt.Fprintf(flags.Output(), "usage: %s\n", usage)
+		flags.PrintDefaults()
+	}
+	return flags
 }
 
 // version is stamped by the release build. Anything built another way leaves it
@@ -136,14 +163,13 @@ func buildVersion() string {
 // asking the program it is already running beats finding the right version of a
 // file on the web.
 func runSchema(args []string, stdout, stderr io.Writer) int {
-	flags := flag.NewFlagSet("schema", flag.ContinueOnError)
-	flags.SetOutput(stderr)
+	flags := command("schema", "inkwire schema [-lang en|zh]", stderr)
 	lang := flags.String("lang", "en", "which translation to print: en or zh")
-	if code, ok := parseFlags(flags, args); !ok {
+	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
 	}
 	if flags.NArg() != 0 {
-		fmt.Fprintln(stderr, "usage: inkwire schema [-lang en|zh]")
+		flags.Usage()
 		return 2
 	}
 	switch strings.ToLower(*lang) {
@@ -158,17 +184,16 @@ func runSchema(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runServe(ctx context.Context, args []string, logger *log.Logger, stderr io.Writer) int {
-	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
-	flags.SetOutput(stderr)
+func runServe(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
+	flags := command("serve", "inkwire serve [-listen 127.0.0.1:8080] [-device MAC-or-name] [-assets directory]", stderr)
 	address := flags.String("listen", "127.0.0.1:8080", "HTTP listen address")
 	target := flags.String("device", gicisky.TargetAddress, "default BLE address or advertised name")
 	assets := flags.String("assets", ".", "directory available to relative image sources")
-	if code, ok := parseFlags(flags, args); !ok {
+	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
 	}
 	if flags.NArg() != 0 {
-		fmt.Fprintln(stderr, "usage: inkwire serve [-listen 127.0.0.1:8080] [-device MAC-or-name] [-assets directory]")
+		flags.Usage()
 		return 2
 	}
 	if err := requireLoopback(*address); err != nil {
@@ -190,14 +215,13 @@ func runServe(ctx context.Context, args []string, logger *log.Logger, stderr io.
 }
 
 func runScan(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
-	flags := flag.NewFlagSet("scan", flag.ContinueOnError)
-	flags.SetOutput(stderr)
+	flags := command("scan", "inkwire scan [-timeout 15s]", stderr)
 	timeout := flags.Duration("timeout", gicisky.DefaultScanTimeout, "how long to listen for advertisements")
-	if code, ok := parseFlags(flags, args); !ok {
+	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
 	}
 	if flags.NArg() != 0 {
-		fmt.Fprintln(stderr, "usage: inkwire scan [-timeout 15s]")
+		flags.Usage()
 		return 2
 	}
 	if !enableBluetooth(logger) {
@@ -269,14 +293,13 @@ func printDevices(writer io.Writer, devices []gicisky.FoundDevice, others []nrfe
 }
 
 func runRender(args []string, stdout, stderr io.Writer) int {
-	flags := flag.NewFlagSet("render", flag.ContinueOnError)
-	flags.SetOutput(stderr)
+	flags := command("render", "inkwire render [-o preview.png] <scene.json>", stderr)
 	output := flags.String("o", "", "PNG output path")
-	if code, ok := parseFlags(flags, args); !ok {
+	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
 	}
 	if flags.NArg() != 1 {
-		fmt.Fprintln(stderr, "usage: inkwire render [-o preview.png] <scene.json>")
+		flags.Usage()
 		return 2
 	}
 	source := flags.Arg(0)
@@ -309,14 +332,13 @@ func runRender(args []string, stdout, stderr io.Writer) int {
 }
 
 func runEncode(args []string, stdout, stderr io.Writer) int {
-	flags := flag.NewFlagSet("encode", flag.ContinueOnError)
-	flags.SetOutput(stderr)
+	flags := command("encode", "inkwire encode [-o payload.bin] <scene.json>", stderr)
 	output := flags.String("o", "", "payload output path")
-	if code, ok := parseFlags(flags, args); !ok {
+	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
 	}
 	if flags.NArg() != 1 {
-		fmt.Fprintln(stderr, "usage: inkwire encode [-o payload.bin] <scene.json>")
+		flags.Usage()
 		return 2
 	}
 	source := flags.Arg(0)
@@ -342,18 +364,17 @@ func runEncode(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runPushScene(ctx context.Context, args []string, logger *log.Logger, stderr io.Writer) int {
-	flags := flag.NewFlagSet("push", flag.ContinueOnError)
-	flags.SetOutput(stderr)
+func runPushScene(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
+	flags := command("push", "inkwire push [-device MAC-or-name] [-family auto|gicisky|nrfepd] [-settle 30s] <scene.json>", stderr)
 	target := flags.String("device", gicisky.TargetAddress, "BLE address or advertised name")
 	family := flags.String("family", "auto", "tag family: auto, gicisky or nrfepd")
 	settle := flags.Duration("settle", nrfepd.DefaultSettle,
 		"nrfepd only: how long to stay connected while the panel refreshes; leaving early cancels it")
-	if code, ok := parseFlags(flags, args); !ok {
+	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
 	}
 	if flags.NArg() != 1 {
-		fmt.Fprintln(stderr, "usage: inkwire push [-device MAC-or-name] [-family auto|gicisky|nrfepd] [-settle 30s] <scene.json>")
+		flags.Usage()
 		return 2
 	}
 	chosen, err := resolveFamily(*family, *target)
@@ -396,18 +417,17 @@ const (
 // tag that was keeping time; without this there is no way back that does not
 // involve the vendor's web tool, and a program that can only take a capability
 // away is a bad guest on somebody's hardware.
-func runMode(ctx context.Context, args []string, logger *log.Logger, stderr io.Writer) int {
-	flags := flag.NewFlagSet("mode", flag.ContinueOnError)
-	flags.SetOutput(stderr)
+func runMode(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
+	flags := command("mode", "inkwire mode [-device MAC-or-name] [-mode picture|calendar|clock] [-week-start sunday|monday] [-settle 30s]", stderr)
 	target := flags.String("device", "", "BLE address or advertised name")
 	mode := flags.String("mode", "calendar", "what the tag draws for itself: picture, calendar or clock")
 	weekStart := flags.String("week-start", "", "first column of a calendar week: sunday or monday; unset leaves the tag's own setting alone")
 	settle := flags.Duration("settle", nrfepd.DefaultSettle, "how long to stay connected while the panel redraws")
-	if code, ok := parseFlags(flags, args); !ok {
+	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
 	}
 	if flags.NArg() != 0 {
-		fmt.Fprintln(stderr, "usage: inkwire mode [-device MAC-or-name] [-mode picture|calendar|clock] [-week-start sunday|monday] [-settle 30s]")
+		flags.Usage()
 		return 2
 	}
 	chosen, err := nrfepd.ParseMode(*mode)
@@ -497,7 +517,18 @@ func pushNRFEPD(ctx context.Context, target string, frame *display.Frame, settle
 	return 0
 }
 
-func runPushPayload(ctx context.Context, args []string, logger *log.Logger, stderr io.Writer) int {
+func runPushPayload(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
+	const usage = "inkwire push-payload [MAC-or-name] <payload.bin>"
+	// This command reads its arguments positionally rather than through a flag
+	// set, so nothing else here would recognise a request for help — and taking
+	// -h for a filename is exactly what this release set out to stop.
+	for _, arg := range args {
+		switch arg {
+		case "-h", "-help", "--help":
+			fmt.Fprintf(stdout, "usage: %s\n", usage)
+			return 0
+		}
+	}
 	var target, path string
 	switch len(args) {
 	case 1:
@@ -505,7 +536,7 @@ func runPushPayload(ctx context.Context, args []string, logger *log.Logger, stde
 	case 2:
 		target, path = args[0], args[1]
 	default:
-		fmt.Fprintln(stderr, "usage: inkwire push-payload [MAC-or-name] <payload.bin>")
+		fmt.Fprintf(stderr, "usage: %s\n", usage)
 		return 2
 	}
 	payload, err := os.ReadFile(path)

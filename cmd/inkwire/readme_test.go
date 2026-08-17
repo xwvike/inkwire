@@ -20,9 +20,12 @@ func flagSets(t *testing.T) map[string]map[string]bool {
 		t.Fatal(err)
 	}
 	// Each subcommand names its flag set after itself, so splitting on the
-	// constructor gives one section per command.
-	sections := regexp.MustCompile(`flag\.NewFlagSet\("([\w-]+)"`).Split(string(source), -1)
-	names := regexp.MustCompile(`flag\.NewFlagSet\("([\w-]+)"`).FindAllStringSubmatch(string(source), -1)
+	// constructor gives one section per command. The constructor is this
+	// package's own `command`, which is flag.NewFlagSet plus the usage line -h
+	// answers with.
+	constructor := regexp.MustCompile(`command\("([\w-]+)"`)
+	sections := constructor.Split(string(source), -1)
+	names := constructor.FindAllStringSubmatch(string(source), -1)
 	declaration := regexp.MustCompile(`flags\.(?:String|Int|Bool|Duration|Float64)\("([\w-]+)"`)
 
 	sets := map[string]map[string]bool{}
