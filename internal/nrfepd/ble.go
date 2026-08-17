@@ -148,8 +148,9 @@ func (d *Driver) Find(ctx context.Context) (FoundDevice, error) {
 			return FoundDevice{}, fmt.Errorf("no %s tag found (target %q)", NamePrefix, d.Target)
 		}
 	case <-scanCtx.Done():
-		_ = d.Adapter.StopScan()
-		<-scanDone
+		if err := stopScanning(d.Adapter.StopScan, scanDone); err != nil {
+			return FoundDevice{}, fmt.Errorf("no %s tag found (target %q), and %w", NamePrefix, d.Target, err)
+		}
 		return FoundDevice{}, fmt.Errorf("no %s tag found (target %q): %w", NamePrefix, d.Target, scanCtx.Err())
 	}
 }
@@ -184,8 +185,7 @@ func (d *Driver) ScanAll(ctx context.Context) ([]FoundDevice, error) {
 	scanCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	<-scanCtx.Done()
-	_ = d.Adapter.StopScan()
-	if err := <-scanDone; err != nil {
+	if err := stopScanning(d.Adapter.StopScan, scanDone); err != nil {
 		return nil, fmt.Errorf("scan: %w", err)
 	}
 
@@ -367,4 +367,43 @@ func (t *bleTransport) Write(frame []byte) error {
 		return fmt.Errorf("short write: %d of %d bytes", written, len(frame))
 	}
 	return nil
+}
+
+// stopScanRetry is how often the scan is asked again to stop, and
+// stopScanLimit is how long that is worth doing before giving up on it.
+const (
+	stopScanRetry = 100 * time.Millisecond
+	stopScanLimit = 5 * time.Second
+)
+
+// stopScanning ends a scan and waits for it to say that it has ended.
+//
+// Asking more than once is not belt and braces. StopScan before Scan has begun
+// does nothing at all, and the scan that starts a moment later has nobody left
+// to stop it: the wait never returns, and whoever called this holds the adapter
+// for the life of the process. The window is wide open whenever the context is
+// already cancelled on the way in — which for the HTTP service is every time a
+// client hangs up mid-request, because /v1/devices scans both families in turn
+// and the second scan begins with a context that is already done. One abandoned
+// request wedged the service until it was restarted.
+//
+// The waiting is bounded for the same reason. A scan that will not stop is bad;
+// saying so lets the caller release the adapter and report a failure, which is
+// recoverable. Blocking here is not.
+//
+// stop is passed as a function rather than an adapter so that this can be
+// exercised without a radio.
+func stopScanning(stop func() error, done <-chan error) error {
+	deadline := time.Now().Add(stopScanLimit)
+	for {
+		_ = stop()
+		select {
+		case err := <-done:
+			return err
+		case <-time.After(stopScanRetry):
+		}
+		if time.Now().After(deadline) {
+			return errors.New("the scan did not stop when it was asked to")
+		}
+	}
 }
