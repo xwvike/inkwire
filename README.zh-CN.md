@@ -24,6 +24,8 @@ Scene Schema → 电子纸标签。两个家族，一个渲染器。
 | `inkwire serve [-listen ADDR] [-device NAME] [-assets DIR]` | HTTP 服务 |
 | `inkwire push-payload [NAME] <payload.bin>` | 写入原始 payload |
 | `inkwire schema [-lang en\|zh]` | 打印 Scene Schema 参考 |
+| `inkwire help` | 本列表；也可用 `-h`、`--help` |
+| `inkwire version` | 发布 tag，源码构建则给出提交号；也可用 `-v`、`--version` |
 
 ```
 $ inkwire scan

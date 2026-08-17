@@ -63,7 +63,9 @@ jobs:
           else
             binary="staging/$name/inkwire"
           fi
-          go build -trimpath -ldflags="-s -w" -o "$binary" ./cmd/inkwire
+          # The tag is stamped in so `inkwire version` names the release rather
+          # than the commit it happens to have been cut from.
+          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "$binary" ./cmd/inkwire
           cp README.md README.zh-CN.md LICENSE "staging/$name/"
           if [ "$GOOS" = windows ]; then
             (cd staging && zip -qr "../dist/$name.zip" "$name")

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -37,6 +39,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	switch args[0] {
+	case "help", "-h", "--help":
+		printUsage(stdout)
+		return 0
+	case "version", "-v", "--version":
+		fmt.Fprintln(stdout, buildVersion())
+		return 0
 	case "render":
 		return runRender(args[1:], stdout, stderr)
 	case "encode":
@@ -55,9 +63,72 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runSchema(args[1:], stdout, stderr)
 	default:
 		// Preserve the original raw-payload invocation while the JSON commands
-		// become the normal user-facing path.
+		// become the normal user-facing path. A leading dash is never a file
+		// somebody meant to send, though, and treating one as a payload path is
+		// how `inkwire --help` used to answer that it could not open --help.
+		if strings.HasPrefix(args[0], "-") {
+			fmt.Fprintf(stderr, "unknown option %q\n", args[0])
+			printUsage(stderr)
+			return 2
+		}
 		return runPushPayload(ctx, args, logger, stderr)
 	}
+}
+
+// parseFlags reads one command's flags, reporting the status to leave with when
+// the caller should stop. Asking for help is not a failure: the flag package
+// prints what was asked for and then reports ErrHelp, and exiting non-zero for
+// it makes `inkwire render -h` look like a command that went wrong.
+func parseFlags(flags *flag.FlagSet, args []string) (int, bool) {
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0, false
+		}
+		return 2, false
+	}
+	return 0, true
+}
+
+// version is stamped by the release build. Anything built another way leaves it
+// empty and is described by buildVersion from what the toolchain recorded.
+var version = ""
+
+// buildVersion says what this binary is, in the terms that actually identify
+// it. A release says its tag. A `go install ...@v1.2.3` says the version the
+// module proxy served. A build from a source tree says the commit, and says so
+// when that tree had uncommitted changes — because a bug report from a dirty
+// build otherwise names a commit that never produced this binary.
+func buildVersion() string {
+	if version != "" {
+		return version
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "unknown"
+	}
+	if v := info.Main.Version; v != "" && v != "(devel)" {
+		return v
+	}
+	var revision string
+	var modified bool
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			revision = setting.Value
+		case "vcs.modified":
+			modified = setting.Value == "true"
+		}
+	}
+	if revision == "" {
+		return "devel"
+	}
+	if len(revision) > 12 {
+		revision = revision[:12]
+	}
+	if modified {
+		return "devel-" + revision + "-dirty"
+	}
+	return "devel-" + revision
 }
 
 // runSchema prints the Scene Schema reference the binary carries. Whatever is
@@ -68,8 +139,8 @@ func runSchema(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("schema", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	lang := flags.String("lang", "en", "which translation to print: en or zh")
-	if err := flags.Parse(args); err != nil {
-		return 2
+	if code, ok := parseFlags(flags, args); !ok {
+		return code
 	}
 	if flags.NArg() != 0 {
 		fmt.Fprintln(stderr, "usage: inkwire schema [-lang en|zh]")
@@ -93,8 +164,8 @@ func runServe(ctx context.Context, args []string, logger *log.Logger, stderr io.
 	address := flags.String("listen", "127.0.0.1:8080", "HTTP listen address")
 	target := flags.String("device", gicisky.TargetAddress, "default BLE address or advertised name")
 	assets := flags.String("assets", ".", "directory available to relative image sources")
-	if err := flags.Parse(args); err != nil {
-		return 2
+	if code, ok := parseFlags(flags, args); !ok {
+		return code
 	}
 	if flags.NArg() != 0 {
 		fmt.Fprintln(stderr, "usage: inkwire serve [-listen 127.0.0.1:8080] [-device MAC-or-name] [-assets directory]")
@@ -122,8 +193,8 @@ func runScan(ctx context.Context, args []string, logger *log.Logger, stdout, std
 	flags := flag.NewFlagSet("scan", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	timeout := flags.Duration("timeout", gicisky.DefaultScanTimeout, "how long to listen for advertisements")
-	if err := flags.Parse(args); err != nil {
-		return 2
+	if code, ok := parseFlags(flags, args); !ok {
+		return code
 	}
 	if flags.NArg() != 0 {
 		fmt.Fprintln(stderr, "usage: inkwire scan [-timeout 15s]")
@@ -201,8 +272,8 @@ func runRender(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("render", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	output := flags.String("o", "", "PNG output path")
-	if err := flags.Parse(args); err != nil {
-		return 2
+	if code, ok := parseFlags(flags, args); !ok {
+		return code
 	}
 	if flags.NArg() != 1 {
 		fmt.Fprintln(stderr, "usage: inkwire render [-o preview.png] <scene.json>")
@@ -241,8 +312,8 @@ func runEncode(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("encode", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	output := flags.String("o", "", "payload output path")
-	if err := flags.Parse(args); err != nil {
-		return 2
+	if code, ok := parseFlags(flags, args); !ok {
+		return code
 	}
 	if flags.NArg() != 1 {
 		fmt.Fprintln(stderr, "usage: inkwire encode [-o payload.bin] <scene.json>")
@@ -278,8 +349,8 @@ func runPushScene(ctx context.Context, args []string, logger *log.Logger, stderr
 	family := flags.String("family", "auto", "tag family: auto, gicisky or nrfepd")
 	settle := flags.Duration("settle", nrfepd.DefaultSettle,
 		"nrfepd only: how long to stay connected while the panel refreshes; leaving early cancels it")
-	if err := flags.Parse(args); err != nil {
-		return 2
+	if code, ok := parseFlags(flags, args); !ok {
+		return code
 	}
 	if flags.NArg() != 1 {
 		fmt.Fprintln(stderr, "usage: inkwire push [-device MAC-or-name] [-family auto|gicisky|nrfepd] [-settle 30s] <scene.json>")
@@ -332,8 +403,8 @@ func runMode(ctx context.Context, args []string, logger *log.Logger, stderr io.W
 	mode := flags.String("mode", "calendar", "what the tag draws for itself: picture, calendar or clock")
 	weekStart := flags.String("week-start", "", "first column of a calendar week: sunday or monday; unset leaves the tag's own setting alone")
 	settle := flags.Duration("settle", nrfepd.DefaultSettle, "how long to stay connected while the panel redraws")
-	if err := flags.Parse(args); err != nil {
-		return 2
+	if code, ok := parseFlags(flags, args); !ok {
+		return code
 	}
 	if flags.NArg() != 0 {
 		fmt.Fprintln(stderr, "usage: inkwire mode [-device MAC-or-name] [-mode picture|calendar|clock] [-week-start sunday|monday] [-settle 30s]")
@@ -531,4 +602,5 @@ func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "       inkwire serve [-listen address] [-device MAC-or-name] [-assets directory]")
 	fmt.Fprintln(writer, "       inkwire push-payload [MAC-or-name] <payload.bin>")
 	fmt.Fprintln(writer, "       inkwire schema [-lang en|zh]")
+	fmt.Fprintln(writer, "       inkwire version")
 }

@@ -26,6 +26,8 @@ second download.
 | `inkwire serve [-listen ADDR] [-device NAME] [-assets DIR]` | HTTP service |
 | `inkwire push-payload [NAME] <payload.bin>` | Write a raw payload |
 | `inkwire schema [-lang en\|zh]` | Print the Scene Schema reference |
+| `inkwire help` | This list; also `-h`, `--help` |
+| `inkwire version` | Release tag, or the commit a source build came from; also `-v`, `--version` |
 
 ```
 $ inkwire scan
