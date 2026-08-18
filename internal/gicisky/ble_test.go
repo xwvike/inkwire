@@ -1,6 +1,7 @@
 package gicisky
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -162,6 +163,38 @@ func TestDriverMatchesTarget(t *testing.T) {
 				t.Fatalf("matches(%q, %q) = %v, want %v", test.deviceName, test.address, got, test.want)
 			}
 		})
+	}
+}
+
+func TestSelectIdentifiedRequiresAMatchedKnownAdvertisement(t *testing.T) {
+	advertised, _ := ParseAdvertisement([]byte{0x33, 0x1E, 0x81, 0x01, 0x40})
+	knownProfile, _ := LookupProfile(advertised.ID, advertised.Firmware)
+	known := FoundDevice{
+		Name:          "NEMR92943861",
+		Advertised:    advertised,
+		HasAdvertised: true,
+		Profile:       knownProfile,
+		Identified:    true,
+	}
+	selected, err := SelectIdentified([]FoundDevice{known}, TargetAddress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected.Profile.Width != 296 || selected.Profile.Height != 128 {
+		t.Fatalf("selected profile = %+v", selected.Profile)
+	}
+
+	_, err = SelectIdentified([]FoundDevice{{Name: TargetName}}, TargetName)
+	if err == nil || !strings.Contains(err.Error(), "no model advertisement") {
+		t.Fatalf("missing advertisement error = %v", err)
+	}
+
+	unknown := known
+	unknown.Advertised.ID = 0x3FFE
+	unknown.Identified = false
+	_, err = SelectIdentified([]FoundDevice{unknown}, TargetAddress)
+	if err == nil || !strings.Contains(err.Error(), "0x3FFE") {
+		t.Fatalf("unknown profile error = %v", err)
 	}
 }
 

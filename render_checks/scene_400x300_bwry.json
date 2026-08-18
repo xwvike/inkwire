@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "size": {"width": 400, "height": 300},
+  "background": "white",
+  "root": {
+    "type": "absolute",
+    "children": [
+      {"bounds": {"x": 0, "y": 0, "width": 400, "height": 34}, "node": {"type": "rectangle", "fill": "black"}},
+      {"bounds": {"x": 12, "y": 9, "width": 180, "height": 16}, "node": {"type": "text", "runs": [{"text": "400x300 BWRY", "font": "monaco", "size": 14, "ink": "white"}]}},
+      {"bounds": {"x": 18, "y": 58, "width": 82, "height": 82}, "node": {"type": "rectangle", "fill": "black"}},
+      {"bounds": {"x": 116, "y": 58, "width": 82, "height": 82}, "node": {"type": "rectangle", "fill": "white", "stroke": {"ink": "black", "width": 2}}},
+      {"bounds": {"x": 214, "y": 58, "width": 82, "height": 82}, "node": {"type": "rectangle", "fill": "red"}},
+      {"bounds": {"x": 312, "y": 58, "width": 70, "height": 82}, "node": {"type": "rectangle", "fill": "yellow", "stroke": {"ink": "black", "width": 2}}},
+      {"bounds": {"x": 26, "y": 160, "width": 64, "height": 18}, "node": {"type": "text", "runs": [{"text": "black", "font": "monaco", "size": 12, "ink": "black"}]}},
+      {"bounds": {"x": 126, "y": 160, "width": 64, "height": 18}, "node": {"type": "text", "runs": [{"text": "white", "font": "monaco", "size": 12, "ink": "black"}]}},
+      {"bounds": {"x": 232, "y": 160, "width": 44, "height": 18}, "node": {"type": "text", "runs": [{"text": "red", "font": "monaco", "size": 12, "ink": "red"}]}},
+      {"bounds": {"x": 320, "y": 160, "width": 58, "height": 18}, "node": {"type": "text", "runs": [{"text": "yellow", "font": "monaco", "size": 12, "ink": "black"}]}},
+      {"bounds": {"x": 30, "y": 215, "width": 340, "height": 44}, "node": {"type": "pattern", "rows": ["x.r.y.r.x.r.y.r.", ".r.y.r.x.r.y.r.x"], "inks": {"x": "black", "r": "red", "y": "yellow"}}}
+    ]
+  }
+}

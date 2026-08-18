@@ -43,6 +43,10 @@ type Uploader struct {
 	Logf               func(string, ...any)
 }
 
+type UploadOptions struct {
+	Compression2 bool
+}
+
 func NewUploader(logf func(string, ...any)) Uploader {
 	return Uploader{
 		NotifyReadyDelay:   DefaultNotifyReadyDelay,
@@ -63,6 +67,10 @@ func ValidatePayload(payload []byte) error {
 }
 
 func (u Uploader) Upload(ctx context.Context, transport Transport, payload []byte) error {
+	return u.UploadWithOptions(ctx, transport, payload, UploadOptions{})
+}
+
+func (u Uploader) UploadWithOptions(ctx context.Context, transport Transport, payload []byte, options UploadOptions) error {
 	if err := ValidatePayload(payload); err != nil {
 		return err
 	}
@@ -88,6 +96,10 @@ func (u Uploader) Upload(ctx context.Context, transport Transport, payload []byt
 	u.logf("tag requested %d byte messages -> %d byte blocks", messageSize, blockSize)
 
 	lengthCommand := make([]byte, 8)
+	if options.Compression2 {
+		lengthCommand = make([]byte, 6)
+		lengthCommand[5] = 0x01
+	}
 	lengthCommand[0] = 0x02
 	binary.LittleEndian.PutUint32(lengthCommand[1:5], uint32(len(payload)))
 	if err := transport.WriteControl(lengthCommand); err != nil {

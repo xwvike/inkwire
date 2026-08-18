@@ -58,6 +58,7 @@ type Profile struct {
 	Compression     bool
 	Compression2    bool
 	InvertLuminance bool
+	FourColor       bool
 	MaxVoltage      float64
 	MinVoltage      float64
 }
@@ -79,13 +80,13 @@ var profiles = map[uint16]Profile{
 	0x0033: {ID: 0x0033, Model: `EPD 2.9" BWR`, Width: 296, Height: 128, Palette: PaletteBWR, Verified: true,
 		Rotation: 90, MaxVoltage: 3.0, MinVoltage: 2.2},
 	0x002E: {ID: 0x002E, Model: `EPD 2.9" BWRY`, Width: 296, Height: 128, Palette: PaletteBWRY,
-		Rotation: 90, MaxVoltage: 3.0, MinVoltage: 2.2},
+		Rotation: 90, FourColor: true, MaxVoltage: 3.0, MinVoltage: 2.2},
 	0x022B: {ID: 0x022B, Model: `EPD 3.7" BWR`, Width: 240, Height: 416, Palette: PaletteBWR,
 		Rotation: 180, MirrorX: true, Compression: true, MaxVoltage: 3.0, MinVoltage: 2.2},
 	0x004B: {ID: 0x004B, Model: `EPD 4.2" BWR`, Width: 400, Height: 300, Palette: PaletteBWR,
 		MaxVoltage: 3.0, MinVoltage: 2.2},
 	0x004E: {ID: 0x004E, Model: `EPD 4.2" BWRY`, Width: 400, Height: 300, Palette: PaletteBWRY,
-		MaxVoltage: 3.0, MinVoltage: 2.2},
+		FourColor: true, MaxVoltage: 3.0, MinVoltage: 2.2},
 	0x012B: {ID: 0x012B, Model: `EPD 7.5" BWR`, Width: 800, Height: 480, Palette: PaletteBWR,
 		MirrorY: true, InvertLuminance: true, Compression2: true, MaxVoltage: 3.0, MinVoltage: 2.2},
 	0x008B: {ID: 0x008B, Model: `EPD 10.2" BWR`, Width: 960, Height: 640, Palette: PaletteBWR,

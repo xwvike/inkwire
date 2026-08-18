@@ -1324,8 +1324,10 @@ func parseInk(value string) (display.Ink, error) {
 		return display.InkWhite, nil
 	case "red":
 		return display.InkRed, nil
+	case "yellow":
+		return display.InkYellow, nil
 	default:
-		return 0, enumError(value, "black", "white", "red")
+		return 0, enumError(value, "black", "white", "red", "yellow")
 	}
 }
 

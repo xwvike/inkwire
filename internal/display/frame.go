@@ -11,17 +11,18 @@ import (
 // sheets without letting an input allocate unbounded memory.
 const MaxFramePixels = 16 * 1024 * 1024
 
-// Ink is one of the three physical colors supported by the display.
+// Ink is one of the physical colors supported by the display.
 type Ink uint8
 
 const (
 	InkBlack Ink = iota
 	InkWhite
 	InkRed
+	InkYellow
 )
 
 func (i Ink) valid() bool {
-	return i <= InkRed
+	return i <= InkYellow
 }
 
 func (i Ink) RGBA() color.NRGBA {
@@ -32,12 +33,14 @@ func (i Ink) RGBA() color.NRGBA {
 		return color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
 	case InkRed:
 		return color.NRGBA{R: 0xff, A: 0xff}
+	case InkYellow:
+		return color.NRGBA{R: 0xff, G: 0xff, A: 0xff}
 	default:
 		return color.NRGBA{A: 0xff}
 	}
 }
 
-// Frame is a device-independent, opaque black/white/red pixel surface.
+// Frame is a device-independent, opaque ink surface.
 type Frame struct {
 	width  int
 	height int

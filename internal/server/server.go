@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
 	"io"
 	"log"
 	"mime"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xwvike/inkwire/internal/compose"
 	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/gicisky"
 	"github.com/xwvike/inkwire/internal/nrfepd"
@@ -208,7 +210,6 @@ func New(config Config) *Handler {
 		history:           make(map[string]DeviceStatus),
 	}
 	handler.mux.HandleFunc("POST /v1/render", handler.render)
-	handler.mux.HandleFunc("POST /v1/encode", handler.encode)
 	handler.mux.HandleFunc("POST /v1/display", handler.display)
 	handler.mux.HandleFunc("GET /v1/devices", handler.devices)
 	return handler
@@ -335,14 +336,18 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 }
 
 func (h *Handler) render(writer http.ResponseWriter, request *http.Request) {
-	result, ok := h.renderRequest(writer, request)
+	document, ok := h.decodeRequest(writer, request)
 	if !ok {
 		return
 	}
-	writeReportHeaders(writer.Header(), result)
+	result, err := scene.Render(document)
+	if err != nil {
+		writeError(writer, http.StatusUnprocessableEntity, "invalid-scene", err)
+		return
+	}
 	var encoded bytes.Buffer
 	if err := display.WritePNG(&encoded, result.Frame); err != nil {
-		writeError(writer, http.StatusInternalServerError, "render-failed", err)
+		writeErrorWithReport(writer, http.StatusInternalServerError, "render-failed", err, result.Report)
 		return
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{
@@ -353,47 +358,11 @@ func (h *Handler) render(writer http.ResponseWriter, request *http.Request) {
 	})
 }
 
-func (h *Handler) encode(writer http.ResponseWriter, request *http.Request) {
-	result, ok := h.renderRequest(writer, request)
-	if !ok {
-		return
-	}
-	target := request.URL.Query().Get("device")
-	if target == "" {
-		target = h.target
-	}
-	family, err := resolveFamily(request.URL.Query().Get("family"), target)
-	if err != nil {
-		writeError(writer, http.StatusBadRequest, "invalid-request", err)
-		return
-	}
-	// Payload encodes for the Gicisky size, the only one known without
-	// connecting to anything. An EPD-nRF5 target used to fall through to it and
-	// be told its page had to be 296x128 — a complaint about the page, when the
-	// page was right and the endpoint was the wrong one to ask.
-	if family == familyNRFEPD {
-		writeError(writer, http.StatusBadRequest, "size-unknown",
-			fmt.Errorf("%s is an EPD-nRF5 tag, which reports its size only once connected; "+
-				"no payload can be built for it here, so send the scene to /v1/display instead", target))
-		return
-	}
-	payload, err := result.Payload()
-	if err != nil {
-		writeError(writer, http.StatusUnprocessableEntity, "unprocessable-scene", err)
-		return
-	}
-	writer.Header().Set("Content-Type", "application/octet-stream")
-	writer.Header().Set("Content-Length", fmt.Sprint(len(payload)))
-	writeReportHeaders(writer.Header(), result)
-	_, _ = writer.Write(payload)
-}
-
 func (h *Handler) display(writer http.ResponseWriter, request *http.Request) {
-	result, ok := h.renderRequest(writer, request)
+	document, ok := h.decodeRequest(writer, request)
 	if !ok {
 		return
 	}
-	writeReportHeaders(writer.Header(), result)
 	target := request.URL.Query().Get("device")
 	if target == "" {
 		target = h.target
@@ -403,26 +372,23 @@ func (h *Handler) display(writer http.ResponseWriter, request *http.Request) {
 		writeError(writer, http.StatusBadRequest, "invalid-request", err)
 		return
 	}
-	// A Gicisky page is encoded before anything is connected to, because that
-	// family's size is fixed and known. The other one cannot be: the panel is
-	// asked what it is first and the page is built for the answer, which is
-	// why the two take different routes from here.
-	var payload []byte
 	if family == familyGicisky {
-		payload, err = result.Payload()
-		if err != nil {
-			writeError(writer, http.StatusUnprocessableEntity, "unprocessable-scene", err)
-			return
-		}
+		h.displayGicisky(writer, request, target, document)
+		return
 	}
 
+	result, err := scene.Render(document)
+	if err != nil {
+		writeError(writer, http.StatusUnprocessableEntity, "invalid-scene", err)
+		return
+	}
 	busy, claimed := h.claim(target)
 	if !claimed {
 		// One adapter can hold one conversation, so a second write is
 		// refused outright instead of queued behind a ten-second upload the
 		// caller cannot see.
-		writeStatus(writer, http.StatusConflict, "device-busy",
-			fmt.Errorf("device %s is being written", busy.Device), busy)
+		writeStatusWithReport(writer, http.StatusConflict, "device-busy",
+			fmt.Errorf("device %s is being written", busy.Device), busy, result.Report)
 		return
 	}
 	timeout := h.pushTimeout
@@ -434,11 +400,7 @@ func (h *Handler) display(writer http.ResponseWriter, request *http.Request) {
 
 	var pushErr error
 	var written int
-	if family == familyNRFEPD {
-		written, pushErr = h.pushPageTo(ctx, target, result.Frame)
-	} else {
-		written, pushErr = len(payload), h.pushPayload(ctx, target, payload)
-	}
+	written, pushErr = h.pushPageTo(ctx, target, result.Frame)
 	status := h.release(target, written, pushErr)
 	if pushErr != nil {
 		code, httpStatus := "push-failed", http.StatusBadGateway
@@ -448,11 +410,61 @@ func (h *Handler) display(writer http.ResponseWriter, request *http.Request) {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			code, httpStatus = "device-timeout", http.StatusGatewayTimeout
 		}
-		writeStatus(writer, httpStatus, code, pushErr, status)
+		writeStatusWithReport(writer, httpStatus, code, pushErr, status, result.Report)
 		return
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{
 		"ok": true, "device": target, "family": family, "bytes": written,
+		"status": status, "report": result.Report,
+	})
+}
+
+func (h *Handler) displayGicisky(writer http.ResponseWriter, request *http.Request, target string, document compose.Document) {
+	busy, claimed := h.claim(target)
+	if !claimed {
+		writeStatus(writer, http.StatusConflict, "device-busy",
+			fmt.Errorf("device %s is being written", busy.Device), busy)
+		return
+	}
+	ctx, cancel := context.WithTimeout(request.Context(), h.pushTimeout)
+	defer cancel()
+
+	found, err := h.findGiciskyDevice(ctx, target)
+	if err != nil {
+		status := h.release(target, 0, err)
+		code, httpStatus := "device-identify-failed", http.StatusBadGateway
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			code, httpStatus = "device-timeout", http.StatusGatewayTimeout
+		}
+		writeStatus(writer, httpStatus, code, err, status)
+		return
+	}
+	profile := found.Profile
+	result, err := scene.RenderForSize(document, image.Pt(profile.Width, profile.Height))
+	if err != nil {
+		status := h.release(target, 0, err)
+		writeStatus(writer, http.StatusUnprocessableEntity, "unprocessable-scene", err, status)
+		return
+	}
+	payload, err := gicisky.EncodeOriented(result.Frame, result.Orientation, profile)
+	if err != nil {
+		status := h.release(target, 0, err)
+		writeStatusWithReport(writer, http.StatusUnprocessableEntity, "unprocessable-scene", err, status, result.Report)
+		return
+	}
+
+	pushErr := h.pushGiciskyPayload(ctx, target, found, payload, gicisky.UploadOptions{Compression2: profile.Compression2})
+	status := h.release(target, len(payload), pushErr)
+	if pushErr != nil {
+		code, httpStatus := "push-failed", http.StatusBadGateway
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			code, httpStatus = "device-timeout", http.StatusGatewayTimeout
+		}
+		writeStatusWithReport(writer, httpStatus, code, pushErr, status, result.Report)
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{
+		"ok": true, "device": target, "family": familyGicisky, "bytes": len(payload),
 		"status": status, "report": result.Report,
 	})
 }
@@ -506,14 +518,36 @@ func (h *Handler) statusLocked(device string) DeviceStatus {
 	return status
 }
 
-func (h *Handler) pushPayload(ctx context.Context, target string, payload []byte) error {
+func (h *Handler) findGiciskyDevice(ctx context.Context, target string) (gicisky.FoundDevice, error) {
+	if h.scan != nil {
+		devices, err := h.scan(ctx)
+		if err != nil {
+			return gicisky.FoundDevice{}, err
+		}
+		return gicisky.SelectIdentified(devices, target)
+	}
+	if h.ownTransport {
+		return gicisky.FoundDevice{}, errors.New("this handler was given its own transport and no Scan hook, so it cannot identify a Gicisky tag")
+	}
+	if err := h.enableAdapter(); err != nil {
+		return gicisky.FoundDevice{}, err
+	}
+	driver := h.newDriver(target)
+	driver.ScanTimeout = h.scanTimeout
+	return driver.FindIdentifiedWithRetry(ctx)
+}
+
+func (h *Handler) pushGiciskyPayload(ctx context.Context, target string, found gicisky.FoundDevice, payload []byte, options gicisky.UploadOptions) error {
 	if h.push != nil {
 		return h.push(ctx, target, payload)
+	}
+	if h.ownTransport {
+		return errors.New("this handler was given its own transport and no Push hook, so it cannot reach a Gicisky tag")
 	}
 	if err := h.enableAdapter(); err != nil {
 		return err
 	}
-	return h.newDriver(target).PushWithRetry(ctx, payload)
+	return h.newDriver(target).PushFoundWithRetry(ctx, found, payload, options)
 }
 
 // pushPageTo sends a rendered page to an EPD-nRF5 tag, reporting how many
@@ -559,11 +593,11 @@ func (h *Handler) newDriver(target string) *gicisky.Driver {
 	return driver
 }
 
-func (h *Handler) renderRequest(writer http.ResponseWriter, request *http.Request) (scene.Result, bool) {
+func (h *Handler) decodeRequest(writer http.ResponseWriter, request *http.Request) (compose.Document, bool) {
 	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
 	if err != nil {
 		writeError(writer, http.StatusUnsupportedMediaType, "unsupported-media-type", fmt.Errorf("invalid Content-Type: %w", err))
-		return scene.Result{}, false
+		return compose.Document{}, false
 	}
 	var sceneBytes []byte
 	var resources map[string][]byte
@@ -576,7 +610,7 @@ func (h *Handler) renderRequest(writer http.ResponseWriter, request *http.Reques
 		sceneBytes, resources, err = readMultipart(request)
 	default:
 		writeError(writer, http.StatusUnsupportedMediaType, "unsupported-media-type", fmt.Errorf("Content-Type must be application/json or multipart/form-data"))
-		return scene.Result{}, false
+		return compose.Document{}, false
 	}
 	if err != nil {
 		status, code := http.StatusBadRequest, "invalid-request"
@@ -585,14 +619,14 @@ func (h *Handler) renderRequest(writer http.ResponseWriter, request *http.Reques
 			status, code = http.StatusRequestEntityTooLarge, "request-too-large"
 		}
 		writeError(writer, status, code, err)
-		return scene.Result{}, false
+		return compose.Document{}, false
 	}
-	result, err := (scene.Decoder{BaseDir: h.baseDir, RestrictFiles: true, Resources: resources}).Render(bytes.NewReader(sceneBytes))
+	document, err := (scene.Decoder{BaseDir: h.baseDir, RestrictFiles: true, Resources: resources}).Decode(bytes.NewReader(sceneBytes))
 	if err != nil {
 		writeError(writer, http.StatusUnprocessableEntity, "invalid-scene", err)
-		return scene.Result{}, false
+		return compose.Document{}, false
 	}
-	return result, true
+	return document, true
 }
 
 var errPartTooLarge = errors.New("multipart part exceeds its size limit")
@@ -664,27 +698,22 @@ func readPart(reader io.Reader, limit int64) ([]byte, error) {
 	return content, nil
 }
 
-func writeReportHeaders(header http.Header, result scene.Result) {
-	header.Set("X-Inkwire-Warnings", fmt.Sprint(len(result.Report.Warnings)))
-	header.Set("X-Inkwire-Missing-Runes", fmt.Sprint(len(result.Report.MissingRunes)))
-	header.Set("X-Inkwire-Image-Decisions", fmt.Sprint(len(result.Report.Images)))
-	implicitColumns, implicitRows := 0, 0
-	for _, expansion := range result.Report.GridExpansions {
-		implicitColumns += expansion.ImplicitColumns
-		implicitRows += expansion.ImplicitRows
-	}
-	header.Set("X-Inkwire-Implicit-Grid-Columns", fmt.Sprint(implicitColumns))
-	header.Set("X-Inkwire-Implicit-Grid-Rows", fmt.Sprint(implicitRows))
-}
-
 // Every failure carries a stable code so a caller can branch on the kind of
 // problem without matching on the human-readable message.
 func writeError(writer http.ResponseWriter, status int, code string, err error) {
 	writeJSON(writer, status, map[string]any{"error": err.Error(), "code": code})
 }
 
+func writeErrorWithReport(writer http.ResponseWriter, status int, code string, err error, report compose.Report) {
+	writeJSON(writer, status, map[string]any{"error": err.Error(), "code": code, "report": report})
+}
+
 func writeStatus(writer http.ResponseWriter, status int, code string, err error, device DeviceStatus) {
 	writeJSON(writer, status, map[string]any{"error": err.Error(), "code": code, "status": device})
+}
+
+func writeStatusWithReport(writer http.ResponseWriter, status int, code string, err error, device DeviceStatus, report compose.Report) {
+	writeJSON(writer, status, map[string]any{"error": err.Error(), "code": code, "status": device, "report": report})
 }
 
 func writeJSON(writer http.ResponseWriter, status int, value any) {

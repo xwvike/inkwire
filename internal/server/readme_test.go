@@ -20,7 +20,7 @@ var readmes = []string{"../../README.md", "../../README.zh-CN.md"}
 func TestBothReadmesDocumentEveryRoute(t *testing.T) {
 	source := readServer(t)
 	routes := regexp.MustCompile(`HandleFunc\("(?:GET|POST) (/[\w/]+)"`).FindAllStringSubmatch(source, -1)
-	if len(routes) < 4 {
+	if len(routes) < 3 {
 		t.Fatalf("found %d routes, which cannot be right", len(routes))
 	}
 	for _, path := range readmes {

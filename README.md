@@ -7,8 +7,8 @@ Scene Schema → e-paper tags. Two families, one renderer.
 | Firmware | factory | [replacement](https://github.com/tsl0922/EPD-nRF5), nRF51/nRF52 |
 | Name | `PICKSMART`, `NEMR<mac8>` | `NRF_EPD_<mac4>` |
 | Model from | advertisement | connection |
-| Size | 296x128 | 400x300 … 880x528 |
-| Inks | BWR | BW, BWR |
+| Size | 212x104 … 960x640 | 400x300 … 880x528 |
+| Inks | BW, BWR, BWRY | BW, BWR |
 
 The document these commands read is the Scene Schema: **[SCHEMA.md](SCHEMA.md)**,
 which the binary also carries — `inkwire schema` prints it with no network and no
@@ -19,15 +19,20 @@ second download.
 | Command | Purpose |
 |---|---|
 | `inkwire render [-o out.png] <scene.json>` | PNG preview |
-| `inkwire encode [-o out.bin] <scene.json>` | Device payload, Gicisky only |
+| `inkwire encode [-profile-id 0x0033] [-o out.bin] <scene.json>` | Device payload, Gicisky only |
 | `inkwire push [-device NAME] [-family auto\|gicisky\|nrfepd] [-settle 30s] <scene.json>` | Render and write |
 | `inkwire scan [-timeout 15s]` | List tags |
 | `inkwire mode [-device NAME] [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 clock and mode |
 | `inkwire serve [-listen ADDR] [-device NAME] [-assets DIR]` | HTTP service |
-| `inkwire push-payload [NAME] <payload.bin>` | Write a raw payload |
+| `inkwire push-payload [-profile-id 0x0033] [NAME] <payload.bin>` | Write a raw payload |
 | `inkwire schema [-lang en\|zh]` | Print the Scene Schema reference |
 | `inkwire help` | This list; also `-h`, `--help` |
 | `inkwire version` | Release tag, or the commit a source build came from; also `-v`, `--version` |
+
+`inkwire encode` is an offline Gicisky-only developer tool. It renders a scene
+for the selected `-profile-id`, writes that model's payload to a `.bin` file,
+and can be paired with `inkwire push-payload -profile-id ...`. It does not
+connect to a tag.
 
 ```
 $ inkwire scan
@@ -45,6 +50,7 @@ inkwire push -device NEMR92943861 page.json
 |---|---|
 | `-device` | Advertised name (`NAME` column) or BLE address. Default `FF:FF:92:94:38:61` |
 | `-family` | `auto` maps `NRF_EPD*` → nrfepd, else gicisky. An address carries no family |
+| `-profile-id` | Gicisky model id from `inkwire scan`; defaults to the verified `0x0033` |
 | `-timeout` | Per family; both are scanned in turn |
 | `-settle` | Connection held open after `REFRESH`. See [Refresh](#refresh) |
 
@@ -52,9 +58,9 @@ inkwire push -device NEMR92943861 page.json
 
 | | |
 |---|---|
-| Panel | 296x128, BWR, no greyscale |
-| Orientation | landscape 296x128, portrait 128x296 either way |
-| Payload | black plane + red plane, 9472 bytes |
+| Panel | Detected from advertisement; 212x104 … 960x640, BW/BWR/BWRY |
+| Orientation | landscape uses the profile size; portrait swaps width and height |
+| Payload | model-specific planes, transforms and compression |
 | GATT | service `FEF0`, control `FEF1`, data `FEF2` |
 | Name | `PICKSMART` during boot only; `NEMR<mac8>` once settled |
 
@@ -65,7 +71,8 @@ byte   0        1        2   3        4
        id low   battery  firmware     id high
 ```
 
-Model id = `(data[4] << 8) | data[0]`, low 14 bits. Names carry no model.
+Model id = `(data[4] << 8) | data[0]`, low 14 bits. Names carry no model, so
+writing a Gicisky tag requires seeing manufacturer data before rendering.
 
 11 models (212x104 … 960x640, BW/BWR/BWRY) from
 [hass-gicisky](https://github.com/eigger/hass-gicisky) (MIT, © 2025 eigger).
@@ -182,14 +189,18 @@ inkwire serve -listen 127.0.0.1:8080 -device NEMR92943861
 | Route | Response |
 |---|---|
 | `POST /v1/render` | JSON containing `width`, `height`, base64 `pngBase64`, and full `report` |
-| `POST /v1/encode` | 9472 bytes, `application/octet-stream`, Gicisky only |
-| `POST /v1/display` | JSON result |
+| `POST /v1/display` | JSON result containing the device status and full `report` |
 | `GET /v1/devices` | Tags, each with `family` |
 
 `-listen` is loopback only. `/v1/display` takes `?device=` and
 `?family=auto|gicisky|nrfepd`. Budget: 45 s Gicisky, 60 s EPD-nRF5.
-`/v1/encode` refuses an EPD-nRF5 target with `size-unknown`: that panel reports
-its size only once connected. Send the scene to `/v1/display` instead.
+Both rendering routes compile through the same scene path and return the same
+complete report structure once rendering has happened. `/v1/display` identifies
+a Gicisky profile before rendering, so identification failures return device
+status without a render report. If rendering completes and the push then fails,
+the error JSON still includes the report. The HTTP API intentionally does not
+expose the raw `.bin` encoder; use `/v1/display` for direct device use or
+`/v1/render` for a preview.
 
 ```bash
 curl -H 'Content-Type: application/json' --data-binary @page.json \
@@ -199,10 +210,9 @@ curl -H 'Content-Type: application/json' --data-binary @page.json \
   'http://127.0.0.1:8080/v1/display?device=NRF_EPD_C1F8'
 ```
 
-`X-Inkwire-Warnings`, `X-Inkwire-Missing-Runes`,
-`X-Inkwire-Image-Decisions`, `X-Inkwire-Implicit-Grid-Columns` and
-`X-Inkwire-Implicit-Grid-Rows` contain counts. `/v1/render` and
-`/v1/display` return the detailed report in their JSON bodies.
+The report is returned in the JSON body rather than split across custom
+headers. It contains bounds, missing runes, warnings, image decisions, and
+per-grid implicit track expansions.
 
 ### Warnings
 
@@ -223,10 +233,10 @@ Non-fatal.
 | `invalid-request` | 400 | Malformed multipart, or unknown `family` |
 | `request-too-large` | 413 | Over the size limit |
 | `invalid-scene` | 422 | Will not decode or render |
-| `unprocessable-scene` | 422 | Renders, will not encode |
-| `size-unknown` | 400 | `/v1/encode` asked for an EPD-nRF5 target |
+| `unprocessable-scene` | 422 | Renders, but cannot encode for the selected Gicisky display |
 | `render-failed` | 500 | PNG encoding failed |
 | `device-busy` | 409 | Adapter in use |
+| `device-identify-failed` | 502 | Gicisky target was not found, did not advertise a known model, or scan failed |
 | `push-failed` | 502 | Tag error or connection failure |
 | `device-timeout` | 504 | The complete device operation exceeded its family budget |
 | `scan-failed` | 502 | Scan failed |

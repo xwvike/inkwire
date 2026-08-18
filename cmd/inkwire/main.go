@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"image"
 	"io"
 	"log"
 	"net"
@@ -13,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
@@ -332,7 +334,8 @@ func runRender(args []string, stdout, stderr io.Writer) int {
 }
 
 func runEncode(args []string, stdout, stderr io.Writer) int {
-	flags := command("encode", "inkwire encode [-o payload.bin] <scene.json>", stderr)
+	flags := command("encode", "inkwire encode [-profile-id 0x0033] [-o payload.bin] <scene.json>", stderr)
+	profileID := flags.String("profile-id", "0x0033", "Gicisky profile id from scan output")
 	output := flags.String("o", "", "payload output path")
 	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
@@ -345,12 +348,17 @@ func runEncode(args []string, stdout, stderr io.Writer) int {
 	if *output == "" {
 		*output = replaceExtension(source, ".bin")
 	}
-	result, err := (scene.Decoder{}).RenderFile(source)
+	profile, err := parseGiciskyProfile(*profileID)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	result, err := (scene.Decoder{}).RenderFileForSize(source, image.Pt(profile.Width, profile.Height))
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	payload, err := result.Payload()
+	payload, err := gicisky.EncodeOriented(result.Frame, result.Orientation, profile)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -362,6 +370,18 @@ func runEncode(args []string, stdout, stderr io.Writer) int {
 	printReport(stdout, result)
 	fmt.Fprintf(stdout, "wrote %s (%d bytes)\n", *output, len(payload))
 	return 0
+}
+
+func parseGiciskyProfile(value string) (gicisky.Profile, error) {
+	id, err := strconv.ParseUint(strings.TrimSpace(value), 0, 16)
+	if err != nil {
+		return gicisky.Profile{}, fmt.Errorf("invalid Gicisky profile id %q", value)
+	}
+	profile, known := gicisky.LookupProfile(uint16(id), 0)
+	if !known {
+		return gicisky.Profile{}, fmt.Errorf("unknown Gicisky profile id 0x%04X", uint16(id))
+	}
+	return profile, nil
 }
 
 func runPushScene(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
@@ -382,27 +402,46 @@ func runPushScene(ctx context.Context, args []string, logger *log.Logger, stdout
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	result, err := (scene.Decoder{}).RenderFile(flags.Arg(0))
+	if !enableBluetooth(logger) {
+		return 1
+	}
+	if chosen == familyNRFEPD {
+		result, err := (scene.Decoder{}).RenderFile(flags.Arg(0))
+		if err != nil {
+			logger.Print(err)
+			return 1
+		}
+		printReport(logger.Writer(), result)
+		return pushNRFEPD(ctx, *target, result.Frame, *settle, logger)
+	}
+	return pushGiciskyScene(ctx, *target, flags.Arg(0), logger)
+}
+
+func pushGiciskyScene(ctx context.Context, target, path string, logger *log.Logger) int {
+	driver := gicisky.NewDriver(bluetooth.DefaultAdapter, target, logger.Printf)
+	found, err := driver.FindIdentifiedWithRetry(ctx)
+	if err != nil {
+		logger.Print(err)
+		return 1
+	}
+	profile := found.Profile
+	result, err := (scene.Decoder{}).RenderFileForSize(path, image.Pt(profile.Width, profile.Height))
 	if err != nil {
 		logger.Print(err)
 		return 1
 	}
 	printReport(logger.Writer(), result)
-	if !enableBluetooth(logger) {
-		return 1
-	}
-	if chosen == familyNRFEPD {
-		return pushNRFEPD(ctx, *target, result.Frame, *settle, logger)
-	}
-	// The Gicisky payload is built here rather than inside the driver because
-	// that family's page size is fixed and known before anything is connected
-	// to, which is exactly what the other one cannot assume.
-	payload, err := result.Payload()
+	payload, err := gicisky.EncodeOriented(result.Frame, result.Orientation, profile)
 	if err != nil {
 		logger.Print(err)
 		return 1
 	}
-	return push(ctx, bluetooth.DefaultAdapter, *target, payload, logger)
+	logger.Printf("pushing %d bytes to %s (%s %dx%d)", len(payload), target, profile.Model, profile.Width, profile.Height)
+	if err := driver.PushFoundWithRetry(ctx, found, payload, gicisky.UploadOptions{Compression2: profile.Compression2}); err != nil {
+		logger.Print(err)
+		return 1
+	}
+	return 0
 }
 
 const (
@@ -518,25 +557,24 @@ func pushNRFEPD(ctx context.Context, target string, frame *display.Frame, settle
 }
 
 func runPushPayload(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
-	const usage = "inkwire push-payload [MAC-or-name] <payload.bin>"
-	// This command reads its arguments positionally rather than through a flag
-	// set, so nothing else here would recognise a request for help — and taking
-	// -h for a filename is exactly what this release set out to stop.
-	for _, arg := range args {
-		switch arg {
-		case "-h", "-help", "--help":
-			fmt.Fprintf(stdout, "usage: %s\n", usage)
-			return 0
-		}
+	flags := command("push-payload", "inkwire push-payload [-profile-id 0x0033] [MAC-or-name] <payload.bin>", stderr)
+	profileID := flags.String("profile-id", "0x0033", "Gicisky profile id that produced the payload")
+	if code, ok := parseFlags(flags, args, stdout); !ok {
+		return code
 	}
 	var target, path string
-	switch len(args) {
+	switch flags.NArg() {
 	case 1:
-		target, path = gicisky.TargetAddress, args[0]
+		target, path = gicisky.TargetAddress, flags.Arg(0)
 	case 2:
-		target, path = args[0], args[1]
+		target, path = flags.Arg(0), flags.Arg(1)
 	default:
-		fmt.Fprintf(stderr, "usage: %s\n", usage)
+		flags.Usage()
+		return 2
+	}
+	profile, err := parseGiciskyProfile(*profileID)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
 		return 2
 	}
 	payload, err := os.ReadFile(path)
@@ -551,7 +589,13 @@ func runPushPayload(ctx context.Context, args []string, logger *log.Logger, stdo
 	if !enableBluetooth(logger) {
 		return 1
 	}
-	return push(ctx, bluetooth.DefaultAdapter, target, payload, logger)
+	logger.Printf("pushing %d bytes to %s (%s %dx%d)", len(payload), target, profile.Model, profile.Width, profile.Height)
+	driver := gicisky.NewDriver(bluetooth.DefaultAdapter, target, logger.Printf)
+	if err := driver.PushWithOptionsWithRetry(ctx, payload, gicisky.UploadOptions{Compression2: profile.Compression2}); err != nil {
+		logger.Print(err)
+		return 1
+	}
+	return 0
 }
 
 func push(ctx context.Context, adapter *bluetooth.Adapter, target string, payload []byte, logger *log.Logger) int {

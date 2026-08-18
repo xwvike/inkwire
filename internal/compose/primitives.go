@@ -408,7 +408,7 @@ func validatePaint(path string, fill *display.Ink, stroke *display.StrokeStyle) 
 }
 
 func validateInk(path string, ink display.Ink) error {
-	if ink > display.InkRed {
+	if ink > display.InkYellow {
 		return fmt.Errorf("%s: invalid ink %d", path, ink)
 	}
 	return nil

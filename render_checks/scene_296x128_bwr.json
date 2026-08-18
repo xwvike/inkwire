@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "size": {"width": 296, "height": 128},
+  "background": "white",
+  "root": {
+    "type": "absolute",
+    "children": [
+      {"bounds": {"x": 0, "y": 0, "width": 296, "height": 18}, "node": {"type": "rectangle", "fill": "black"}},
+      {"bounds": {"x": 8, "y": 4, "width": 120, "height": 12}, "node": {"type": "text", "runs": [{"text": "296x128 BWR", "font": "monaco", "size": 10, "ink": "white"}]}},
+      {"bounds": {"x": 230, "y": 3, "width": 58, "height": 12}, "node": {"type": "rectangle", "fill": "red"}},
+      {"bounds": {"x": 236, "y": 4, "width": 44, "height": 12}, "node": {"type": "text", "runs": [{"text": "RED", "font": "monaco", "size": 10, "ink": "white"}]}},
+      {"bounds": {"x": 10, "y": 32, "width": 72, "height": 72}, "node": {"type": "rectangle", "fill": "black"}},
+      {"bounds": {"x": 18, "y": 40, "width": 56, "height": 56}, "node": {"type": "rectangle", "fill": "white"}},
+      {"bounds": {"x": 30, "y": 52, "width": 32, "height": 32}, "node": {"type": "rectangle", "fill": "red"}},
+      {"bounds": {"x": 102, "y": 36, "width": 170, "height": 20}, "node": {"type": "text", "runs": [{"text": "black / white / red", "font": "monaco", "size": 12, "ink": "black"}]}},
+      {"bounds": {"x": 102, "y": 70, "width": 176, "height": 1}, "node": {"type": "rectangle", "fill": "black"}},
+      {"bounds": {"x": 102, "y": 90, "width": 176, "height": 1}, "node": {"type": "rectangle", "fill": "red"}}
+    ]
+  }
+}

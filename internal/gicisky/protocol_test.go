@@ -13,6 +13,7 @@ type fakeTransport struct {
 	notifications chan []byte
 	stageOne      []byte
 	payloadLength int
+	lengthCommand []byte
 	dataWrites    [][]byte
 	onData        func(*fakeTransport, []byte)
 }
@@ -32,7 +33,8 @@ func (f *fakeTransport) WriteControl(command []byte) error {
 	switch {
 	case bytes.Equal(command, []byte{0x01}):
 		f.notify(f.stageOne)
-	case len(command) == 8 && command[0] == 0x02:
+	case (len(command) == 8 || len(command) == 6) && command[0] == 0x02:
+		f.lengthCommand = append([]byte(nil), command...)
 		f.payloadLength = int(binary.LittleEndian.Uint32(command[1:5]))
 		f.notify([]byte{0x02, 0x00, 0x00})
 	case bytes.Equal(command, []byte{0x03}):
@@ -107,6 +109,18 @@ func TestUploadCompletes(t *testing.T) {
 		if !bytes.Equal(write[4:], payload[start:end]) {
 			t.Errorf("write %d payload = %x, want %x", index, write[4:], payload[start:end])
 		}
+	}
+}
+
+func TestUploadCompression2UsesModeFlag(t *testing.T) {
+	payload := bytes.Repeat([]byte{0xaa}, 18)
+	transport := newFakeTransport()
+
+	if err := testUploader().UploadWithOptions(context.Background(), transport, payload, UploadOptions{Compression2: true}); err != nil {
+		t.Fatalf("UploadWithOptions() error = %v", err)
+	}
+	if got, want := transport.lengthCommand, []byte{0x02, 18, 0x00, 0x00, 0x00, 0x01}; !bytes.Equal(got, want) {
+		t.Fatalf("stage 2 command = % x, want % x", got, want)
 	}
 }
 

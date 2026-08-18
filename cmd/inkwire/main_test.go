@@ -50,6 +50,20 @@ func TestRenderAndEncodeCommands(t *testing.T) {
 	if len(payload) != display.GiciskyPayloadSize {
 		t.Fatalf("payload = %d bytes", len(payload))
 	}
+
+	stdout.Reset()
+	stderr.Reset()
+	largePayloadPath := filepath.Join(directory, "payload-420.bin")
+	if code := run([]string{"encode", "-profile-id", "0x004B", "-o", largePayloadPath, scenePath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("encode 4.2 code = %d, stderr = %s", code, stderr.String())
+	}
+	largePayload, err := os.ReadFile(largePayloadPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(largePayload) != 400*300/8*2 {
+		t.Fatalf("4.2 payload = %d bytes", len(largePayload))
+	}
 }
 
 // serve has no authentication and every request writes to the tag, so the

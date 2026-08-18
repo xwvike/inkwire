@@ -29,7 +29,7 @@ import (
 
 const testScene = `{"version":1,"root":{"type":"absolute","children":[{"bounds":{"x":0,"y":0,"width":20,"height":10},"node":{"type":"rectangle","fill":"red"}}]}}`
 
-func TestRenderAndEncode(t *testing.T) {
+func TestRenderReturnsJSONReport(t *testing.T) {
 	handler := New(Config{Logf: func(string, ...any) {}})
 
 	render := request(t, handler, "/v1/render", testScene)
@@ -43,59 +43,13 @@ func TestRenderAndEncode(t *testing.T) {
 	if report.Bounds.Empty() {
 		t.Fatal("render response omitted its report")
 	}
-
-	encoded := request(t, handler, "/v1/encode", testScene)
-	if encoded.Code != http.StatusOK || encoded.Body.Len() != display.GiciskyPayloadSize {
-		t.Fatalf("encode = %d, %d bytes: %s", encoded.Code, encoded.Body.Len(), encoded.Body.String())
-	}
 }
 
-// /v1/encode builds for the Gicisky size, the only one known without
-// connecting. An EPD-nRF5 target used to fall through to that encoder and come
-// back with "landscape page must be 296x128" — which reads as a complaint about
-// the page, sends the caller off to resize a page that was already right, and
-// never mentions that this endpoint cannot serve that family at all.
-func TestEncodeRefusesAnNRFEPDTargetInsteadOfBlamingThePage(t *testing.T) {
+func TestHTTPDoesNotExposeRawEncoder(t *testing.T) {
 	handler := New(Config{Logf: func(string, ...any) {}})
-
-	for _, query := range []string{
-		"?device=NRF_EPD_C1F8",               // resolved from the name
-		"?device=NRF_EPD_C1F8&family=nrfepd", // said outright
-		"?device=anything&family=nrfepd",     // said outright about an unrecognisable name
-	} {
-		response := request(t, handler, "/v1/encode"+query, testScene)
-		if response.Code != http.StatusBadRequest {
-			t.Errorf("%s: status = %d, want 400: %s", query, response.Code, response.Body.String())
-			continue
-		}
-		var body map[string]string
-		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
-			t.Errorf("%s: %v", query, err)
-			continue
-		}
-		if body["code"] != "size-unknown" {
-			t.Errorf("%s: code = %q, want size-unknown", query, body["code"])
-		}
-		// The message has to point somewhere, or it is the old error with a
-		// new name on it.
-		if !strings.Contains(body["error"], "/v1/display") {
-			t.Errorf("%s: error %q does not say where to go instead", query, body["error"])
-		}
-		if strings.Contains(body["error"], "296x128") {
-			t.Errorf("%s: error %q still blames the page's size", query, body["error"])
-		}
-	}
-}
-
-// A Gicisky target is what this endpoint is for, and it keeps working whether
-// the family is worked out from the name or given.
-func TestEncodeStillServesGicisky(t *testing.T) {
-	handler := New(Config{Logf: func(string, ...any) {}})
-	for _, query := range []string{"", "?family=gicisky", "?device=NEMR92943861"} {
-		response := request(t, handler, "/v1/encode"+query, testScene)
-		if response.Code != http.StatusOK || response.Body.Len() != display.GiciskyPayloadSize {
-			t.Errorf("%q: %d, %d bytes: %s", query, response.Code, response.Body.Len(), response.Body.String())
-		}
+	response := request(t, handler, "/v1/encode", testScene)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("encode status = %d, want %d: %s", response.Code, http.StatusNotFound, response.Body.String())
 	}
 }
 
@@ -133,17 +87,40 @@ func TestHTTPAssetRootRejectsTraversalAndAbsolutePaths(t *testing.T) {
 func TestDisplayUsesSameSceneAndSelectedDevice(t *testing.T) {
 	var target string
 	var payload []byte
-	handler := New(Config{Logf: func(string, ...any) {}, Push: func(_ context.Context, selected string, bytes []byte) error {
-		target = selected
-		payload = append([]byte(nil), bytes...)
-		return nil
-	}})
+	handler := New(Config{
+		Logf: func(string, ...any) {},
+		Scan: scanFor(t, "PICKSMART", 0x0033),
+		Push: func(_ context.Context, selected string, bytes []byte) error {
+			target = selected
+			payload = append([]byte(nil), bytes...)
+			return nil
+		},
+	})
 	response := request(t, handler, "/v1/display?device=PICKSMART", testScene)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}
 	if target != "PICKSMART" || len(payload) != display.GiciskyPayloadSize {
 		t.Fatalf("push target=%q payload=%d", target, len(payload))
+	}
+}
+
+func TestDisplayRendersGiciskySceneForTheIdentifiedPanel(t *testing.T) {
+	var payload []byte
+	handler := New(Config{
+		Logf: func(string, ...any) {},
+		Scan: scanFor(t, "PICKSMART", 0x004B),
+		Push: func(_ context.Context, _ string, data []byte) error {
+			payload = append([]byte(nil), data...)
+			return nil
+		},
+	})
+	response := request(t, handler, "/v1/display?device=PICKSMART", testScene)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	if got, want := len(payload), 400*300/8*2; got != want {
+		t.Fatalf("payload length = %d, want %d", got, want)
 	}
 }
 
@@ -156,13 +133,22 @@ func TestConcurrentDisplayIsRefusedWithTheHolderStatus(t *testing.T) {
 	// Only the first write holds the adapter open; later ones complete at
 	// once so the test can check that the claim was handed back.
 	var hold sync.Once
-	handler := New(Config{Logf: func(string, ...any) {}, Push: func(context.Context, string, []byte) error {
-		hold.Do(func() {
-			entered <- struct{}{}
-			<-release
-		})
-		return nil
-	}})
+	handler := New(Config{
+		Logf: func(string, ...any) {},
+		Scan: func(context.Context) ([]gicisky.FoundDevice, error) {
+			return []gicisky.FoundDevice{
+				scanResult(t, 0x01, -40, 0x0033, "first"),
+				scanResult(t, 0x02, -41, 0x0033, "second"),
+			}, nil
+		},
+		Push: func(context.Context, string, []byte) error {
+			hold.Do(func() {
+				entered <- struct{}{}
+				<-release
+			})
+			return nil
+		},
+	})
 
 	first := make(chan *httptest.ResponseRecorder, 1)
 	go func() { first <- request(t, handler, "/v1/display?device=first", testScene) }()
@@ -173,8 +159,9 @@ func TestConcurrentDisplayIsRefusedWithTheHolderStatus(t *testing.T) {
 		t.Fatalf("second write status = %d, want %d: %s", second.Code, http.StatusConflict, second.Body.String())
 	}
 	var refusal struct {
-		Code   string       `json:"code"`
-		Status DeviceStatus `json:"status"`
+		Code   string         `json:"code"`
+		Status DeviceStatus   `json:"status"`
+		Report compose.Report `json:"report"`
 	}
 	if err := json.Unmarshal(second.Body.Bytes(), &refusal); err != nil {
 		t.Fatal(err)
@@ -190,7 +177,6 @@ func TestConcurrentDisplayIsRefusedWithTheHolderStatus(t *testing.T) {
 	if refusal.Status.Since == "" {
 		t.Error("a pushing device reported no start time")
 	}
-
 	close(release)
 	if got := <-first; got.Code != http.StatusOK {
 		t.Fatalf("first write status = %d: %s", got.Code, got.Body.String())
@@ -219,6 +205,7 @@ func TestConcurrentDisplayIsRefusedWithTheHolderStatus(t *testing.T) {
 // answer, which is a different problem from a scene the server cannot render.
 func TestPushDeadlineReportsTheBluetoothLink(t *testing.T) {
 	handler := New(Config{Logf: func(string, ...any) {}, PushTimeout: 20 * time.Millisecond,
+		Scan: scanFor(t, "NEMR92943861", 0x0033),
 		Push: func(ctx context.Context, _ string, _ []byte) error {
 			<-ctx.Done()
 			return ctx.Err()
@@ -228,8 +215,9 @@ func TestPushDeadlineReportsTheBluetoothLink(t *testing.T) {
 		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusGatewayTimeout, response.Body.String())
 	}
 	var body struct {
-		Code   string       `json:"code"`
-		Status DeviceStatus `json:"status"`
+		Code   string         `json:"code"`
+		Status DeviceStatus   `json:"status"`
+		Report compose.Report `json:"report"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
@@ -245,21 +233,29 @@ func TestPushDeadlineReportsTheBluetoothLink(t *testing.T) {
 	if body.Status.State != "idle" {
 		t.Errorf("state after a failed write = %q, want idle", body.Status.State)
 	}
+	if body.Report.Bounds.Empty() {
+		t.Error("device-timeout response omitted the completed render report")
+	}
 }
 
 // A push that fails for a reason other than the deadline is a different code,
 // so a caller can distinguish "the tag refused" from "the tag never answered".
 func TestFailedPushIsReportedSeparatelyFromATimeout(t *testing.T) {
-	handler := New(Config{Logf: func(string, ...any) {}, Push: func(context.Context, string, []byte) error {
-		return errors.New("tag reported error 0503")
-	}})
+	handler := New(Config{
+		Logf: func(string, ...any) {},
+		Scan: scanFor(t, "NEMR92943861", 0x0033),
+		Push: func(context.Context, string, []byte) error {
+			return errors.New("tag reported error 0503")
+		},
+	})
 	response := request(t, handler, "/v1/display", testScene)
 	if response.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusBadGateway, response.Body.String())
 	}
 	var body struct {
-		Code   string       `json:"code"`
-		Status DeviceStatus `json:"status"`
+		Code   string         `json:"code"`
+		Status DeviceStatus   `json:"status"`
+		Report compose.Report `json:"report"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
@@ -269,6 +265,9 @@ func TestFailedPushIsReportedSeparatelyFromATimeout(t *testing.T) {
 	}
 	if body.Status.LastResult != "tag reported error 0503" {
 		t.Errorf("last result = %q, want the driver error", body.Status.LastResult)
+	}
+	if body.Report.Bounds.Empty() {
+		t.Error("push-failed response omitted the completed render report")
 	}
 }
 
@@ -311,13 +310,6 @@ func TestEveryErrorCarriesACode(t *testing.T) {
 			request.Header.Set("Content-Type", writer.FormDataContentType())
 			return request
 		}, "invalid-request"},
-		{"page the panel cannot accept", func() *http.Request {
-			// The scene renders, so the failure is only found when the
-			// frame is encoded for a 296x128 panel.
-			return jsonRequest("/v1/encode", `{"version":1,"size":{"width":100,"height":50},`+
-				`"root":{"type":"absolute","children":[{"bounds":{"x":0,"y":0,"width":10,"height":10},`+
-				`"node":{"type":"rectangle","fill":"black"}}]}}`)
-		}, "unprocessable-scene"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -395,7 +387,7 @@ func TestMultipartResourceOverridesAssetDirectory(t *testing.T) {
 	}
 }
 
-func TestRenderReportsImplicitGridTracksInBodyAndHeaders(t *testing.T) {
+func TestRenderReportsImplicitGridTracksInBody(t *testing.T) {
 	handler := New(Config{Logf: func(string, ...any) {}})
 	scene := `{
 		"version":1,"size":{"width":100,"height":20},
@@ -408,12 +400,6 @@ func TestRenderReportsImplicitGridTracksInBodyAndHeaders(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}
-	if got := response.Header().Get("X-Inkwire-Implicit-Grid-Columns"); got != "1" {
-		t.Errorf("implicit column header = %q, want 1", got)
-	}
-	if got := response.Header().Get("X-Inkwire-Implicit-Grid-Rows"); got != "0" {
-		t.Errorf("implicit row header = %q, want 0", got)
-	}
 	_, report := decodeRenderResponse(t, response)
 	if len(report.GridExpansions) != 1 || report.GridExpansions[0].ImplicitColumns != 1 {
 		t.Fatalf("grid expansions = %+v", report.GridExpansions)
@@ -423,10 +409,14 @@ func TestRenderReportsImplicitGridTracksInBodyAndHeaders(t *testing.T) {
 func TestMultipartDisplayPushesUploadedImage(t *testing.T) {
 	scene := `{"version":1,"root":{"type":"image","source":"photo.png","size":{"width":8,"height":8}}}`
 	var payload []byte
-	handler := New(Config{Logf: func(string, ...any) {}, Push: func(_ context.Context, _ string, data []byte) error {
-		payload = append([]byte(nil), data...)
-		return nil
-	}})
+	handler := New(Config{
+		Logf: func(string, ...any) {},
+		Scan: scanFor(t, "NEMR92943861", 0x0033),
+		Push: func(_ context.Context, _ string, data []byte) error {
+			payload = append([]byte(nil), data...)
+			return nil
+		},
+	})
 	response := multipartRequest(t, handler, "/v1/display", scene, map[string][]byte{"photo.png": solidPNG(t, color.NRGBA{A: 0xff})})
 	if response.Code != http.StatusOK || len(payload) != display.GiciskyPayloadSize {
 		t.Fatalf("status=%d payload=%d: %s", response.Code, len(payload), response.Body.String())
@@ -610,6 +600,12 @@ func scanResult(t *testing.T, seed byte, rssi int16, id uint16, name string) gic
 	return device
 }
 
+func scanFor(t *testing.T, name string, id uint16) func(context.Context) ([]gicisky.FoundDevice, error) {
+	return func(context.Context) ([]gicisky.FoundDevice, error) {
+		return []gicisky.FoundDevice{scanResult(t, 0x01, -40, id, name)}, nil
+	}
+}
+
 func TestDevicesReportsWhatEachTagIs(t *testing.T) {
 	handler := New(Config{Logf: func(string, ...any) {}, Scan: func(context.Context) ([]gicisky.FoundDevice, error) {
 		return []gicisky.FoundDevice{
@@ -674,7 +670,7 @@ func TestScanIsRefusedWhileTheAdapterIsWriting(t *testing.T) {
 			return nil
 		},
 		Scan: func(context.Context) ([]gicisky.FoundDevice, error) {
-			return []gicisky.FoundDevice{scanResult(t, 0x01, -40, 0x0033, "")}, nil
+			return []gicisky.FoundDevice{scanResult(t, 0x01, -40, 0x0033, "writing")}, nil
 		}})
 
 	done := make(chan *httptest.ResponseRecorder, 1)
@@ -816,14 +812,21 @@ func TestDisplayChoosesTheFamilyFromTheNameOrTheQuery(t *testing.T) {
 		{"?device=NRF_EPD_C1F8&family=gicisky", true},
 	}
 	for _, test := range tests {
-		gicisky, nrf := false, false
+		usedGicisky, nrf := false, false
 		handler := New(Config{Logf: func(string, ...any) {},
-			Push:     func(context.Context, string, []byte) error { gicisky = true; return nil },
+			Scan: func(context.Context) ([]gicisky.FoundDevice, error) {
+				return []gicisky.FoundDevice{
+					scanResult(t, 0x01, -40, 0x0033, "PICKSMART"),
+					scanResult(t, 0x02, -41, 0x0033, "NEMR92943861"),
+					scanResult(t, 0x03, -42, 0x0033, "NRF_EPD_C1F8"),
+				}, nil
+			},
+			Push:     func(context.Context, string, []byte) error { usedGicisky = true; return nil },
 			PushPage: func(context.Context, string, nrfepd.PageFor) error { nrf = true; return nil }})
 		// A 296x128 scene so the Gicisky route can encode it.
 		request(t, handler, "/v1/display"+test.query, testScene)
-		if gicisky != test.wantGicisky || nrf == test.wantGicisky {
-			t.Errorf("%s used gicisky=%v nrfepd=%v", test.query, gicisky, nrf)
+		if usedGicisky != test.wantGicisky || nrf == test.wantGicisky {
+			t.Errorf("%s used gicisky=%v nrfepd=%v", test.query, usedGicisky, nrf)
 		}
 	}
 }

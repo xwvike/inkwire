@@ -59,7 +59,7 @@ Integer pixels throughout.
 | `version` | integer | `1` | required |
 | `orientation` | string | `landscape`, `portraitClockwise`, `portraitCounterClockwise` | `landscape` |
 | `size` | size | preview only | device size |
-| `background` | ink | `white`, `black`, `red` | `white` |
+| `background` | ink | `white`, `black`, `red`, `yellow` | `white` |
 | `root` | node | | empty |
 
 Rendered pages and decoded source images are limited to 16,777,216 pixels.
@@ -74,7 +74,7 @@ Rendered pages and decoded source images are limited to 16,777,216 pixels.
 }
 ```
 
-`ink` is `black`, `white` or `red`; optional colours default to `black`.
+`ink` is `black`, `white`, `red` or `yellow`; optional colours default to `black`.
 
 ```json
 {
@@ -211,9 +211,8 @@ child with only `row` creates implicit columns when that row is full, a child
 with only `column` searches downward, and fully automatic children create
 implicit rows. Implicit tracks are automatic tracks.
 
-CLI commands print each expansion. HTTP responses total them in
-`X-Inkwire-Implicit-Grid-Columns` and `X-Inkwire-Implicit-Grid-Rows`; the full
-per-grid records are in `report.GridExpansions`.
+CLI commands print each expansion. HTTP rendering responses keep the full
+per-grid records in the JSON body's `report.GridExpansions` field.
 
 ### anchored
 
@@ -368,10 +367,9 @@ Image options and overrides carry the same fields; overrides are per-field.
 | `disableRed` | boolean | drop the red plane | `false` |
 
 `auto` picks threshold, dithering and red extraction from the image.
-`X-Inkwire-Image-Decisions` contains the number of decisions; `/v1/render` and
-`/v1/display` return their details in `report.Images`, and CLI commands print
-them. A successful `/v1/render` response is always JSON and carries its PNG in
-base64 `pngBase64` beside the report.
+`/v1/render` and `/v1/display` return the decisions in `report.Images`, and CLI
+commands print them. A successful `/v1/render` response is always JSON and
+carries its PNG in base64 `pngBase64` beside the report.
 
 ```json
 {

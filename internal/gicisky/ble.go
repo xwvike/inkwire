@@ -170,6 +170,60 @@ func (d *Driver) ScanAll(ctx context.Context) ([]FoundDevice, error) {
 	return seen.sorted(), nil
 }
 
+func (d *Driver) FindIdentified(ctx context.Context) (FoundDevice, error) {
+	devices, err := d.ScanAll(ctx)
+	if err != nil {
+		return FoundDevice{}, err
+	}
+	return SelectIdentified(devices, d.Target)
+}
+
+func (d *Driver) FindIdentifiedWithRetry(ctx context.Context) (FoundDevice, error) {
+	attempts := d.Attempts
+	if attempts <= 0 {
+		attempts = DefaultAttempts
+	}
+	retryDelay := d.RetryDelay
+	if retryDelay <= 0 {
+		retryDelay = DefaultRetryDelay
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		device, err := d.FindIdentified(ctx)
+		if err == nil {
+			return device, nil
+		}
+		lastErr = err
+		d.logf("identify attempt %d/%d failed: %v", attempt, attempts, err)
+		if attempt < attempts {
+			if err := wait(ctx, retryDelay); err != nil {
+				return FoundDevice{}, err
+			}
+		}
+	}
+	return FoundDevice{}, lastErr
+}
+
+func SelectIdentified(devices []FoundDevice, target string) (FoundDevice, error) {
+	if target == "" {
+		target = TargetAddress
+	}
+	for _, device := range devices {
+		if !MatchesTarget(target, device.Name, device.Address.String()) {
+			continue
+		}
+		if !device.HasAdvertised {
+			return FoundDevice{}, fmt.Errorf("PICKSMART tag found (target %s), but no model advertisement was seen", target)
+		}
+		if !device.Identified {
+			return FoundDevice{}, fmt.Errorf("PICKSMART tag found (target %s), but advertised id 0x%04X is not supported", target, device.Advertised.ID)
+		}
+		return device, nil
+	}
+	return FoundDevice{}, fmt.Errorf("PICKSMART tag not found (target %s)", target)
+}
+
 // deviceSet accumulates advertisements into one entry per address.
 //
 // It is separate from the scan itself so that the merging can be exercised
@@ -248,6 +302,16 @@ func (d *Driver) Push(ctx context.Context, payload []byte) error {
 	if err != nil {
 		return err
 	}
+	return d.PushFound(ctx, found, payload, UploadOptions{})
+}
+
+func (d *Driver) PushFound(ctx context.Context, found FoundDevice, payload []byte, options UploadOptions) error {
+	if err := ValidatePayload(payload); err != nil {
+		return err
+	}
+	if d.Adapter == nil {
+		return errors.New("Bluetooth adapter is nil")
+	}
 	d.logf("resolved target %s (%s)", found.Name, found.Address.String())
 
 	device, err := d.Adapter.Connect(found.Address, bluetooth.ConnectionParams{})
@@ -284,10 +348,14 @@ func (d *Driver) Push(ctx context.Context, payload []byte) error {
 		return fmt.Errorf("enable FEF1 notifications: %w", err)
 	}
 
-	return d.Uploader.Upload(ctx, transport, payload)
+	return d.Uploader.UploadWithOptions(ctx, transport, payload, options)
 }
 
 func (d *Driver) PushWithRetry(ctx context.Context, payload []byte) error {
+	return d.PushWithOptionsWithRetry(ctx, payload, UploadOptions{})
+}
+
+func (d *Driver) PushWithOptionsWithRetry(ctx context.Context, payload []byte, options UploadOptions) error {
 	if err := ValidatePayload(payload); err != nil {
 		return err
 	}
@@ -302,7 +370,41 @@ func (d *Driver) PushWithRetry(ctx context.Context, payload []byte) error {
 
 	var lastErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
-		if err := d.Push(ctx, payload); err == nil {
+		found, err := d.Find(ctx)
+		if err == nil {
+			err = d.PushFound(ctx, found, payload, options)
+		}
+		if err == nil {
+			return nil
+		} else {
+			lastErr = err
+			d.logf("attempt %d/%d failed: %v", attempt, attempts, err)
+		}
+		if attempt < attempts {
+			if err := wait(ctx, retryDelay); err != nil {
+				return err
+			}
+		}
+	}
+	return lastErr
+}
+
+func (d *Driver) PushFoundWithRetry(ctx context.Context, found FoundDevice, payload []byte, options UploadOptions) error {
+	if err := ValidatePayload(payload); err != nil {
+		return err
+	}
+	attempts := d.Attempts
+	if attempts <= 0 {
+		attempts = DefaultAttempts
+	}
+	retryDelay := d.RetryDelay
+	if retryDelay <= 0 {
+		retryDelay = DefaultRetryDelay
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if err := d.PushFound(ctx, found, payload, options); err == nil {
 			return nil
 		} else {
 			lastErr = err
@@ -318,7 +420,14 @@ func (d *Driver) PushWithRetry(ctx context.Context, payload []byte) error {
 }
 
 func (d *Driver) matches(name, address string) bool {
-	if strings.EqualFold(name, d.Target) || strings.EqualFold(address, d.Target) {
+	return MatchesTarget(d.Target, name, address)
+}
+
+func MatchesTarget(target, name, address string) bool {
+	if target == "" {
+		target = TargetAddress
+	}
+	if strings.EqualFold(name, target) || strings.EqualFold(address, target) {
 		return true
 	}
 	// A MAC never equals the address on a host that does not expose one:
@@ -330,7 +439,7 @@ func (d *Driver) matches(name, address string) bool {
 	// while powering up, so honouring it for a MAC target would let a write
 	// aimed at one tag land on whichever tag happened to be booting. Ask for
 	// it by name if that is genuinely what you want.
-	if derived, ok := advertisedName(d.Target); ok {
+	if derived, ok := advertisedName(target); ok {
 		return strings.EqualFold(name, derived)
 	}
 	return false

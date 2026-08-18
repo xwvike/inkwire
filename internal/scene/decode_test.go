@@ -109,6 +109,16 @@ func TestDecoderResolvesImagesRelativeToSceneFile(t *testing.T) {
 	}
 }
 
+func TestDecodeRendersYellowInk(t *testing.T) {
+	result, err := (Decoder{}).Render(strings.NewReader(`{"version":1,"size":{"width":8,"height":8},"root":{"type":"rectangle","fill":"yellow"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := result.Frame.InkAt(0, 0); got != display.InkYellow {
+		t.Fatalf("yellow pixel = %v, want yellow", got)
+	}
+}
+
 func TestDecodeEveryNodeType(t *testing.T) {
 	nodes := []string{
 		`{"type":"row","gap":1,"mainAlign":"center","crossAlign":"end","children":[{"basis":2,"grow":1,"node":{"type":"spacer","size":{"width":2,"height":2}}}]}`,

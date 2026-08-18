@@ -59,7 +59,7 @@
 | `version` | integer | `1` | 必填 |
 | `orientation` | string | `landscape`、`portraitClockwise`、`portraitCounterClockwise` | `landscape` |
 | `size` | size | 仅预览 | 设备尺寸 |
-| `background` | ink | `white`、`black`、`red` | `white` |
+| `background` | ink | `white`、`black`、`red`、`yellow` | `white` |
 | `root` | node | | 空 |
 
 渲染页面和解码后的源图片最多为 16,777,216 像素。
@@ -74,7 +74,7 @@
 }
 ```
 
-`ink` 为 `black`、`white` 或 `red`；可选颜色默认 `black`。
+`ink` 为 `black`、`white`、`red` 或 `yellow`；可选颜色默认 `black`。
 
 ```json
 {
@@ -203,9 +203,8 @@
 
 自动轨道取最宽内容；`fr` 分配剩余。放置采用 CSS Grid 默认的稀疏行流：双轴明确定位的子节点可以重叠；只指定 `row` 的子节点在该行已满时创建隐式列；只指定 `column` 的子节点向下寻找；完全自动的子节点创建隐式行。隐式轨道均为自动轨道。
 
-CLI 命令逐项打印扩展；HTTP 用 `X-Inkwire-Implicit-Grid-Columns` 与
-`X-Inkwire-Implicit-Grid-Rows` 汇总数量，`report.GridExpansions` 保留每个
-grid 的完整记录。
+CLI 命令逐项打印扩展；HTTP 渲染响应在 JSON body 的
+`report.GridExpansions` 中保留每个 grid 的完整记录。
 
 ### anchored
 
@@ -359,10 +358,9 @@ options 与 overrides 字段相同；overrides 按字段生效。
 | `redMaxGreen` | integer | 0–255 判红的绿色上限 | |
 | `disableRed` | boolean | 丢弃红色平面 | `false` |
 
-`auto` 依据图像选择阈值、抖动与红色提取。`X-Inkwire-Image-Decisions`
-只给出决策数量；`/v1/render` 和 `/v1/display` 在 `report.Images` 中返回
-细节，CLI 命令也会打印。成功的 `/v1/render` 固定返回 JSON，PNG 以 base64
-`pngBase64` 与报告一起返回。
+`auto` 依据图像选择阈值、抖动与红色提取。`/v1/render` 和 `/v1/display` 在
+`report.Images` 中返回决策，CLI 命令也会打印。成功的 `/v1/render` 固定返回
+JSON，PNG 以 base64 `pngBase64` 与报告一起返回。
 
 ```json
 {

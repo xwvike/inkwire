@@ -1,31 +1,34 @@
 # Inkwire
 
-Scene Schema → 电子纸标签。两个家族，一个渲染器。
+Schema驱动的电子纸标签渲染器。
 
 | | Gicisky | EPD-nRF5 |
 |---|---|---|
 | 固件 | 出厂 | nRF51/nRF52 [替换固件](https://github.com/tsl0922/EPD-nRF5) |
 | 名称 | `PICKSMART`、`NEMR<mac8>` | `NRF_EPD_<mac4>` |
 | 型号来自 | 广播 | 连接 |
-| 尺寸 | 296x128 | 400x300 … 880x528 |
-| 颜色 | BWR | BW、BWR |
+| 尺寸 | 212x104 … 960x640 | 400x300 … 880x528 |
+| 颜色 | BW、BWR、BWRY | BW、BWR |
 
-这些命令所读的文档即 Scene Schema：**[SCHEMA.zh-CN.md](SCHEMA.zh-CN.md)**。二进制自带一份，`inkwire schema -lang zh` 直接打印，无需联网、无需另行下载。
 
 ## CLI
 
 | 命令 | 用途 |
 |---|---|
 | `inkwire render [-o out.png] <scene.json>` | PNG 预览 |
-| `inkwire encode [-o out.bin] <scene.json>` | 设备 payload，仅 Gicisky |
+| `inkwire encode [-profile-id 0x0033] [-o out.bin] <scene.json>` | 设备 payload，仅 Gicisky |
 | `inkwire push [-device NAME] [-family auto\|gicisky\|nrfepd] [-settle 30s] <scene.json>` | 渲染并写入 |
 | `inkwire scan [-timeout 15s]` | 列出标签 |
 | `inkwire mode [-device NAME] [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 时钟与模式 |
 | `inkwire serve [-listen ADDR] [-device NAME] [-assets DIR]` | HTTP 服务 |
-| `inkwire push-payload [NAME] <payload.bin>` | 写入原始 payload |
+| `inkwire push-payload [-profile-id 0x0033] [NAME] <payload.bin>` | 写入原始 payload |
 | `inkwire schema [-lang en\|zh]` | 打印 Scene Schema 参考 |
 | `inkwire help` | 本列表；也可用 `-h`、`--help` |
 | `inkwire version` | 发布 tag，源码构建则给出提交号；也可用 `-v`、`--version` |
+
+`inkwire encode` 是离线的 Gicisky 开发工具。它会按选定的
+`-profile-id` 渲染场景，写出该型号的 payload 到 `.bin` 文件，可与
+`inkwire push-payload -profile-id ...` 配合使用；它不会连接标签。
 
 ```
 $ inkwire scan
@@ -43,6 +46,7 @@ inkwire push -device NEMR92943861 page.json
 |---|---|
 | `-device` | 广播名（`NAME` 列）或 BLE 地址。默认 `FF:FF:92:94:38:61` |
 | `-family` | `auto` 把 `NRF_EPD*` 映射为 nrfepd，其余 gicisky。地址不携带家族 |
+| `-profile-id` | `inkwire scan` 输出的 Gicisky 型号 id；默认使用已实机验证的 `0x0033` |
 | `-timeout` | 按家族计时，两个家族依次扫描 |
 | `-settle` | `REFRESH` 后保持连接的时长，见[刷新](#刷新) |
 
@@ -50,9 +54,9 @@ inkwire push -device NEMR92943861 page.json
 
 | | |
 |---|---|
-| 面板 | 296x128，BWR，无灰度 |
-| 方向 | 横屏 296x128，竖屏 128x296 |
-| Payload | 黑白平面 + 红色平面，9472 字节 |
+| 面板 | 从广播识别；212x104 … 960x640，BW/BWR/BWRY |
+| 方向 | 横屏使用 profile 尺寸，竖屏交换宽高 |
+| Payload | 按型号选择平面、变换与压缩 |
 | GATT | 服务 `FEF0`，控制 `FEF1`，数据 `FEF2` |
 | 名称 | `PICKSMART` 仅开机期间；稳定后 `NEMR<mac8>` |
 
@@ -63,7 +67,8 @@ byte   0        1        2   3        4
        id low   battery  firmware     id high
 ```
 
-型号 id = `(data[4] << 8) | data[0]` 低 14 位。名称不携带型号。
+型号 id = `(data[4] << 8) | data[0]` 低 14 位。名称不携带型号，因此写入
+Gicisky 标签前必须先看到厂商数据，再按该型号渲染。
 
 11 个型号（212x104 … 960x640，BW/BWR/BWRY），来自 [hass-gicisky](https://github.com/eigger/hass-gicisky)（MIT，© 2025 eigger）。`0x0033` 已验证，其余打印 `unverified`。未知 id 列出但不可驱动。
 
@@ -167,11 +172,11 @@ inkwire serve -listen 127.0.0.1:8080 -device NEMR92943861
 | 路由 | 响应 |
 |---|---|
 | `POST /v1/render` | JSON，包含 `width`、`height`、base64 `pngBase64` 和完整 `report` |
-| `POST /v1/encode` | 9472 字节，`application/octet-stream`，仅 Gicisky |
-| `POST /v1/display` | JSON 结果 |
+| `POST /v1/display` | JSON 结果，包含设备状态和完整 `report` |
 | `GET /v1/devices` | 标签列表，每条带 `family` |
 
-`-listen` 仅回环。`/v1/display` 接受 `?device=` 与 `?family=auto|gicisky|nrfepd`。预算：Gicisky 45 秒，EPD-nRF5 60 秒。`/v1/encode` 对 EPD-nRF5 目标以 `size-unknown` 拒绝：该面板连接后才报出自身尺寸。请改用 `/v1/display`。
+`-listen` 仅回环。`/v1/display` 接受 `?device=` 与 `?family=auto|gicisky|nrfepd`。预算：Gicisky 45 秒，EPD-nRF5 60 秒。
+两个渲染路由使用同一套场景编译和渲染逻辑；只要已经完成渲染，就返回相同的完整报告结构。`/v1/display` 会先识别 Gicisky profile 再渲染，因此识别失败只返回设备状态，不伪造渲染报告。如果已经完成渲染、但在连接或写入设备阶段失败，错误 JSON 仍会包含渲染阶段生成的报告。HTTP API 不暴露原始 `.bin` 编码器：直接使用设备请调用 `/v1/display`，预览请调用 `/v1/render`。
 
 ```bash
 curl -H 'Content-Type: application/json' --data-binary @page.json \
@@ -181,7 +186,7 @@ curl -H 'Content-Type: application/json' --data-binary @page.json \
   'http://127.0.0.1:8080/v1/display?device=NRF_EPD_C1F8'
 ```
 
-`X-Inkwire-Warnings`、`X-Inkwire-Missing-Runes`、`X-Inkwire-Image-Decisions`、`X-Inkwire-Implicit-Grid-Columns`、`X-Inkwire-Implicit-Grid-Rows` 响应头给出数量；`/v1/render` 和 `/v1/display` 的 JSON 响应包含完整报告。
+报告统一放在 JSON body 中，不再拆分到自定义响应头；内容包括边界、缺失字符、警告、图片决策和每个 Grid 的隐式轨道扩展。
 
 ### 警告
 
@@ -202,10 +207,10 @@ curl -H 'Content-Type: application/json' --data-binary @page.json \
 | `invalid-request` | 400 | multipart 结构错误，或 `family` 未知 |
 | `request-too-large` | 413 | 超出体积上限 |
 | `invalid-scene` | 422 | 无法解码或渲染 |
-| `unprocessable-scene` | 422 | 能渲染，无法编码 |
-| `size-unknown` | 400 | 对 EPD-nRF5 目标调用 `/v1/encode` |
+| `unprocessable-scene` | 422 | 能渲染，但无法为选定的 Gicisky 面板编码 |
 | `render-failed` | 500 | PNG 编码失败 |
 | `device-busy` | 409 | 适配器占用中 |
+| `device-identify-failed` | 502 | 未找到 Gicisky 目标、目标未广播已知型号，或扫描失败 |
 | `push-failed` | 502 | 标签报错或连接失败 |
 | `device-timeout` | 504 | 完整设备操作超过该家族的总时限 |
 | `scan-failed` | 502 | 扫描失败 |

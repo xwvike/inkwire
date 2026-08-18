@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "size": {"width": 960, "height": 640},
+  "background": "white",
+  "root": {
+    "type": "absolute",
+    "children": [
+      {"bounds": {"x": 0, "y": 0, "width": 960, "height": 72}, "node": {"type": "rectangle", "fill": "black"}},
+      {"bounds": {"x": 30, "y": 20, "width": 320, "height": 28}, "node": {"type": "text", "runs": [{"text": "960x640 BW stress", "font": "monaco", "size": 24, "ink": "white"}]}},
+      {"bounds": {"x": 48, "y": 116, "width": 864, "height": 2}, "node": {"type": "rectangle", "fill": "black"}},
+      {"bounds": {"x": 48, "y": 180, "width": 864, "height": 2}, "node": {"type": "rectangle", "fill": "black"}},
+      {"bounds": {"x": 48, "y": 244, "width": 864, "height": 2}, "node": {"type": "rectangle", "fill": "black"}},
+      {"bounds": {"x": 48, "y": 308, "width": 864, "height": 2}, "node": {"type": "rectangle", "fill": "black"}},
+      {"bounds": {"x": 48, "y": 372, "width": 864, "height": 2}, "node": {"type": "rectangle", "fill": "black"}},
+      {"bounds": {"x": 48, "y": 436, "width": 864, "height": 2}, "node": {"type": "rectangle", "fill": "black"}},
+      {"bounds": {"x": 48, "y": 500, "width": 864, "height": 2}, "node": {"type": "rectangle", "fill": "black"}},
+      {"bounds": {"x": 48, "y": 564, "width": 864, "height": 2}, "node": {"type": "rectangle", "fill": "black"}},
+      {"bounds": {"x": 80, "y": 138, "width": 160, "height": 400}, "node": {"type": "rectangle", "fill": "black"}},
+      {"bounds": {"x": 280, "y": 138, "width": 160, "height": 400}, "node": {"type": "rectangle", "fill": "white", "stroke": {"ink": "black", "width": 4}}},
+      {"bounds": {"x": 480, "y": 138, "width": 160, "height": 400}, "node": {"type": "rectangle", "fill": "black"}},
+      {"bounds": {"x": 680, "y": 138, "width": 160, "height": 400}, "node": {"type": "rectangle", "fill": "white", "stroke": {"ink": "black", "width": 4}}},
+      {"bounds": {"x": 80, "y": 580, "width": 560, "height": 32}, "node": {"type": "text", "runs": [{"text": "black and white only", "font": "monaco", "size": 24, "ink": "black"}]}}
+    ]
+  }
+}
