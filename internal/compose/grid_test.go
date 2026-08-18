@@ -122,6 +122,68 @@ func TestExplicitPlacement(t *testing.T) {
 	}
 }
 
+func TestExplicitItemsReserveCellsBeforeAutoPlacement(t *testing.T) {
+	frame, _ := compileAndRender(t, Document{Size: image.Pt(100, 20), Root: Grid{
+		Columns: []Track{{Fraction: 1}, {Fraction: 1}},
+		Children: []GridChild{
+			{Node: filled(display.InkRed)},
+			{Node: filled(display.InkBlack), Column: 1, Row: 1},
+		},
+	}})
+	if got, _ := frame.InkAt(25, 5); got != display.InkBlack {
+		t.Fatalf("explicit first cell = %v, want black", got)
+	}
+	if got, _ := frame.InkAt(75, 5); got != display.InkRed {
+		t.Fatalf("auto-placed second cell = %v, want red", got)
+	}
+}
+
+func TestRowOnlyPlacementCreatesAnImplicitColumn(t *testing.T) {
+	frame, report := compileAndRender(t, Document{Size: image.Pt(100, 20), Root: Grid{
+		Columns: []Track{{Fraction: 1}, {Fraction: 1}},
+		Children: []GridChild{
+			{Node: filled(display.InkBlack), Row: 1, ColumnSpan: 2},
+			{Node: Rectangle{Size: image.Pt(10, 10), Fill: Ink(display.InkRed)}, Row: 1},
+		},
+	}})
+	if got, _ := frame.InkAt(95, 5); got != display.InkRed {
+		t.Fatalf("implicit third column pixel = %v, want red", got)
+	}
+	if got, _ := frame.InkAt(89, 5); got != display.InkBlack {
+		t.Fatalf("declared columns pixel = %v, want black", got)
+	}
+	if len(report.GridExpansions) != 1 || report.GridExpansions[0].ImplicitColumns != 1 || report.GridExpansions[0].ImplicitRows != 0 {
+		t.Fatalf("grid expansions = %+v, want one implicit column", report.GridExpansions)
+	}
+}
+
+func TestAutoPlacementReportsAnImplicitRow(t *testing.T) {
+	_, report := compileAndRender(t, Document{Size: image.Pt(100, 40), Root: Grid{
+		Columns: []Track{{Fraction: 1}, {Fraction: 1}},
+		Children: []GridChild{
+			{Node: filled(display.InkBlack)},
+			{Node: filled(display.InkBlack)},
+			{Node: filled(display.InkRed)},
+		},
+	}})
+	if len(report.GridExpansions) != 1 || report.GridExpansions[0].ImplicitColumns != 0 || report.GridExpansions[0].ImplicitRows != 1 {
+		t.Fatalf("grid expansions = %+v, want one implicit row", report.GridExpansions)
+	}
+}
+
+func TestColumnOnlyPlacementCreatesAnImplicitRow(t *testing.T) {
+	_, report := compileAndRender(t, Document{Size: image.Pt(50, 40), Root: Grid{
+		Columns: []Track{{Fraction: 1}},
+		Children: []GridChild{
+			{Node: filled(display.InkBlack), Column: 1},
+			{Node: filled(display.InkRed), Column: 1},
+		},
+	}})
+	if len(report.GridExpansions) != 1 || report.GridExpansions[0].ImplicitColumns != 0 || report.GridExpansions[0].ImplicitRows != 1 {
+		t.Fatalf("grid expansions = %+v, want one implicit row", report.GridExpansions)
+	}
+}
+
 func TestGapsSeparateTracks(t *testing.T) {
 	got := cellsOf(t, Grid{
 		Columns:   []Track{{Fraction: 1}, {Fraction: 1}},

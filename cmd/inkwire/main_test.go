@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xwvike/inkwire/internal/compose"
 	"github.com/xwvike/inkwire/internal/display"
+	"github.com/xwvike/inkwire/internal/scene"
 	"github.com/xwvike/inkwire/internal/server"
 )
 
@@ -72,8 +74,13 @@ func TestServeOnlyBindsLoopback(t *testing.T) {
 // transfer off partway and report a failure the tag never had.
 func TestServeTimeoutsCannotCutAPushShort(t *testing.T) {
 	httpServer := newHTTPServer("127.0.0.1:0", nil)
-	if httpServer.WriteTimeout <= server.DefaultPushTimeout {
-		t.Errorf("write timeout %s does not outlast the push budget %s", httpServer.WriteTimeout, server.DefaultPushTimeout)
+	for family, budget := range map[string]time.Duration{
+		"gicisky": server.DefaultPushTimeout,
+		"nrfepd":  server.DefaultNRFEPDPushTimeout,
+	} {
+		if httpServer.WriteTimeout <= budget {
+			t.Errorf("write timeout %s does not outlast the %s push budget %s", httpServer.WriteTimeout, family, budget)
+		}
 	}
 	// Each of these bounds a connection that would otherwise sit on the
 	// adapter, so an unset one is a hole rather than a lenient default.
@@ -88,6 +95,16 @@ func TestServeTimeoutsCannotCutAPushShort(t *testing.T) {
 		if timeout.value <= 0 {
 			t.Errorf("%s is unset, so a connection can be held open indefinitely", timeout.name)
 		}
+	}
+}
+
+func TestReportPrintsImplicitGridTracks(t *testing.T) {
+	var output bytes.Buffer
+	printReport(&output, scene.Result{Report: compose.Report{GridExpansions: []compose.GridExpansion{{
+		Path: "root", ImplicitColumns: 2, ImplicitRows: 1,
+	}}}})
+	if got := output.String(); !strings.Contains(got, "grid root: implicit-columns=2 implicit-rows=1") {
+		t.Fatalf("report output = %q", got)
 	}
 }
 

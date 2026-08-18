@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,11 +39,10 @@ const (
 	DefaultPushTimeout = 45 * time.Second
 	// An EPD-nRF5 write is a different shape and needs its own budget. The
 	// panel is not drawn when the last frame is acknowledged: the connection
-	// has to be held open while it refreshes, which is half a minute on a
-	// three colour part and is not time this server can shorten. One attempt
-	// is a scan, a connection, the frames and that wait; this clears two of
-	// them, which is a failed scan and a full retry.
-	DefaultNRFEPDPushTimeout = 150 * time.Second
+	// stays open for a 30-second refresh after scanning and transfer. Real
+	// writes have completed inside the server's existing 60-second window;
+	// retries share this total budget rather than multiplying it.
+	DefaultNRFEPDPushTimeout = 60 * time.Second
 )
 
 type Config struct {
@@ -345,9 +345,12 @@ func (h *Handler) render(writer http.ResponseWriter, request *http.Request) {
 		writeError(writer, http.StatusInternalServerError, "render-failed", err)
 		return
 	}
-	writer.Header().Set("Content-Type", "image/png")
-	writer.Header().Set("Content-Length", fmt.Sprint(encoded.Len()))
-	_, _ = writer.Write(encoded.Bytes())
+	writeJSON(writer, http.StatusOK, map[string]any{
+		"width":     result.Frame.Width(),
+		"height":    result.Frame.Height(),
+		"pngBase64": base64.StdEncoding.EncodeToString(encoded.Bytes()),
+		"report":    result.Report,
+	})
 }
 
 func (h *Handler) encode(writer http.ResponseWriter, request *http.Request) {
@@ -390,6 +393,7 @@ func (h *Handler) display(writer http.ResponseWriter, request *http.Request) {
 	if !ok {
 		return
 	}
+	writeReportHeaders(writer.Header(), result)
 	target := request.URL.Query().Get("device")
 	if target == "" {
 		target = h.target
@@ -438,9 +442,9 @@ func (h *Handler) display(writer http.ResponseWriter, request *http.Request) {
 	status := h.release(target, written, pushErr)
 	if pushErr != nil {
 		code, httpStatus := "push-failed", http.StatusBadGateway
-		// The deadline belongs to this handler, so exceeding it means the
-		// retries never got the tag to answer: report the Bluetooth link,
-		// not the scene.
+		// This deadline bounds the complete device operation, including every
+		// retry and any refresh wait. It is a timeout even if the link made
+		// partial progress, rather than an immediate driver failure.
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			code, httpStatus = "device-timeout", http.StatusGatewayTimeout
 		}
@@ -664,6 +668,13 @@ func writeReportHeaders(header http.Header, result scene.Result) {
 	header.Set("X-Inkwire-Warnings", fmt.Sprint(len(result.Report.Warnings)))
 	header.Set("X-Inkwire-Missing-Runes", fmt.Sprint(len(result.Report.MissingRunes)))
 	header.Set("X-Inkwire-Image-Decisions", fmt.Sprint(len(result.Report.Images)))
+	implicitColumns, implicitRows := 0, 0
+	for _, expansion := range result.Report.GridExpansions {
+		implicitColumns += expansion.ImplicitColumns
+		implicitRows += expansion.ImplicitRows
+	}
+	header.Set("X-Inkwire-Implicit-Grid-Columns", fmt.Sprint(implicitColumns))
+	header.Set("X-Inkwire-Implicit-Grid-Rows", fmt.Sprint(implicitRows))
 }
 
 // Every failure carries a stable code so a caller can branch on the kind of

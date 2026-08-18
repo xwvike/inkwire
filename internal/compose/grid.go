@@ -50,7 +50,7 @@ type GridChild struct {
 func (c GridChild) columnSpan() int { return max(1, c.ColumnSpan) }
 func (c GridChild) rowSpan() int    { return max(1, c.RowSpan) }
 
-// Grid lays children out on a fixed set of columns and rows.
+// Grid lays children out on declared and automatically created tracks.
 //
 // It exists because a row of rows cannot line up. Three separate rows each
 // containing a label and a value have no way to agree on how wide the label
@@ -71,11 +71,10 @@ func (g Grid) measure(ctx *compileContext, maximum image.Point, path string) (im
 	if err := g.validate(path); err != nil {
 		return image.Point{}, err
 	}
-	placement, rows, err := g.place(ctx, maximum, path)
+	placement, columns, rows, err := g.place(ctx, maximum, path)
 	if err != nil {
 		return image.Point{}, err
 	}
-	columns := g.columnsOrOne()
 	natural := image.Pt(
 		intrinsicTracks(columns, placement.columnContent)+g.ColumnGap*(len(columns)-1),
 		intrinsicTracks(rows, placement.rowContent)+g.RowGap*(len(rows)-1),
@@ -87,11 +86,17 @@ func (g Grid) paint(ctx *compileContext, list *display.DisplayList, bounds image
 	if err := g.validate(path); err != nil {
 		return err
 	}
-	placement, rows, err := g.place(ctx, bounds.Size(), path)
+	placement, columns, rows, err := g.place(ctx, bounds.Size(), path)
 	if err != nil {
 		return err
 	}
-	columns := g.columnsOrOne()
+	implicitColumns := len(columns) - len(g.columnsOrOne())
+	implicitRows := len(rows) - len(g.rowsOrOne())
+	if implicitColumns != 0 || implicitRows != 0 {
+		ctx.report.GridExpansions = append(ctx.report.GridExpansions, GridExpansion{
+			Path: path, ImplicitColumns: implicitColumns, ImplicitRows: implicitRows,
+		})
+	}
 	columnSizes := g.tracksFor(columns, placement.columnContent, bounds.Dx(), g.ColumnGap, true)
 	rowSizes := g.tracksFor(rows, placement.rowContent, bounds.Dy(), g.RowGap, false)
 	columnOffsets := offsets(columnSizes, g.ColumnGap)
@@ -177,63 +182,103 @@ type placement struct {
 //
 // Auto placement fills the grid row by row, taking the next free cell, which
 // is what a document without explicit positions expects.
-func (g Grid) place(ctx *compileContext, maximum image.Point, path string) (placement, []Track, error) {
-	columns := g.columnsOrOne()
-	rows := append([]Track(nil), g.Rows...)
+func (g Grid) place(ctx *compileContext, maximum image.Point, path string) (placement, []Track, []Track, error) {
+	columns := append([]Track(nil), g.columnsOrOne()...)
+	rows := append([]Track(nil), g.rowsOrOne()...)
 	taken := map[[2]int]bool{}
 	result := placement{cells: make([]cell, len(g.Children))}
-	cursor := 0
 
+	// CSS determines the implicit column grid before auto-placement. A stated
+	// column can extend it directly, while an auto-positioned item can require
+	// enough columns to hold its span.
 	for index, child := range g.Children {
 		nodePath := childPath(path, "children", index)
 		if nilNode(child.Node) {
-			return placement{}, nil, fmt.Errorf("%s: node must not be nil", nodePath)
+			return placement{}, nil, nil, fmt.Errorf("%s: node must not be nil", nodePath)
 		}
-		spanColumns := min(child.columnSpan(), len(columns))
-		at := cell{columnSpan: spanColumns, rowSpan: child.rowSpan()}
-		// Naming one axis and not the other is ordinary: "column 3" means
-		// that column and whichever row is free, so each axis is settled on
-		// its own rather than requiring both or neither.
-		switch {
-		case child.Column > 0 && child.Row > 0:
-			at.column, at.row = child.Column-1, child.Row-1
-		case child.Column > 0:
-			at.column = child.Column - 1
-			for row := 0; ; row++ {
-				if free(taken, at.column, row, at.columnSpan, at.rowSpan) {
-					at.row = row
-					break
-				}
-			}
-		case child.Row > 0:
-			at.row = child.Row - 1
-			for column := 0; column+at.columnSpan <= len(columns); column++ {
-				if free(taken, column, at.row, at.columnSpan, at.rowSpan) {
-					at.column = column
-					break
-				}
-			}
-		default:
-			for {
-				column, row := cursor%len(columns), cursor/len(columns)
-				if column+spanColumns <= len(columns) && free(taken, column, row, spanColumns, at.rowSpan) {
-					at.column, at.row = column, row
-					break
-				}
-				cursor++
-			}
-			cursor = at.row*len(columns) + at.column + spanColumns
+		if child.Column < 0 || child.Row < 0 {
+			return placement{}, nil, nil, fmt.Errorf("%s: column and row must not be negative", nodePath)
 		}
-		if at.column < 0 || at.row < 0 || at.column+at.columnSpan > len(columns) {
-			return placement{}, nil, fmt.Errorf("%s: the cell at column %d spans past the last column",
-				nodePath, at.column+1)
-		}
-		occupy(taken, at)
+		at := cell{columnSpan: child.columnSpan(), rowSpan: child.rowSpan()}
 		result.cells[index] = at
-		for len(rows) < at.row+at.rowSpan {
-			// Rows the document did not declare are implicit and automatic.
-			rows = append(rows, autoTrack())
+		requiredColumns := at.columnSpan
+		if child.Column > 0 {
+			requiredColumns = child.Column - 1 + at.columnSpan
 		}
+		columns = ensureTracks(columns, requiredColumns)
+		if child.Row > 0 {
+			rows = ensureTracks(rows, child.Row-1+at.rowSpan)
+		}
+	}
+
+	// Fully positioned items are placed first and may overlap deliberately,
+	// just as CSS grid items with both lines stated can occupy the same area.
+	for index, child := range g.Children {
+		if child.Column == 0 || child.Row == 0 {
+			continue
+		}
+		at := result.cells[index]
+		at.column, at.row = child.Column-1, child.Row-1
+		result.cells[index] = at
+		occupy(taken, at)
+	}
+
+	// Items locked to a row search that row from the first column. When no
+	// declared cell fits, the implicit grid grows to the right.
+	for index, child := range g.Children {
+		if child.Row == 0 || child.Column != 0 {
+			continue
+		}
+		at := result.cells[index]
+		at.row = child.Row - 1
+		for column := 0; ; column++ {
+			columns = ensureTracks(columns, column+at.columnSpan)
+			if free(taken, column, at.row, at.columnSpan, at.rowSpan) {
+				at.column = column
+				break
+			}
+		}
+		result.cells[index] = at
+		occupy(taken, at)
+		rows = ensureTracks(rows, at.row+at.rowSpan)
+	}
+
+	// The remaining items stay in document order and use one sparse row-major
+	// cursor. A stated column moves the cursor to that column and searches
+	// downward; a fully automatic item searches across and then down.
+	cursorColumn, cursorRow := 0, 0
+	for index, child := range g.Children {
+		if child.Row != 0 {
+			continue
+		}
+		at := result.cells[index]
+		if child.Column > 0 {
+			column := child.Column - 1
+			if column < cursorColumn {
+				cursorRow++
+			}
+			cursorColumn = column
+			for !free(taken, cursorColumn, cursorRow, at.columnSpan, at.rowSpan) {
+				cursorRow++
+			}
+			at.column, at.row = cursorColumn, cursorRow
+		} else {
+			for {
+				if cursorColumn+at.columnSpan > len(columns) {
+					cursorColumn, cursorRow = 0, cursorRow+1
+					continue
+				}
+				if free(taken, cursorColumn, cursorRow, at.columnSpan, at.rowSpan) {
+					at.column, at.row = cursorColumn, cursorRow
+					cursorColumn += at.columnSpan
+					break
+				}
+				cursorColumn++
+			}
+		}
+		result.cells[index] = at
+		occupy(taken, at)
+		rows = ensureTracks(rows, at.row+at.rowSpan)
 	}
 
 	result.columnContent = make([]int, len(columns))
@@ -242,7 +287,7 @@ func (g Grid) place(ctx *compileContext, maximum image.Point, path string) (plac
 		at := result.cells[index]
 		size, err := child.Node.measure(ctx, maximum, childPath(path, "children", index))
 		if err != nil {
-			return placement{}, nil, err
+			return placement{}, nil, nil, err
 		}
 		// A child spanning several tracks says nothing about any one of them,
 		// so only single-track children set an automatic track's size.
@@ -253,7 +298,14 @@ func (g Grid) place(ctx *compileContext, maximum image.Point, path string) (plac
 			result.rowContent[at.row] = max(result.rowContent[at.row], size.Y)
 		}
 	}
-	return result, rows, nil
+	return result, columns, rows, nil
+}
+
+func ensureTracks(tracks []Track, count int) []Track {
+	for len(tracks) < count {
+		tracks = append(tracks, autoTrack())
+	}
+	return tracks
 }
 
 func free(taken map[[2]int]bool, column, row, columns, rows int) bool {
@@ -384,6 +436,13 @@ func (g Grid) columnsOrOne() []Track {
 		return []Track{autoTrack()}
 	}
 	return g.Columns
+}
+
+func (g Grid) rowsOrOne() []Track {
+	if len(g.Rows) == 0 {
+		return []Track{autoTrack()}
+	}
+	return g.Rows
 }
 
 func (g Grid) validate(path string) error {

@@ -1008,7 +1008,7 @@ func (d Decoder) loadImage(source string) (image.Image, error) {
 	if source == "" {
 		return nil, fmt.Errorf("field is required")
 	}
-	var reader io.Reader
+	var reader io.ReadSeeker
 	if resource, ok := d.Resources[source]; ok {
 		reader = bytes.NewReader(resource)
 	} else if strings.HasPrefix(source, "data:") {
@@ -1057,6 +1057,20 @@ func (d Decoder) loadImage(source string) (image.Image, error) {
 		}
 		defer file.Close()
 		reader = file
+	}
+	config, format, err := image.DecodeConfig(reader)
+	if err != nil {
+		return nil, fmt.Errorf("decode image configuration: %w", err)
+	}
+	if format != "png" && format != "jpeg" {
+		return nil, fmt.Errorf("unsupported image format %q", format)
+	}
+	if config.Width <= 0 || config.Height <= 0 || config.Width > display.MaxFramePixels/config.Height {
+		return nil, fmt.Errorf("image dimensions %dx%d exceed the %d pixel limit",
+			config.Width, config.Height, display.MaxFramePixels)
+	}
+	if _, err := reader.Seek(0, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("rewind image: %w", err)
 	}
 	decoded, format, err := image.Decode(reader)
 	if err != nil {

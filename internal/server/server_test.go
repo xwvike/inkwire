@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xwvike/inkwire/internal/compose"
 	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/gicisky"
 	"github.com/xwvike/inkwire/internal/nrfepd"
@@ -31,15 +33,15 @@ func TestRenderAndEncode(t *testing.T) {
 	handler := New(Config{Logf: func(string, ...any) {}})
 
 	render := request(t, handler, "/v1/render", testScene)
-	if render.Code != http.StatusOK || render.Header().Get("Content-Type") != "image/png" {
+	if render.Code != http.StatusOK || render.Header().Get("Content-Type") != "application/json" {
 		t.Fatalf("render = %d %q: %s", render.Code, render.Header().Get("Content-Type"), render.Body.String())
 	}
-	image, err := png.Decode(render.Body)
-	if err != nil {
-		t.Fatal(err)
+	frame, report := decodeRenderResponse(t, render)
+	if frame.Bounds().Dx() != display.GiciskyWidth || frame.Bounds().Dy() != display.GiciskyHeight {
+		t.Fatalf("render bounds = %v", frame.Bounds())
 	}
-	if image.Bounds().Dx() != display.GiciskyWidth || image.Bounds().Dy() != display.GiciskyHeight {
-		t.Fatalf("render bounds = %v", image.Bounds())
+	if report.Bounds.Empty() {
+		t.Fatal("render response omitted its report")
 	}
 
 	encoded := request(t, handler, "/v1/encode", testScene)
@@ -387,12 +389,34 @@ func TestMultipartResourceOverridesAssetDirectory(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}
-	frame, err := png.Decode(response.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
+	frame, _ := decodeRenderResponse(t, response)
 	if got := color.NRGBAModel.Convert(frame.At(0, 0)).(color.NRGBA); got != (color.NRGBA{R: 0xff, A: 0xff}) {
 		t.Fatalf("uploaded resource pixel = %#v", got)
+	}
+}
+
+func TestRenderReportsImplicitGridTracksInBodyAndHeaders(t *testing.T) {
+	handler := New(Config{Logf: func(string, ...any) {}})
+	scene := `{
+		"version":1,"size":{"width":100,"height":20},
+		"root":{"type":"grid","columns":["1fr","1fr"],"children":[
+			{"row":1,"columnSpan":2,"node":{"type":"rectangle","fill":"black"}},
+			{"row":1,"node":{"type":"rectangle","size":{"width":10,"height":10},"fill":"red"}}
+		]}
+	}`
+	response := request(t, handler, "/v1/render", scene)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	if got := response.Header().Get("X-Inkwire-Implicit-Grid-Columns"); got != "1" {
+		t.Errorf("implicit column header = %q, want 1", got)
+	}
+	if got := response.Header().Get("X-Inkwire-Implicit-Grid-Rows"); got != "0" {
+		t.Errorf("implicit row header = %q, want 0", got)
+	}
+	_, report := decodeRenderResponse(t, response)
+	if len(report.GridExpansions) != 1 || report.GridExpansions[0].ImplicitColumns != 1 {
+		t.Fatalf("grid expansions = %+v", report.GridExpansions)
 	}
 }
 
@@ -504,6 +528,31 @@ func solidPNG(t *testing.T, ink color.NRGBA) []byte {
 		t.Fatal(err)
 	}
 	return encoded.Bytes()
+}
+
+func decodeRenderResponse(t *testing.T, response *httptest.ResponseRecorder) (image.Image, compose.Report) {
+	t.Helper()
+	var body struct {
+		Width     int            `json:"width"`
+		Height    int            `json:"height"`
+		PNGBase64 string         `json:"pngBase64"`
+		Report    compose.Report `json:"report"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode render JSON: %v", err)
+	}
+	encoded, err := base64.StdEncoding.DecodeString(body.PNGBase64)
+	if err != nil {
+		t.Fatalf("decode render PNG base64: %v", err)
+	}
+	frame, err := png.Decode(bytes.NewReader(encoded))
+	if err != nil {
+		t.Fatalf("decode render PNG: %v", err)
+	}
+	if body.Width != frame.Bounds().Dx() || body.Height != frame.Bounds().Dy() {
+		t.Fatalf("reported render size %dx%d, PNG is %v", body.Width, body.Height, frame.Bounds())
+	}
+	return frame, body.Report
 }
 
 func writeSolidPNG(path string, ink color.NRGBA) error {

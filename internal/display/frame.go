@@ -6,6 +6,11 @@ import (
 	"image/color"
 )
 
+// MaxFramePixels bounds every rendered surface. The largest supported panel
+// is 960x640; sixteen megapixels leaves ample room for previews and contact
+// sheets without letting an input allocate unbounded memory.
+const MaxFramePixels = 16 * 1024 * 1024
+
 // Ink is one of the three physical colors supported by the display.
 type Ink uint8
 
@@ -43,13 +48,17 @@ func NewFrame(width, height int, background Ink) (*Frame, error) {
 	if width <= 0 || height <= 0 {
 		return nil, fmt.Errorf("frame dimensions must be positive, got %dx%d", width, height)
 	}
+	if width > MaxFramePixels/height {
+		return nil, fmt.Errorf("frame dimensions %dx%d exceed the %d pixel limit", width, height, MaxFramePixels)
+	}
 	if !background.valid() {
 		return nil, fmt.Errorf("invalid background ink %d", background)
 	}
+	pixels := width * height
 	f := &Frame{
 		width:  width,
 		height: height,
-		pixels: make([]Ink, width*height),
+		pixels: make([]Ink, pixels),
 	}
 	f.Clear(background)
 	return f, nil

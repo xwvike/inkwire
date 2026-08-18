@@ -62,6 +62,8 @@ Integer pixels throughout.
 | `background` | ink | `white`, `black`, `red` | `white` |
 | `root` | node | | empty |
 
+Rendered pages and decoded source images are limited to 16,777,216 pixels.
+
 ### Values
 
 ```json
@@ -203,7 +205,15 @@ Sizes may not: `basis`, `cross`, `width`, `height`, `min*`/`max*`, tracks,
 | `children[].columnSpan` / `rowSpan` | integer | | `1` |
 | `children[].alignSelf` / `justifySelf` | string | | grid |
 
-Auto tracks take their widest content; `fr` divides the remainder.
+Auto tracks take their widest content; `fr` divides the remainder. Placement
+follows CSS grid's sparse row flow: fully positioned children may overlap, a
+child with only `row` creates implicit columns when that row is full, a child
+with only `column` searches downward, and fully automatic children create
+implicit rows. Implicit tracks are automatic tracks.
+
+CLI commands print each expansion. HTTP responses total them in
+`X-Inkwire-Implicit-Grid-Columns` and `X-Inkwire-Implicit-Grid-Rows`; the full
+per-grid records are in `report.GridExpansions`.
 
 ### anchored
 
@@ -223,6 +233,8 @@ Auto tracks take their widest content; `fr` divides the remainder.
 |---|---|---|
 | `children[].top` `right` `bottom` `left` | length | distance from that edge |
 | `children[].width` `height` | length | size on that axis |
+| `children[].layer` | integer | higher layers paint later; equal layers keep document order |
+| `children[].node` | node | content |
 
 Both edges plus a size on one axis is refused.
 
@@ -271,7 +283,7 @@ Anything requiring resampling is refused.
 
 | Node | Fields |
 |---|---|
-| `stack` | `size`, `children[]` — drawn in order over one area |
+| `stack` | `size`, `children[]` — drawn in order over one area; later children are on top |
 | `padding` | `insets` (`top` `right` `bottom` `left`), `child` |
 | `spacer` | `size` |
 
@@ -336,7 +348,7 @@ Sizes above 16 are integer enlargements. Split mixed lines into runs.
 
 | Field | Type | | Default |
 |---|---|---|---|
-| `source` | string | see [Image sources](#image-sources) | required |
+| `source` | string | see [Image sources](README.md#image-sources) | required |
 | `processing` | string | `manual`, `auto` | `manual` |
 | `options` | image options | manual parameters | defaults |
 | `overrides` | image overrides | override chosen fields of `auto` | none |
@@ -355,8 +367,11 @@ Image options and overrides carry the same fields; overrides are per-field.
 | `redMaxGreen` | integer | 0–255 green ceiling for red | |
 | `disableRed` | boolean | drop the red plane | `false` |
 
-`auto` picks threshold, dithering and red extraction from the image and reports
-them in `X-Inkwire-Image-Decisions`.
+`auto` picks threshold, dithering and red extraction from the image.
+`X-Inkwire-Image-Decisions` contains the number of decisions; `/v1/render` and
+`/v1/display` return their details in `report.Images`, and CLI commands print
+them. A successful `/v1/render` response is always JSON and carries its PNG in
+base64 `pngBase64` beside the report.
 
 ```json
 {
@@ -508,14 +523,16 @@ the surface untouched. Tiles across the area.
 
 | Node | Fields |
 |---|---|
-| `clip` | `child`, `layer` |
-| `clipRect` | `rect`, `child`, `layer` |
-| `clipShape` | `shape`, `child`, `layer` |
-| `clipPath` | `commands`, `child`, `layer` |
+| `clip` | `size`, `child` |
+| `clipRect` | `size`, `rect`, `child` |
+| `clipShape` | `size`, `shape`, `child` |
+| `clipPath` | `size`, `path`, `child` (`path.commands` holds the commands) |
 
 `shape.kind` is `inset`, `circle`, `ellipse` or `polygon`, with `insets`,
 `corner`, `radius`, `radiusX`, `radiusY`, `center`, `points` as the kind needs.
-`layer` orders nested clips.
+Clips do not own painting order: each has one child and nested clips intersect.
+For overlapping sibling clips, put them in a `stack` (later child on top), or
+use `anchored.children[].layer` when they also need positioned boxes.
 
 ```json
 {"type": "clip", "child": {"type": "text", "runs": [{"text": "很长的一行"}]}}

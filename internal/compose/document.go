@@ -51,12 +51,22 @@ type ImageDecision struct {
 	ContrastEnhanced     bool
 }
 
+// GridExpansion reports tracks created by auto-placement beyond the grid's
+// declared tracks. It is separate from warnings because implicit tracks are
+// normal CSS grid behaviour, but they still need to be visible to a caller
+// rendering into a fixed-size panel.
+type GridExpansion struct {
+	Path                          string
+	ImplicitColumns, ImplicitRows int
+}
+
 // Report describes what compilation measured without changing the document.
 type Report struct {
-	Bounds       image.Rectangle
-	MissingRunes []rune
-	Warnings     []Warning
-	Images       []ImageDecision
+	Bounds         image.Rectangle
+	MissingRunes   []rune
+	Warnings       []Warning
+	Images         []ImageDecision
+	GridExpansions []GridExpansion
 }
 
 // CompiledDocument keeps the page properties beside the display list they
@@ -233,6 +243,7 @@ func (r Report) clone() Report {
 	r.MissingRunes = slices.Clone(r.MissingRunes)
 	r.Warnings = slices.Clone(r.Warnings)
 	r.Images = slices.Clone(r.Images)
+	r.GridExpansions = slices.Clone(r.GridExpansions)
 	return r
 }
 

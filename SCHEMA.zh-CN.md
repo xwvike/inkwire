@@ -62,6 +62,8 @@
 | `background` | ink | `white`、`black`、`red` | `white` |
 | `root` | node | | 空 |
 
+渲染页面和解码后的源图片最多为 16,777,216 像素。
+
 ### 基本值
 
 ```json
@@ -199,7 +201,11 @@
 | `children[].columnSpan` / `rowSpan` | integer | | `1` |
 | `children[].alignSelf` / `justifySelf` | string | | 网格 |
 
-自动轨道取最宽内容；`fr` 分配剩余。
+自动轨道取最宽内容；`fr` 分配剩余。放置采用 CSS Grid 默认的稀疏行流：双轴明确定位的子节点可以重叠；只指定 `row` 的子节点在该行已满时创建隐式列；只指定 `column` 的子节点向下寻找；完全自动的子节点创建隐式行。隐式轨道均为自动轨道。
+
+CLI 命令逐项打印扩展；HTTP 用 `X-Inkwire-Implicit-Grid-Columns` 与
+`X-Inkwire-Implicit-Grid-Rows` 汇总数量，`report.GridExpansions` 保留每个
+grid 的完整记录。
 
 ### anchored
 
@@ -219,6 +225,8 @@
 |---|---|---|
 | `children[].top` `right` `bottom` `left` | length | 距该边的距离 |
 | `children[].width` `height` | length | 该轴尺寸 |
+| `children[].layer` | integer | 数值越高越晚绘制；相同时保持文档顺序 |
+| `children[].node` | node | 内容 |
 
 同轴两条边加一个尺寸被拒。
 
@@ -267,7 +275,7 @@
 
 | 节点 | 字段 |
 |---|---|
-| `stack` | `size`、`children[]` —— 同一区域内按序绘制 |
+| `stack` | `size`、`children[]` —— 同一区域内按序绘制，后面的子节点在上层 |
 | `padding` | `insets`（`top` `right` `bottom` `left`）、`child` |
 | `spacer` | `size` |
 
@@ -332,7 +340,7 @@
 
 | 字段 | 类型 | | 默认 |
 |---|---|---|---|
-| `source` | string | 见[图片资源](#图片资源) | 必填 |
+| `source` | string | 见[图片资源](README.zh-CN.md#图片资源) | 必填 |
 | `processing` | string | `manual`、`auto` | `manual` |
 | `options` | image options | 手动参数 | 默认值 |
 | `overrides` | image overrides | 覆盖 `auto` 选出的指定字段 | 无 |
@@ -351,7 +359,10 @@ options 与 overrides 字段相同；overrides 按字段生效。
 | `redMaxGreen` | integer | 0–255 判红的绿色上限 | |
 | `disableRed` | boolean | 丢弃红色平面 | `false` |
 
-`auto` 依据图像选择阈值、抖动与红色提取，并在 `X-Inkwire-Image-Decisions` 中报告。
+`auto` 依据图像选择阈值、抖动与红色提取。`X-Inkwire-Image-Decisions`
+只给出决策数量；`/v1/render` 和 `/v1/display` 在 `report.Images` 中返回
+细节，CLI 命令也会打印。成功的 `/v1/render` 固定返回 JSON，PNG 以 base64
+`pngBase64` 与报告一起返回。
 
 ```json
 {
@@ -502,12 +513,12 @@ options 与 overrides 字段相同；overrides 按字段生效。
 
 | 节点 | 字段 |
 |---|---|
-| `clip` | `child`、`layer` |
-| `clipRect` | `rect`、`child`、`layer` |
-| `clipShape` | `shape`、`child`、`layer` |
-| `clipPath` | `commands`、`child`、`layer` |
+| `clip` | `size`、`child` |
+| `clipRect` | `size`、`rect`、`child` |
+| `clipShape` | `size`、`shape`、`child` |
+| `clipPath` | `size`、`path`、`child`（命令位于 `path.commands`） |
 
-`shape.kind` 为 `inset`、`circle`、`ellipse` 或 `polygon`，按需带 `insets`、`corner`、`radius`、`radiusX`、`radiusY`、`center`、`points`。`layer` 决定嵌套裁剪的顺序。
+`shape.kind` 为 `inset`、`circle`、`ellipse` 或 `polygon`，按需带 `insets`、`corner`、`radius`、`radiusX`、`radiusY`、`center`、`points`。裁剪节点自身不决定绘制顺序：每个节点只有一个子节点，嵌套裁剪取交集。有重叠的同级裁剪可放入 `stack`（后面的子节点在上层）；若还需要定位框，使用 `anchored.children[].layer`。
 
 ```json
 {"type": "clip", "child": {"type": "text", "runs": [{"text": "很长的一行"}]}}

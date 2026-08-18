@@ -181,25 +181,28 @@ inkwire serve -listen 127.0.0.1:8080 -device NEMR92943861
 
 | Route | Response |
 |---|---|
-| `POST /v1/render` | `image/png` |
+| `POST /v1/render` | JSON containing `width`, `height`, base64 `pngBase64`, and full `report` |
 | `POST /v1/encode` | 9472 bytes, `application/octet-stream`, Gicisky only |
 | `POST /v1/display` | JSON result |
 | `GET /v1/devices` | Tags, each with `family` |
 
 `-listen` is loopback only. `/v1/display` takes `?device=` and
-`?family=auto|gicisky|nrfepd`. Budget: 45 s Gicisky, 150 s EPD-nRF5.
+`?family=auto|gicisky|nrfepd`. Budget: 45 s Gicisky, 60 s EPD-nRF5.
 `/v1/encode` refuses an EPD-nRF5 target with `size-unknown`: that panel reports
 its size only once connected. Send the scene to `/v1/display` instead.
 
 ```bash
 curl -H 'Content-Type: application/json' --data-binary @page.json \
-  http://127.0.0.1:8080/v1/render -o preview.png
+  http://127.0.0.1:8080/v1/render -o render.json
 
 curl -H 'Content-Type: application/json' --data-binary @page.json \
   'http://127.0.0.1:8080/v1/display?device=NRF_EPD_C1F8'
 ```
 
-Headers: `X-Inkwire-Warnings`, `X-Inkwire-Missing-Runes`, `X-Inkwire-Image-Decisions`.
+`X-Inkwire-Warnings`, `X-Inkwire-Missing-Runes`,
+`X-Inkwire-Image-Decisions`, `X-Inkwire-Implicit-Grid-Columns` and
+`X-Inkwire-Implicit-Grid-Rows` contain counts. `/v1/render` and
+`/v1/display` return the detailed report in their JSON bodies.
 
 ### Warnings
 
@@ -225,7 +228,7 @@ Non-fatal.
 | `render-failed` | 500 | PNG encoding failed |
 | `device-busy` | 409 | Adapter in use |
 | `push-failed` | 502 | Tag error or connection failure |
-| `device-timeout` | 504 | Retries exhausted |
+| `device-timeout` | 504 | The complete device operation exceeded its family budget |
 | `scan-failed` | 502 | Scan failed |
 
 ### Concurrency
@@ -290,7 +293,7 @@ inkwire render -o output/dashboard.png scenes/dashboard/page.json
 ```bash
 curl -F 'scene=@page.json;type=application/json' \
      -F 'portrait=@photos/portrait.png;type=image/png' \
-     http://127.0.0.1:8080/v1/render -o preview.png
+     http://127.0.0.1:8080/v1/render -o render.json
 ```
 
 `scene` is the document; other file fields are assets, and shadow `-assets` for
@@ -302,6 +305,7 @@ that request.
 | One asset | 32 MiB |
 | Request | 64 MiB |
 | Asset count | 32 |
+| Rendered page or decoded image | 16,777,216 pixels |
 
 ## Examples
 

@@ -3,6 +3,8 @@ package scene
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/binary"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/png"
@@ -179,5 +181,25 @@ func TestInMemoryResourcePrecedesFilesystemAndDataURLRules(t *testing.T) {
 	}
 	if got, _ := result.Frame.InkAt(0, 0); got != display.InkRed {
 		t.Fatalf("resource pixel = %v, want red", got)
+	}
+}
+
+func TestDecoderRejectsOversizedImageBeforeDecodingPixels(t *testing.T) {
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, image.NewNRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	data := encoded.Bytes()
+	// Change only IHDR. DecodeConfig sees the declared dimensions without
+	// allocating the enormous pixel buffer that this test is meant to reject.
+	binary.BigEndian.PutUint32(data[16:20], 4097)
+	binary.BigEndian.PutUint32(data[20:24], 4096)
+	binary.BigEndian.PutUint32(data[29:33], crc32.ChecksumIEEE(data[12:29]))
+
+	source := "data:image/png;base64," + base64.StdEncoding.EncodeToString(data)
+	value := `{"version":1,"root":{"type":"image","source":"` + source + `"}}`
+	_, err := (Decoder{}).Render(strings.NewReader(value))
+	if err == nil || !strings.Contains(err.Error(), "pixel limit") {
+		t.Fatalf("error = %v", err)
 	}
 }

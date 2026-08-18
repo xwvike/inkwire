@@ -2,6 +2,7 @@ package display
 
 import (
 	"image"
+	"strings"
 	"testing"
 )
 
@@ -23,5 +24,12 @@ func TestCanvasClipsPrimitives(t *testing.T) {
 func TestFrameRejectsInvalidDimensions(t *testing.T) {
 	if _, err := NewFrame(0, 10, InkWhite); err == nil {
 		t.Fatal("NewFrame accepted a zero width")
+	}
+	if _, err := NewFrame(4097, 4096, InkWhite); err == nil || !strings.Contains(err.Error(), "pixel limit") {
+		t.Fatalf("oversized frame error = %v", err)
+	}
+	maxInt := int(^uint(0) >> 1)
+	if _, err := NewFrame(maxInt, 2, InkWhite); err == nil || !strings.Contains(err.Error(), "pixel limit") {
+		t.Fatalf("overflowing frame error = %v", err)
 	}
 }

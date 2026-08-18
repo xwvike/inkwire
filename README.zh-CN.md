@@ -166,22 +166,22 @@ inkwire serve -listen 127.0.0.1:8080 -device NEMR92943861
 
 | 路由 | 响应 |
 |---|---|
-| `POST /v1/render` | `image/png` |
+| `POST /v1/render` | JSON，包含 `width`、`height`、base64 `pngBase64` 和完整 `report` |
 | `POST /v1/encode` | 9472 字节，`application/octet-stream`，仅 Gicisky |
 | `POST /v1/display` | JSON 结果 |
 | `GET /v1/devices` | 标签列表，每条带 `family` |
 
-`-listen` 仅回环。`/v1/display` 接受 `?device=` 与 `?family=auto|gicisky|nrfepd`。预算：Gicisky 45 秒，EPD-nRF5 150 秒。`/v1/encode` 对 EPD-nRF5 目标以 `size-unknown` 拒绝：该面板连接后才报出自身尺寸。请改用 `/v1/display`。
+`-listen` 仅回环。`/v1/display` 接受 `?device=` 与 `?family=auto|gicisky|nrfepd`。预算：Gicisky 45 秒，EPD-nRF5 60 秒。`/v1/encode` 对 EPD-nRF5 目标以 `size-unknown` 拒绝：该面板连接后才报出自身尺寸。请改用 `/v1/display`。
 
 ```bash
 curl -H 'Content-Type: application/json' --data-binary @page.json \
-  http://127.0.0.1:8080/v1/render -o preview.png
+  http://127.0.0.1:8080/v1/render -o render.json
 
 curl -H 'Content-Type: application/json' --data-binary @page.json \
   'http://127.0.0.1:8080/v1/display?device=NRF_EPD_C1F8'
 ```
 
-响应头：`X-Inkwire-Warnings`、`X-Inkwire-Missing-Runes`、`X-Inkwire-Image-Decisions`。
+`X-Inkwire-Warnings`、`X-Inkwire-Missing-Runes`、`X-Inkwire-Image-Decisions`、`X-Inkwire-Implicit-Grid-Columns`、`X-Inkwire-Implicit-Grid-Rows` 响应头给出数量；`/v1/render` 和 `/v1/display` 的 JSON 响应包含完整报告。
 
 ### 警告
 
@@ -207,7 +207,7 @@ curl -H 'Content-Type: application/json' --data-binary @page.json \
 | `render-failed` | 500 | PNG 编码失败 |
 | `device-busy` | 409 | 适配器占用中 |
 | `push-failed` | 502 | 标签报错或连接失败 |
-| `device-timeout` | 504 | 重试用尽 |
+| `device-timeout` | 504 | 完整设备操作超过该家族的总时限 |
 | `scan-failed` | 502 | 扫描失败 |
 
 ### 并发
@@ -271,7 +271,7 @@ inkwire render -o output/dashboard.png scenes/dashboard/page.json
 ```bash
 curl -F 'scene=@page.json;type=application/json' \
      -F 'portrait=@photos/portrait.png;type=image/png' \
-     http://127.0.0.1:8080/v1/render -o preview.png
+     http://127.0.0.1:8080/v1/render -o render.json
 ```
 
 `scene` 是文档，其他文件字段是资源，并在该请求内覆盖 `-assets`。
@@ -282,6 +282,7 @@ curl -F 'scene=@page.json;type=application/json' \
 | 单个资源 | 32 MiB |
 | 请求 | 64 MiB |
 | 资源数量 | 32 |
+| 渲染页面或解码后图片 | 16,777,216 像素 |
 
 ## 示例
 

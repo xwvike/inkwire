@@ -246,6 +246,19 @@ func TestAnchoredPaintsHigherLayersLast(t *testing.T) {
 	assertInk(t, result, 5, 5, display.InkRed, "the higher layer wins regardless of document order")
 }
 
+func TestClipNodesDoNotOwnPaintingOrder(t *testing.T) {
+	_, err := (Decoder{}).Decode(strings.NewReader(`{
+		"version": 1,
+		"root": {
+			"type": "clip", "layer": 2,
+			"child": {"type": "rectangle", "fill": "black"}
+		}
+	}`))
+	if err == nil || !strings.Contains(err.Error(), `unknown field "layer"`) {
+		t.Fatalf("clip layer error = %v", err)
+	}
+}
+
 // Ratio derives the cross size from the main one, which is the direction
 // compose supports: a child that states a cross size has already answered the
 // question, so the ratio stands down rather than contradicting it.

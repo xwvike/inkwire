@@ -579,6 +579,10 @@ func printReport(writer io.Writer, result scene.Result) {
 	for _, warning := range result.Report.Warnings {
 		fmt.Fprintf(writer, "warning %s [%s]: %s\n", warning.Path, warning.Code, warning.Message)
 	}
+	for _, expansion := range result.Report.GridExpansions {
+		fmt.Fprintf(writer, "grid %s: implicit-columns=%d implicit-rows=%d\n",
+			expansion.Path, expansion.ImplicitColumns, expansion.ImplicitRows)
+	}
 	for _, decision := range result.Report.Images {
 		fmt.Fprintf(writer, "image %s: dither=%d fit=%d sampling=%d threshold=%d red-disabled=%t\n",
 			decision.Path, decision.Options.Dither, decision.Options.Fit, decision.Options.Sampling,
@@ -596,8 +600,8 @@ func newHTTPServer(address string, handler http.Handler) *http.Server {
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       time.Minute,
 		// A write must outlast a full push, so this is the server's push
-		// budget plus room for the response itself.
-		WriteTimeout: server.DefaultPushTimeout + 15*time.Second,
+		// budget for either family plus room for the response itself.
+		WriteTimeout: max(server.DefaultPushTimeout, server.DefaultNRFEPDPushTimeout) + 15*time.Second,
 		IdleTimeout:  time.Minute,
 	}
 }
