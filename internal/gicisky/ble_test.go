@@ -158,9 +158,9 @@ func TestDriverMatchesTarget(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			driver := &Driver{Target: test.target}
-			if got := driver.matches(test.deviceName, test.address); got != test.want {
-				t.Fatalf("matches(%q, %q) = %v, want %v", test.deviceName, test.address, got, test.want)
+			if got := MatchesTarget(test.target, test.deviceName, test.address); got != test.want {
+				t.Fatalf("MatchesTarget(%q, %q, %q) = %v, want %v",
+					test.target, test.deviceName, test.address, got, test.want)
 			}
 		})
 	}

@@ -80,64 +80,34 @@ type FoundDevice struct {
 	Identified    bool
 }
 
-func (d *Driver) Find(ctx context.Context) (FoundDevice, error) {
-	if d.Adapter == nil {
-		return FoundDevice{}, errors.New("Bluetooth adapter is nil")
-	}
-	timeout := d.ScanTimeout
-	if timeout <= 0 {
-		timeout = DefaultScanTimeout
-	}
-	scanCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	found := make(chan FoundDevice, 1)
-	scanDone := make(chan error, 1)
-	go func() {
-		scanDone <- d.Adapter.Scan(func(adapter *bluetooth.Adapter, result bluetooth.ScanResult) {
-			name := result.LocalName()
-			if !d.matches(name, result.Address.String()) {
-				return
-			}
-			select {
-			case found <- FoundDevice{Address: result.Address, Name: name, RSSI: result.RSSI}:
-				_ = adapter.StopScan()
-			default:
-			}
-		})
-	}()
-
-	select {
-	case device := <-found:
-		if err := <-scanDone; err != nil {
-			return FoundDevice{}, fmt.Errorf("stop scan: %w", err)
-		}
-		return device, nil
-	case err := <-scanDone:
-		if err != nil {
-			return FoundDevice{}, fmt.Errorf("scan: %w", err)
-		}
-		select {
-		case device := <-found:
-			return device, nil
-		default:
-			return FoundDevice{}, fmt.Errorf("PICKSMART tag not found (target %s)", d.Target)
-		}
-	case <-scanCtx.Done():
-		if err := stopScanning(d.Adapter.StopScan, scanDone); err != nil {
-			return FoundDevice{}, fmt.Errorf("PICKSMART tag not found (target %s), and %w", d.Target, err)
-		}
-		return FoundDevice{}, fmt.Errorf("PICKSMART tag not found (target %s): %w", d.Target, scanCtx.Err())
+// matchedBy and identifiedBy are the two questions a scan can be stopped on.
+//
+// They are named rather than written inline at the call sites so that a test
+// can hold the real ones, not a copy that goes on passing after the driver has
+// changed under it.
+func matchedBy(target string) func(*deviceSet) bool {
+	return func(seen *deviceSet) bool {
+		_, ok := seen.match(target)
+		return ok
 	}
 }
 
-// ScanAll reports every Gicisky tag advertising nearby instead of stopping at
-// the first match, and identifies each one from its advertisement.
+func identifiedBy(target string) func(*deviceSet) bool {
+	return func(seen *deviceSet) bool {
+		device, ok := seen.match(target)
+		return ok && device.HasAdvertised
+	}
+}
+
+// scanUntil merges advertisements into one entry per address and stops as soon
+// as stop is satisfied, or when the scan window closes if it never is.
 //
-// Results are merged by address across packets on purpose. A tag does not put
-// its local name and its manufacturer data in the same advertisement, so a
-// single packet tells you either what it is called or what it is, never both.
-func (d *Driver) ScanAll(ctx context.Context) ([]FoundDevice, error) {
+// A tag does not put its local name and its manufacturer data in the same
+// advertisement, so what a caller is waiting for is never a single packet: it
+// is one address having been seen enough times to answer the question asked.
+// Passing nil for stop waits the whole window, which is what enumerating
+// everything nearby has to do.
+func (d *Driver) scanUntil(ctx context.Context, stop func(*deviceSet) bool) ([]FoundDevice, error) {
 	if d.Adapter == nil {
 		return nil, errors.New("Bluetooth adapter is nil")
 	}
@@ -147,7 +117,9 @@ func (d *Driver) ScanAll(ctx context.Context) ([]FoundDevice, error) {
 	}
 
 	var mutex sync.Mutex
+	var once sync.Once
 	seen := newDeviceSet()
+	satisfied := make(chan struct{})
 	scanDone := make(chan error, 1)
 	go func() {
 		scanDone <- d.Adapter.Scan(func(_ *bluetooth.Adapter, result bluetooth.ScanResult) {
@@ -155,12 +127,26 @@ func (d *Driver) ScanAll(ctx context.Context) ([]FoundDevice, error) {
 			mutex.Lock()
 			defer mutex.Unlock()
 			seen.observe(result.Address, result.LocalName(), result.RSSI, advertised, ok)
+			if stop != nil && stop(seen) {
+				once.Do(func() { close(satisfied) })
+			}
 		})
 	}()
 
 	scanCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	<-scanCtx.Done()
+	select {
+	case <-satisfied:
+	case <-scanCtx.Done():
+	case err := <-scanDone:
+		// The scan ended without being asked to, so there is nothing to stop.
+		if err != nil {
+			return nil, fmt.Errorf("scan: %w", err)
+		}
+		mutex.Lock()
+		defer mutex.Unlock()
+		return seen.sorted(), nil
+	}
 	if err := stopScanning(d.Adapter.StopScan, scanDone); err != nil {
 		return nil, fmt.Errorf("scan: %w", err)
 	}
@@ -170,8 +156,43 @@ func (d *Driver) ScanAll(ctx context.Context) ([]FoundDevice, error) {
 	return seen.sorted(), nil
 }
 
+// Find resolves the driver's target and stops looking the moment it has it.
+//
+// This answers "which tag", not "what panel". A caller that already knows the
+// model — push-payload is told it on the command line — needs nothing more.
+func (d *Driver) Find(ctx context.Context) (FoundDevice, error) {
+	devices, err := d.scanUntil(ctx, matchedBy(d.Target))
+	if err != nil {
+		return FoundDevice{}, err
+	}
+	for _, device := range devices {
+		if MatchesTarget(d.Target, device.Name, device.Address.String()) {
+			return device, nil
+		}
+	}
+	return FoundDevice{}, fmt.Errorf("PICKSMART tag not found (target %s)", d.targetOrDefault())
+}
+
+// ScanAll reports every Gicisky tag advertising nearby instead of stopping at
+// the first match, and identifies each one from its advertisement.
+//
+// It waits the whole window on purpose. There is no way to know that the last
+// tag has been heard from, so a listing that stopped early would be a listing
+// that quietly omits whichever tag advertises least often.
+func (d *Driver) ScanAll(ctx context.Context) ([]FoundDevice, error) {
+	return d.scanUntil(ctx, nil)
+}
+
+// FindIdentified resolves the target and the panel it has, stopping as soon as
+// one address has answered both questions.
+//
+// Waiting for both halves costs nothing measurable: the tag sends its name and
+// its manufacturer data in the same advertising burst, about a millisecond
+// apart. What varies is when that burst lands, which on hardware here is
+// anywhere from 0.7s to 5s — against the 15s this used to spend every time,
+// because it read the whole window meant for listing every tag nearby.
 func (d *Driver) FindIdentified(ctx context.Context) (FoundDevice, error) {
-	devices, err := d.ScanAll(ctx)
+	devices, err := d.scanUntil(ctx, identifiedBy(d.Target))
 	if err != nil {
 		return FoundDevice{}, err
 	}
@@ -248,6 +269,18 @@ func (s *deviceSet) observe(address bluetooth.Address, name string, rssi int16, 
 		device.Profile, device.Identified = LookupProfile(advertised.ID, advertised.Firmware)
 	}
 	return true
+}
+
+// match reports the entry the target names, if one has been heard from yet.
+// It is the same question SelectIdentified asks afterwards, asked early so a
+// scan can stop as soon as the answer exists.
+func (s *deviceSet) match(target string) (*FoundDevice, bool) {
+	for _, device := range s.found {
+		if MatchesTarget(target, device.Name, device.Address.String()) {
+			return device, true
+		}
+	}
+	return nil, false
 }
 
 func (s *deviceSet) sorted() []FoundDevice {
@@ -391,8 +424,11 @@ func (d *Driver) retrying(ctx context.Context, what string, attempt func() error
 	return lastErr
 }
 
-func (d *Driver) matches(name, address string) bool {
-	return MatchesTarget(d.Target, name, address)
+func (d *Driver) targetOrDefault() string {
+	if d.Target == "" {
+		return TargetAddress
+	}
+	return d.Target
 }
 
 func MatchesTarget(target, name, address string) bool {
