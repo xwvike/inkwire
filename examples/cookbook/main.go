@@ -32,6 +32,7 @@ import (
 
 	"github.com/xwvike/inkwire/internal/compose"
 	"github.com/xwvike/inkwire/internal/display"
+	"github.com/xwvike/inkwire/internal/gicisky"
 )
 
 //go:embed icon.png
@@ -75,7 +76,7 @@ func main() {
 			fail(err)
 		}
 		// Every panel is a real payload, not just a picture of one.
-		payload, err := display.EncodeGicisky(frame)
+		payload, err := encodeForTag(frame)
 		if err != nil {
 			fail(err)
 		}
@@ -631,4 +632,15 @@ func writePNG(name string, frame *display.Frame) error {
 func fail(err error) {
 	fmt.Fprintln(os.Stderr, err)
 	os.Exit(1)
+}
+
+// encodeForTag packs a page for the 2.9" BWR tag these examples are drawn for.
+// Real writes discover the model from its advertisement; an offline example
+// has to name one.
+func encodeForTag(frame *display.Frame) ([]byte, error) {
+	profile, known := gicisky.LookupProfile(0x0033, 0)
+	if !known {
+		return nil, fmt.Errorf("no Gicisky profile 0x0033")
+	}
+	return gicisky.Encode(frame, profile)
 }

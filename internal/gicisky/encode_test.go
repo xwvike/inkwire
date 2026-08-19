@@ -63,6 +63,38 @@ func TestEncodeOrientedProfileAcceptsPortraitPage(t *testing.T) {
 	}
 }
 
+// Which way "portrait" turns is not something a payload length can catch, and
+// the two directions differ only in which corner the first pixel lands in.
+func TestLandscapeFrameRotatesPortraitInRequestedDirection(t *testing.T) {
+	portrait, err := display.NewFrame(128, 296, display.InkWhite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	portrait.Set(0, 0, display.InkBlack)
+	portrait.Set(127, 0, display.InkRed)
+
+	clockwise, err := landscapeFrame(portrait, display.OrientationPortraitClockwise, 296, 128)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertInk(t, clockwise, 295, 0, display.InkBlack)
+	assertInk(t, clockwise, 295, 127, display.InkRed)
+
+	counterClockwise, err := landscapeFrame(portrait, display.OrientationPortraitCounterClockwise, 296, 128)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertInk(t, counterClockwise, 0, 127, display.InkBlack)
+	assertInk(t, counterClockwise, 0, 0, display.InkRed)
+}
+
+func assertInk(t *testing.T, frame *display.Frame, x, y int, want display.Ink) {
+	t.Helper()
+	if got, ok := frame.InkAt(x, y); !ok || got != want {
+		t.Fatalf("ink at (%d,%d) = %v (ok=%v), want %v", x, y, got, ok, want)
+	}
+}
+
 func TestEncodeProfilesUseTheirPanelSizes(t *testing.T) {
 	tests := []struct {
 		name string

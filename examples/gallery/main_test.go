@@ -9,6 +9,7 @@ import (
 
 	"github.com/xwvike/inkwire/internal/compose"
 	"github.com/xwvike/inkwire/internal/display"
+	"github.com/xwvike/inkwire/internal/testscene"
 )
 
 // Every asset lands on the contact sheet, so pinning the sheet pins all of
@@ -41,13 +42,7 @@ func TestEveryAssetFitsAPanel(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			payload, err := display.EncodeGicisky(frame)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(payload) != display.GiciskyPayloadSize {
-				t.Fatalf("payload = %d bytes, want %d", len(payload), display.GiciskyPayloadSize)
-			}
+			testscene.AssertEncodesFor(t, 0x0033, frame, display.OrientationLandscape)
 		})
 	}
 }

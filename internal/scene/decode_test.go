@@ -53,13 +53,6 @@ func TestDecodeRenderRepresentativeScene(t *testing.T) {
 	if got, _ := result.Frame.InkAt(31+6, 4); got != display.InkRed {
 		t.Fatalf("path pixel = %v, want red", got)
 	}
-	payload, err := result.Payload()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(payload) != display.GiciskyPayloadSize {
-		t.Fatalf("payload size = %d", len(payload))
-	}
 }
 
 func TestDecoderRejectsUnknownFieldsAtEveryLevel(t *testing.T) {
@@ -141,7 +134,10 @@ func TestDecodeEveryNodeType(t *testing.T) {
 	}
 }
 
-func TestDecodePortraitPayload(t *testing.T) {
+// A portrait document renders portrait and says so. Turning that page onto a
+// panel is the encoder's job, and the encoder needs to be told which way up the
+// page was drawn, so the orientation has to survive rendering.
+func TestDecodePortraitKeepsItsOrientation(t *testing.T) {
 	value := `{"version":1,"orientation":"portraitClockwise","root":{"type":"rectangle","fill":"red"}}`
 	result, err := (Decoder{}).Render(strings.NewReader(value))
 	if err != nil {
@@ -150,8 +146,8 @@ func TestDecodePortraitPayload(t *testing.T) {
 	if result.Frame.Bounds().Size() != image.Pt(128, 296) {
 		t.Fatalf("portrait frame = %v", result.Frame.Bounds())
 	}
-	if payload, err := result.Payload(); err != nil || len(payload) != display.GiciskyPayloadSize {
-		t.Fatalf("portrait payload = %d, %v", len(payload), err)
+	if result.Orientation != display.OrientationPortraitClockwise {
+		t.Fatalf("orientation = %v, want portraitClockwise", result.Orientation)
 	}
 }
 

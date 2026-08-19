@@ -85,10 +85,3 @@ func render(document compose.Document) (Result, error) {
 	}
 	return Result{Frame: frame, Orientation: document.Orientation, Report: report}, nil
 }
-
-func (r Result) Payload() ([]byte, error) {
-	if r.Frame == nil {
-		return nil, fmt.Errorf("render result has no frame")
-	}
-	return display.EncodeGiciskyOriented(r.Frame, r.Orientation)
-}

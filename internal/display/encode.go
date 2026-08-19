@@ -93,6 +93,14 @@ func fillWhite(size int) []byte {
 // EncodeGicisky converts the visual 296x128 frame into the tag's two planes.
 // The physical protocol requires a 90-degree counter-clockwise transform,
 // row-major packing, and MSB-first bits.
+//
+// This is the 2.9" BWR panel and only that panel, which is the one model whose
+// output has been checked against hardware here. Every other model goes
+// through gicisky.Encode, which is pinned to this function's bytes by
+// TestEncodeVerifiedProfileMatchesLegacyEncoder. Keeping the two
+// implementations separate is the point: a general encoder that derives this
+// panel's layout from a table can be wrong in a way that agreeing with itself
+// would never reveal. Write for a tag through gicisky.EncodeOriented.
 func EncodeGicisky(frame *Frame) ([]byte, error) {
 	if frame == nil {
 		return nil, fmt.Errorf("frame must not be nil")

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/xwvike/inkwire/internal/display"
+	"github.com/xwvike/inkwire/internal/testscene"
 )
 
 func sections(t *testing.T) []section {
@@ -36,13 +37,7 @@ func TestEverySectionRendersAPanel(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			payload, err := display.EncodeGicisky(frame)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(payload) != display.GiciskyPayloadSize {
-				t.Fatalf("payload = %d bytes, want %d", len(payload), display.GiciskyPayloadSize)
-			}
+			testscene.AssertEncodesFor(t, 0x0033, frame, display.OrientationLandscape)
 			// A panel that came out blank would still pass everything above.
 			if countInk(frame, display.InkWhite) == frame.Width()*frame.Height() {
 				t.Fatal("the panel is blank")

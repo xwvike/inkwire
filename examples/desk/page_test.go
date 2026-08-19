@@ -75,13 +75,7 @@ func TestPagesMatchTheirReferences(t *testing.T) {
 			if len(result.Report.MissingRunes) != 0 {
 				t.Errorf("missing runes: %q", string(result.Report.MissingRunes))
 			}
-			payload, err := result.Payload()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(payload) != display.GiciskyPayloadSize {
-				t.Fatalf("payload = %d bytes, want %d", len(payload), display.GiciskyPayloadSize)
-			}
+			testscene.AssertEncodesFor(t, 0x0033, result.Frame, result.Orientation)
 			testscene.AssertMatchesPNG(t, page.name+".png", result.Frame)
 		})
 	}

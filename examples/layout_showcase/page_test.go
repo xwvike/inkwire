@@ -39,10 +39,7 @@ func renderPage(t *testing.T) scene.Result {
 
 func TestPageMatchesReference(t *testing.T) {
 	result := renderPage(t)
-	payload, err := result.Payload()
-	if err != nil || len(payload) != display.GiciskyPayloadSize {
-		t.Fatalf("payload = %d bytes, %v", len(payload), err)
-	}
+	testscene.AssertEncodesFor(t, 0x0033, result.Frame, result.Orientation)
 	testscene.AssertMatchesPNG(t, "layout_showcase.png", result.Frame)
 }
 

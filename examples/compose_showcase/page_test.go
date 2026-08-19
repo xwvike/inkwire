@@ -5,7 +5,6 @@ import (
 	_ "embed"
 	"testing"
 
-	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/scene"
 	"github.com/xwvike/inkwire/internal/testscene"
 )
@@ -24,12 +23,6 @@ func TestPageMatchesReference(t *testing.T) {
 	if len(result.Report.Images) != 1 {
 		t.Fatalf("image decisions = %d, want one", len(result.Report.Images))
 	}
-	payload, err := result.Payload()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(payload) != display.GiciskyPayloadSize {
-		t.Fatalf("payload = %d bytes", len(payload))
-	}
+	testscene.AssertEncodesFor(t, 0x0033, result.Frame, result.Orientation)
 	testscene.AssertMatchesPNG(t, "compose_showcase.png", result.Frame)
 }

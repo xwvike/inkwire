@@ -20,11 +20,10 @@ func ExampleLayoutText() {
 	}
 	layout, _ := display.LayoutText(fonts, box)
 	layout.Draw(display.NewCanvas(frame))
-	payload, _ := display.EncodeGicisky(frame)
 
 	size := layout.Size()
-	fmt.Printf("text=%dx%d payload=%d\n", size.X, size.Y, len(payload))
-	// Output: text=66x14 payload=9472
+	fmt.Printf("text=%dx%d\n", size.X, size.Y)
+	// Output: text=66x14
 }
 
 func ExamplePath() {
@@ -42,9 +41,8 @@ func ExamplePath() {
 		Ink: display.InkRed, Width: 2, Dash: []int{4, 2},
 	})
 
-	payload, _ := display.EncodeGicisky(frame)
-	fmt.Printf("path=%v payload=%d\n", path.Bounds(), len(payload))
-	// Output: path=(10,10)-(41,31) payload=9472
+	fmt.Printf("path=%v\n", path.Bounds())
+	// Output: path=(10,10)-(41,31)
 }
 
 func ExampleDisplayList() {
