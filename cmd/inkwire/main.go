@@ -333,14 +333,22 @@ func runRender(args []string, stdout, stderr io.Writer) int {
 }
 
 func runEncode(args []string, stdout, stderr io.Writer) int {
-	flags := command("encode", "inkwire encode [-profile-id 0x0033] [-o payload.bin] <scene.json>", stderr)
-	profileID := flags.String("profile-id", "0x0033", "Gicisky profile id from scan output")
+	flags := command("encode", "inkwire encode -profile-id 0x0033 [-o payload.bin] <scene.json>", stderr)
+	profileID := flags.String("profile-id", "", "Gicisky profile id from `inkwire scan` (required)")
 	output := flags.String("o", "", "payload output path")
 	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
 	}
 	if flags.NArg() != 1 {
 		flags.Usage()
+		return 2
+	}
+	// A panel is not a default. This command connects to nothing, so nothing
+	// can tell it which model the scene is for, and a wrong guess is a file
+	// that looks fine until a tag draws it. It used to assume 0x0033.
+	if *profileID == "" {
+		fmt.Fprintln(stderr, "encode needs -profile-id: it builds a payload for one panel and has no tag to ask.")
+		fmt.Fprintln(stderr, "`inkwire scan` prints the id under MODEL; the 2.9\" BWR tag is 0x0033.")
 		return 2
 	}
 	source := flags.Arg(0)
@@ -401,6 +409,7 @@ func runPushScene(ctx context.Context, args []string, logger *log.Logger, stdout
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
+	*target = targetFor(chosen, *target, wasSet(flags, "device"))
 	if !enableBluetooth(logger) {
 		return 1
 	}
@@ -518,6 +527,35 @@ func parseWeekStart(name string) (*time.Weekday, error) {
 // EPD-nRF5 tag does say about itself in an advertisement. An address is not,
 // so it keeps the family that has always been the default and leaves -family
 // for saying otherwise.
+// targetFor keeps one family's default from being handed to the other.
+//
+// The default device is a Gicisky address. Given to the EPD-nRF5 driver it
+// matches nothing, and the symptom is three full scans and "no NRF_EPD tag
+// found (target FF:FF:92:94:38:61)" for a tag sitting on the desk — 49 seconds
+// to be told the wrong thing. That family's own default is no target at all,
+// which it reads as the first tag of its kind, and which `inkwire mode` has
+// always used because it never had the other family's default to inherit.
+//
+// A device the caller actually typed is always kept, whatever family it is for.
+func targetFor(family, target string, explicit bool) string {
+	if explicit || family != familyNRFEPD {
+		return target
+	}
+	return ""
+}
+
+// wasSet reports whether a flag was given rather than left at its default,
+// which is the only way to tell "-device FF:FF:92:94:38:61" from silence.
+func wasSet(flags *flag.FlagSet, name string) bool {
+	seen := false
+	flags.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			seen = true
+		}
+	})
+	return seen
+}
+
 func resolveFamily(requested, target string) (string, error) {
 	switch requested {
 	case familyGicisky, familyNRFEPD:
@@ -557,7 +595,8 @@ func pushNRFEPD(ctx context.Context, target string, frame *display.Frame, settle
 
 func runPushPayload(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
 	flags := command("push-payload", "inkwire push-payload [-profile-id 0x0033] [MAC-or-name] <payload.bin>", stderr)
-	profileID := flags.String("profile-id", "0x0033", "Gicisky profile id that produced the payload")
+	profileID := flags.String("profile-id", "",
+		"Gicisky profile id, only for a tag whose advertised model this build does not know")
 	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
 	}
@@ -571,10 +610,13 @@ func runPushPayload(ctx context.Context, args []string, logger *log.Logger, stdo
 		flags.Usage()
 		return 2
 	}
-	profile, err := parseGiciskyProfile(*profileID)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
+	var stated gicisky.Profile
+	if *profileID != "" {
+		var err error
+		if stated, err = parseGiciskyProfile(*profileID); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
 	}
 	payload, err := os.ReadFile(path)
 	if err != nil {
@@ -588,9 +630,35 @@ func runPushPayload(ctx context.Context, args []string, logger *log.Logger, stdo
 	if !enableBluetooth(logger) {
 		return 1
 	}
-	logger.Printf("pushing %d bytes to %s (%s %dx%d)", len(payload), target, profile.Model, profile.Width, profile.Height)
 	driver := gicisky.NewDriver(bluetooth.DefaultAdapter, target, logger.Printf)
-	if err := driver.FindAndPushWithRetry(ctx, payload, gicisky.UploadOptions{Compression2: profile.Compression2}); err != nil {
+
+	// The model decides how the payload is announced, and this command is
+	// about to connect to the tag that knows. Being told instead is for the
+	// tag this build cannot identify, which is the only case where asking
+	// cannot answer. It used to assume 0x0033 and say nothing.
+	if *profileID == "" {
+		found, err := driver.FindIdentifiedWithRetry(ctx)
+		if err != nil {
+			logger.Print(err)
+			// Only a tag that answered without naming its panel can be got
+			// past by stating one. A tag that was never found stays not found,
+			// and sending somebody to a flag that cannot help them is worse
+			// than saying nothing.
+			if errors.Is(err, gicisky.ErrNotIdentified) {
+				logger.Print("pass -profile-id to write to it anyway")
+			}
+			return 1
+		}
+		profile := found.Profile
+		logger.Printf("pushing %d bytes to %s (%s %dx%d)", len(payload), target, profile.Model, profile.Width, profile.Height)
+		if err := driver.PushWithRetry(ctx, found, payload, gicisky.UploadOptions{Compression2: profile.Compression2}); err != nil {
+			logger.Print(err)
+			return 1
+		}
+		return 0
+	}
+	logger.Printf("pushing %d bytes to %s (%s %dx%d, stated)", len(payload), target, stated.Model, stated.Width, stated.Height)
+	if err := driver.FindAndPushWithRetry(ctx, payload, gicisky.UploadOptions{Compression2: stated.Compression2}); err != nil {
 		logger.Print(err)
 		return 1
 	}
@@ -663,7 +731,7 @@ func replaceExtension(path, extension string) string {
 
 func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "usage: inkwire render [-o preview.png] <scene.json>")
-	fmt.Fprintln(writer, "       inkwire encode [-o payload.bin] <scene.json>")
+	fmt.Fprintln(writer, "       inkwire encode -profile-id 0x0033 [-o payload.bin] <scene.json>")
 	fmt.Fprintln(writer, "       inkwire push [-device MAC-or-name] [-family auto|gicisky|nrfepd] <scene.json>")
 	fmt.Fprintln(writer, "       inkwire scan [-timeout 15s]")
 	fmt.Fprintln(writer, "       inkwire mode [-device MAC-or-name] [-mode picture|calendar|clock] [-week-start sunday|monday]")

@@ -1,6 +1,7 @@
 package gicisky
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -230,5 +231,58 @@ func TestSelectIdentifiedRequiresAMatchedKnownAdvertisement(t *testing.T) {
 	_, err = SelectIdentified([]FoundDevice{unknown}, TargetAddress)
 	if err == nil || !strings.Contains(err.Error(), "0x3FFE") {
 		t.Fatalf("unknown profile error = %v", err)
+	}
+}
+
+// A tag that was never found and a tag that would not say what it is are
+// different problems with different ways out, and only one of them is helped by
+// being told the model. Telling them apart by reading the message would break
+// the first time somebody reworded it.
+func TestOnlyAnUnidentifiedTagIsMarkedAsSuch(t *testing.T) {
+	const target = "NEMRAABBCCDD"
+	named := func(advertised Advertisement, has bool) []FoundDevice {
+		set := newDeviceSet()
+		set.observe(at(t, 0x01), target, -50, advertised, has)
+		return set.sorted()
+	}
+
+	tests := []struct {
+		name    string
+		devices []FoundDevice
+		want    bool
+	}{
+		{name: "nothing was heard", devices: nil, want: false},
+		{
+			name:    "somebody else's tag answered",
+			devices: named(advertisement(t, oursRaw), true)[:0],
+			want:    false,
+		},
+		{
+			name:    "the tag was named but never identified itself",
+			devices: named(Advertisement{}, false),
+			want:    true,
+		},
+		{
+			name:    "the tag gave an id this build has no entry for",
+			devices: named(advertisement(t, unknownID), true),
+			want:    true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := SelectIdentified(test.devices, target)
+			if err == nil {
+				t.Fatal("expected a failure")
+			}
+			if got := errors.Is(err, ErrNotIdentified); got != test.want {
+				t.Errorf("errors.Is(%v, ErrNotIdentified) = %v, want %v", err, got, test.want)
+			}
+		})
+	}
+
+	// The success case must not be marked at all.
+	device, err := SelectIdentified(named(advertisement(t, oursRaw), true), target)
+	if err != nil || device.Profile.Width != 296 {
+		t.Fatalf("a known tag was refused: %+v, %v", device, err)
 	}
 }

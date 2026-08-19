@@ -16,19 +16,20 @@ Schema驱动的电子纸标签渲染器。
 | 命令 | 用途 |
 |---|---|
 | `inkwire render [-o out.png] <scene.json>` | PNG 预览 |
-| `inkwire encode [-profile-id 0x0033] [-o out.bin] <scene.json>` | 设备 payload，仅 Gicisky |
+| `inkwire encode -profile-id 0x0033 [-o out.bin] <scene.json>` | 设备 payload，仅 Gicisky |
 | `inkwire push [-device NAME] [-family auto\|gicisky\|nrfepd] [-settle 30s] <scene.json>` | 渲染并写入 |
 | `inkwire scan [-timeout 15s]` | 列出标签 |
 | `inkwire mode [-device NAME] [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 时钟与模式 |
 | `inkwire serve [-listen ADDR] [-device NAME] [-assets DIR]` | HTTP 服务 |
-| `inkwire push-payload [-profile-id 0x0033] [NAME] <payload.bin>` | 写入原始 payload |
+| `inkwire push-payload [NAME] <payload.bin>` | 写入原始 payload |
 | `inkwire schema [-lang en\|zh]` | 打印 Scene Schema 参考 |
 | `inkwire help` | 本列表；也可用 `-h`、`--help` |
 | `inkwire version` | 发布 tag，源码构建则给出提交号；也可用 `-v`、`--version` |
 
-`inkwire encode` 是离线的 Gicisky 开发工具。它会按选定的
-`-profile-id` 渲染场景，写出该型号的 payload 到 `.bin` 文件，可与
-`inkwire push-payload -profile-id ...` 配合使用；它不会连接标签。
+`inkwire encode` 是离线的 Gicisky 开发工具。它按你指定的 `-profile-id`
+渲染场景，写出该型号的 payload 到 `.bin` 文件。这个 id 是必填的：encode
+不连接任何设备，没有标签可问这个场景是给哪块面板的。写入用
+`inkwire push-payload`，它会自己问标签。
 
 ```
 $ inkwire scan
@@ -44,10 +45,10 @@ inkwire push -device NEMR92943861 page.json
 
 | 参数 | 说明 |
 |---|---|
-| `-device` | 广播名（`NAME` 列）或 BLE 地址。默认 `FF:FF:92:94:38:61` |
+| `-device` | 广播名（`NAME` 列）或 BLE 地址。gicisky 默认 `FF:FF:92:94:38:61`，nrfepd 默认取扫到的第一个标签 |
 | `-family` | `auto` 把 `NRF_EPD*` 映射为 nrfepd，其余 gicisky。地址不携带家族 |
-| `-profile-id` | `inkwire scan` 输出的 Gicisky 型号 id；默认使用已实机验证的 `0x0033` |
-| `-timeout` | 按家族计时，两个家族依次扫描 |
+| `-profile-id` | `inkwire scan` 输出的 Gicisky 型号 id。`encode` 必填；`push-payload` 会自己问标签，只有遇到本版本不认识的型号才需要给 |
+| `-timeout` | 一个监听窗口，两个家族都从这一趟里出来 |
 | `-settle` | `REFRESH` 后保持连接的时长，见[刷新](#刷新) |
 
 ## Gicisky

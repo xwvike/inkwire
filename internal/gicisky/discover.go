@@ -2,6 +2,7 @@ package gicisky
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -128,6 +129,16 @@ func (d *Driver) FindIdentifiedWithRetry(ctx context.Context) (FoundDevice, erro
 	return device, nil
 }
 
+// ErrNotIdentified marks the tag that answered but did not say what panel it
+// has, whether because no manufacturer data was seen or because the id it gave
+// is not in this build's table.
+//
+// It is worth telling apart from a tag that was never found, because only this
+// one can be got past by stating the model: a caller that already has the bytes
+// can go on without the answer. Suggesting that to somebody whose tag is simply
+// not there sends them to a flag that cannot help.
+var ErrNotIdentified = errors.New("the tag did not identify its panel")
+
 func SelectIdentified(devices []FoundDevice, target string) (FoundDevice, error) {
 	if target == "" {
 		target = TargetAddress
@@ -137,10 +148,11 @@ func SelectIdentified(devices []FoundDevice, target string) (FoundDevice, error)
 			continue
 		}
 		if !device.HasAdvertised {
-			return FoundDevice{}, fmt.Errorf("PICKSMART tag found (target %s), but no model advertisement was seen", target)
+			return FoundDevice{}, fmt.Errorf("PICKSMART tag found (target %s), but no model advertisement was seen: %w", target, ErrNotIdentified)
 		}
 		if !device.Identified {
-			return FoundDevice{}, fmt.Errorf("PICKSMART tag found (target %s), but advertised id 0x%04X is not supported", target, device.Advertised.ID)
+			return FoundDevice{}, fmt.Errorf("PICKSMART tag found (target %s), but advertised id 0x%04X is not supported: %w",
+				target, device.Advertised.ID, ErrNotIdentified)
 		}
 		return device, nil
 	}

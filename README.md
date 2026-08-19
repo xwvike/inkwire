@@ -19,20 +19,21 @@ second download.
 | Command | Purpose |
 |---|---|
 | `inkwire render [-o out.png] <scene.json>` | PNG preview |
-| `inkwire encode [-profile-id 0x0033] [-o out.bin] <scene.json>` | Device payload, Gicisky only |
+| `inkwire encode -profile-id 0x0033 [-o out.bin] <scene.json>` | Device payload, Gicisky only |
 | `inkwire push [-device NAME] [-family auto\|gicisky\|nrfepd] [-settle 30s] <scene.json>` | Render and write |
 | `inkwire scan [-timeout 15s]` | List tags |
 | `inkwire mode [-device NAME] [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 clock and mode |
 | `inkwire serve [-listen ADDR] [-device NAME] [-assets DIR]` | HTTP service |
-| `inkwire push-payload [-profile-id 0x0033] [NAME] <payload.bin>` | Write a raw payload |
+| `inkwire push-payload [NAME] <payload.bin>` | Write a raw payload |
 | `inkwire schema [-lang en\|zh]` | Print the Scene Schema reference |
 | `inkwire help` | This list; also `-h`, `--help` |
 | `inkwire version` | Release tag, or the commit a source build came from; also `-v`, `--version` |
 
 `inkwire encode` is an offline Gicisky-only developer tool. It renders a scene
-for the selected `-profile-id`, writes that model's payload to a `.bin` file,
-and can be paired with `inkwire push-payload -profile-id ...`. It does not
-connect to a tag.
+for the `-profile-id` you name and writes that model's payload to a `.bin`
+file. The id is required: encode connects to nothing, so there is no tag to
+ask which panel the scene is for. `inkwire push-payload` sends the result and
+asks the tag itself.
 
 ```
 $ inkwire scan
@@ -48,10 +49,10 @@ inkwire push -device NEMR92943861 page.json
 
 | Flag | Notes |
 |---|---|
-| `-device` | Advertised name (`NAME` column) or BLE address. Default `FF:FF:92:94:38:61` |
+| `-device` | Advertised name (`NAME` column) or BLE address. Defaults to `FF:FF:92:94:38:61` for gicisky and to the first tag found for nrfepd |
 | `-family` | `auto` maps `NRF_EPD*` → nrfepd, else gicisky. An address carries no family |
-| `-profile-id` | Gicisky model id from `inkwire scan`; defaults to the verified `0x0033` |
-| `-timeout` | Per family; both are scanned in turn |
+| `-profile-id` | Gicisky model id from `inkwire scan`. Required by `encode`. `push-payload` asks the tag and only needs it for a model this build does not know |
+| `-timeout` | One listening window; both families come out of it |
 | `-settle` | Connection held open after `REFRESH`. See [Refresh](#refresh) |
 
 ## Gicisky
