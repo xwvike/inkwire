@@ -2,9 +2,9 @@ package gicisky
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
+	"github.com/xwvike/inkwire/internal/ble"
 	"tinygo.org/x/bluetooth"
 )
 
@@ -18,46 +18,29 @@ func (d *Driver) Push(ctx context.Context, found FoundDevice, payload []byte, op
 	if err := ValidatePayload(payload); err != nil {
 		return err
 	}
-	if d.Adapter == nil {
-		return errors.New("Bluetooth adapter is nil")
-	}
 	d.logf("resolved target %s (%s)", found.Name, found.Address.String())
 
-	device, err := d.Adapter.Connect(found.Address, bluetooth.ConnectionParams{})
-	if err != nil {
-		return fmt.Errorf("connect: %w", err)
-	}
-	defer device.Disconnect()
-
-	services, err := device.DiscoverServices([]bluetooth.UUID{serviceUUID})
-	if err != nil {
-		return fmt.Errorf("discover service FEF0: %w", err)
-	}
-	if len(services) != 1 {
-		return fmt.Errorf("discover service FEF0: expected 1 service, got %d", len(services))
-	}
-	characteristics, err := services[0].DiscoverCharacteristics([]bluetooth.UUID{controlUUID, dataUUID})
-	if err != nil {
-		return fmt.Errorf("discover characteristics FEF1/FEF2: %w", err)
-	}
-	if len(characteristics) != 2 {
-		return fmt.Errorf("discover characteristics FEF1/FEF2: expected 2, got %d", len(characteristics))
-	}
-
-	transport := &bleTransport{
-		device:        device,
-		control:       characteristics[0],
-		data:          characteristics[1],
-		notifications: make(chan []byte, 16),
-	}
-	if err := transport.control.EnableNotifications(func(buffer []byte) {
-		message := append([]byte(nil), buffer...)
-		transport.notifications <- message
-	}); err != nil {
-		return fmt.Errorf("enable FEF1 notifications: %w", err)
-	}
-
-	return d.Uploader.UploadWithOptions(ctx, transport, payload, options)
+	return ble.Connect(d.Adapter, found.Address, ble.Service{
+		Name:            "FEF0",
+		UUID:            serviceUUID,
+		Characteristics: []bluetooth.UUID{controlUUID, dataUUID},
+	}, func(link ble.Link) error {
+		// Two exactly: the conversation needs a control channel and a data
+		// channel, and guessing which is which from a short list would be a
+		// write to the wrong one.
+		if len(link.Characteristics) != 2 {
+			return fmt.Errorf("discover characteristics FEF1/FEF2: expected 2, got %d", len(link.Characteristics))
+		}
+		notifications, err := ble.Notifications(link.Characteristics[0], notificationQueue)
+		if err != nil {
+			return fmt.Errorf("enable FEF1 notifications: %w", err)
+		}
+		return d.Uploader.UploadWithOptions(ctx, &bleTransport{
+			control:       link.Characteristics[0],
+			data:          link.Characteristics[1],
+			notifications: notifications,
+		}, payload, options)
+	})
 }
 
 // PushWithRetry writes to a tag that has already been found, retrying the
@@ -89,16 +72,18 @@ func (d *Driver) FindAndPushWithRetry(ctx context.Context, payload []byte, optio
 	})
 }
 
+// notificationQueue is how many messages the tag may volunteer before one is
+// read. The tag answers each write, so the queue only has to cover the tag
+// speaking twice before this side looks.
+const notificationQueue = 16
+
 type bleTransport struct {
-	device        bluetooth.Device
 	control       bluetooth.DeviceCharacteristic
 	data          bluetooth.DeviceCharacteristic
-	notifications chan []byte
+	notifications <-chan []byte
 }
 
-func (t *bleTransport) Notifications() <-chan []byte {
-	return t.notifications
-}
+func (t *bleTransport) Notifications() <-chan []byte { return t.notifications }
 
 func (t *bleTransport) WriteControl(data []byte) error {
 	return writeCharacteristic(t.control, data)

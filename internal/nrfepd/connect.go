@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/xwvike/inkwire/internal/ble"
 	"tinygo.org/x/bluetooth"
 )
 
@@ -34,63 +35,35 @@ func (d *Driver) SetMode(ctx context.Context, when time.Time, mode Mode, weekSta
 // converse finds the tag, opens the one characteristic that carries both
 // directions, and hands it to whatever wants to talk over it.
 func (d *Driver) converse(ctx context.Context, talk func(transport) error) error {
-	if d.Adapter == nil {
-		return errors.New("Bluetooth adapter is nil")
-	}
 	found, err := d.Find(ctx)
 	if err != nil {
 		return err
 	}
 	d.logf("connecting to %s (%s)", found.Name, found.Address.String())
 
-	device, err := d.Adapter.Connect(found.Address, bluetooth.ConnectionParams{})
-	if err != nil {
-		return fmt.Errorf("connect: %w", err)
-	}
-	defer device.Disconnect()
-
-	services, err := device.DiscoverServices([]bluetooth.UUID{serviceUUID})
-	if err != nil {
-		return fmt.Errorf("discover the EPD service: %w", err)
-	}
-	if len(services) != 1 {
-		return fmt.Errorf("discover the EPD service: found %d", len(services))
-	}
-	characteristics, err := services[0].DiscoverCharacteristics([]bluetooth.UUID{epdUUID, versionUUID})
-	if err != nil {
-		return fmt.Errorf("discover the EPD characteristic: %w", err)
-	}
-	if len(characteristics) == 0 {
-		return errors.New("the EPD service has no characteristics")
-	}
-	d.logFirmwareVersion(characteristics)
-
-	link := &bleTransport{
-		characteristic: characteristics[0],
-		// Buffered because the panel volunteers several messages at once and
-		// the notification callback must not block the Bluetooth stack.
-		notifications: make(chan []byte, 16),
-	}
-	if err := link.characteristic.EnableNotifications(func(buffer []byte) {
-		select {
-		case link.notifications <- append([]byte(nil), buffer...):
-		default:
-			// A full queue means nobody is listening any more, and dropping is
-			// better than wedging the stack's callback.
+	return ble.Connect(d.Adapter, found.Address, ble.Service{
+		Name:            "EPD",
+		UUID:            serviceUUID,
+		Characteristics: []bluetooth.UUID{epdUUID, versionUUID},
+	}, func(link ble.Link) error {
+		// One is enough. The conversation runs over the first characteristic
+		// in both directions; the second only carries a firmware version, and
+		// a tag that does not offer it still takes a page.
+		if len(link.Characteristics) == 0 {
+			return errors.New("the EPD service has no characteristics")
 		}
-	}); err != nil {
-		return fmt.Errorf("enable notifications: %w", err)
-	}
-
-	return talk(link)
+		d.logFirmwareVersion(link.Characteristics)
+		notifications, err := ble.Notifications(link.Characteristics[0], notificationQueue)
+		if err != nil {
+			return fmt.Errorf("enable notifications: %w", err)
+		}
+		return talk(&bleTransport{
+			characteristic: link.Characteristics[0],
+			notifications:  notifications,
+		})
+	})
 }
 
-// logFirmwareVersion reports what the tag is running when it offers to say.
-//
-// It is worth logging and not worth failing on. The firmware in the field is
-// ahead of the project it came from and numbers itself differently, so a
-// version this build has never seen says nothing about whether the page will
-// go on.
 func (d *Driver) logFirmwareVersion(characteristics []bluetooth.DeviceCharacteristic) {
 	if len(characteristics) < 2 {
 		return
@@ -117,9 +90,14 @@ func (d *Driver) SetModeWithRetry(ctx context.Context, now func() time.Time, mod
 
 // bleTransport carries the session over one characteristic, which is both
 // where frames are written and where the panel's answers arrive.
+// notificationQueue is how many messages the panel may volunteer before one is
+// read. It answers each frame and describes itself unprompted at the start, so
+// several can arrive together.
+const notificationQueue = 16
+
 type bleTransport struct {
 	characteristic bluetooth.DeviceCharacteristic
-	notifications  chan []byte
+	notifications  <-chan []byte
 }
 
 func (t *bleTransport) Notifications() <-chan []byte { return t.notifications }
