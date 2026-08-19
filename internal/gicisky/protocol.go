@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/xwvike/inkwire/internal/ble"
 	"math"
 	"time"
 )
@@ -74,7 +75,7 @@ func (u Uploader) UploadWithOptions(ctx context.Context, transport Transport, pa
 	if err := ValidatePayload(payload); err != nil {
 		return err
 	}
-	if err := wait(ctx, u.NotifyReadyDelay); err != nil {
+	if err := ble.Wait(ctx, u.NotifyReadyDelay); err != nil {
 		return err
 	}
 
@@ -190,7 +191,7 @@ func (u Uploader) receive(ctx context.Context, notifications <-chan []byte) ([]b
 		data = received
 	}
 
-	if err := wait(ctx, u.NotifyProcessDelay); err != nil {
+	if err := ble.Wait(ctx, u.NotifyProcessDelay); err != nil {
 		return nil, err
 	}
 	return data, nil
@@ -199,19 +200,5 @@ func (u Uploader) receive(ctx context.Context, notifications <-chan []byte) ([]b
 func (u Uploader) logf(format string, args ...any) {
 	if u.Logf != nil {
 		u.Logf(format, args...)
-	}
-}
-
-func wait(ctx context.Context, duration time.Duration) error {
-	if duration <= 0 {
-		return nil
-	}
-	timer := time.NewTimer(duration)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
 	}
 }

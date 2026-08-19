@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/xwvike/inkwire/internal/ble"
 	"tinygo.org/x/bluetooth"
 )
 
@@ -106,93 +106,39 @@ func looksLikeTag(name string) bool {
 	return strings.HasPrefix(strings.ToUpper(name), NamePrefix)
 }
 
-func (d *Driver) Find(ctx context.Context) (FoundDevice, error) {
-	if d.Adapter == nil {
-		return FoundDevice{}, errors.New("Bluetooth adapter is nil")
-	}
-	timeout := d.ScanTimeout
-	if timeout <= 0 {
-		timeout = DefaultScanTimeout
-	}
-	scanCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
+// deviceSet accumulates a scan into one entry per address.
+//
+// Unlike the other family there is nothing to merge: this tag puts its name in
+// the same advertisement as everything else knowable about it without
+// connecting, so a later packet only refreshes the signal. The panel is not in
+// there at all — it is in the firmware's flash, and asking for it is what a
+// connection is for.
+type deviceSet struct{ found map[string]FoundDevice }
 
-	found := make(chan FoundDevice, 1)
-	scanDone := make(chan error, 1)
-	go func() {
-		scanDone <- d.Adapter.Scan(func(adapter *bluetooth.Adapter, result bluetooth.ScanResult) {
-			name := result.LocalName()
-			if !d.matches(name, result.Address.String()) {
-				return
-			}
-			select {
-			case found <- FoundDevice{Address: result.Address, Name: name, RSSI: result.RSSI}:
-				_ = adapter.StopScan()
-			default:
-			}
-		})
-	}()
+func newDeviceSet() *deviceSet { return &deviceSet{found: make(map[string]FoundDevice)} }
 
-	select {
-	case device := <-found:
-		<-scanDone
-		return device, nil
-	case err := <-scanDone:
-		if err != nil {
-			return FoundDevice{}, fmt.Errorf("scan: %w", err)
-		}
-		select {
-		case device := <-found:
-			return device, nil
-		default:
-			return FoundDevice{}, fmt.Errorf("no %s tag found (target %q)", NamePrefix, d.Target)
-		}
-	case <-scanCtx.Done():
-		if err := stopScanning(d.Adapter.StopScan, scanDone); err != nil {
-			return FoundDevice{}, fmt.Errorf("no %s tag found (target %q), and %w", NamePrefix, d.Target, err)
-		}
-		return FoundDevice{}, fmt.Errorf("no %s tag found (target %q): %w", NamePrefix, d.Target, scanCtx.Err())
+func (s *deviceSet) observe(result bluetooth.ScanResult) {
+	name := result.LocalName()
+	if !looksLikeTag(name) {
+		return
+	}
+	s.found[result.Address.String()] = FoundDevice{
+		Address: result.Address, Name: name, RSSI: result.RSSI,
 	}
 }
 
-// ScanAll reports every tag of this family advertising nearby.
-func (d *Driver) ScanAll(ctx context.Context) ([]FoundDevice, error) {
-	if d.Adapter == nil {
-		return nil, errors.New("Bluetooth adapter is nil")
+func (s *deviceSet) match(matches func(name, address string) bool) (FoundDevice, bool) {
+	for _, device := range s.found {
+		if matches(device.Name, device.Address.String()) {
+			return device, true
+		}
 	}
-	timeout := d.ScanTimeout
-	if timeout <= 0 {
-		timeout = DefaultScanTimeout
-	}
+	return FoundDevice{}, false
+}
 
-	var mutex sync.Mutex
-	seen := map[string]FoundDevice{}
-	scanDone := make(chan error, 1)
-	go func() {
-		scanDone <- d.Adapter.Scan(func(_ *bluetooth.Adapter, result bluetooth.ScanResult) {
-			name := result.LocalName()
-			if !looksLikeTag(name) {
-				return
-			}
-			mutex.Lock()
-			defer mutex.Unlock()
-			seen[result.Address.String()] = FoundDevice{
-				Address: result.Address, Name: name, RSSI: result.RSSI,
-			}
-		})
-	}()
-
-	scanCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	<-scanCtx.Done()
-	if err := stopScanning(d.Adapter.StopScan, scanDone); err != nil {
-		return nil, fmt.Errorf("scan: %w", err)
-	}
-
-	mutex.Lock()
-	defer mutex.Unlock()
-	devices := make([]FoundDevice, 0, len(seen))
-	for _, device := range seen {
+func (s *deviceSet) sorted() []FoundDevice {
+	devices := make([]FoundDevice, 0, len(s.found))
+	for _, device := range s.found {
 		devices = append(devices, device)
 	}
 	slices.SortFunc(devices, func(a, b FoundDevice) int {
@@ -201,7 +147,48 @@ func (d *Driver) ScanAll(ctx context.Context) ([]FoundDevice, error) {
 		}
 		return strings.Compare(a.Address.String(), b.Address.String())
 	})
-	return devices, nil
+	return devices
+}
+
+func (d *Driver) scanUntil(ctx context.Context, stop func(*deviceSet) bool) ([]FoundDevice, error) {
+	timeout := d.ScanTimeout
+	if timeout <= 0 {
+		timeout = DefaultScanTimeout
+	}
+	seen := newDeviceSet()
+	var satisfied func() bool
+	if stop != nil {
+		satisfied = func() bool { return stop(seen) }
+	}
+	if err := ble.Scan(ctx, d.Adapter, timeout, seen.observe, satisfied); err != nil {
+		return nil, err
+	}
+	return seen.sorted(), nil
+}
+
+// Find resolves the driver's target and stops looking the moment it has it.
+func (d *Driver) Find(ctx context.Context) (FoundDevice, error) {
+	devices, err := d.scanUntil(ctx, func(seen *deviceSet) bool {
+		_, ok := seen.match(d.matches)
+		return ok
+	})
+	if err != nil {
+		return FoundDevice{}, err
+	}
+	for _, device := range devices {
+		if d.matches(device.Name, device.Address.String()) {
+			return device, nil
+		}
+	}
+	return FoundDevice{}, fmt.Errorf("no %s tag found (target %q)", NamePrefix, d.Target)
+}
+
+// ScanAll reports every tag of this family advertising nearby.
+//
+// It waits the whole window, because there is no way to know the quietest tag
+// has already been heard from.
+func (d *Driver) ScanAll(ctx context.Context) ([]FoundDevice, error) {
+	return d.scanUntil(ctx, nil)
 }
 
 // Push connects to a tag and puts one page on it.
@@ -330,23 +317,7 @@ func (d *Driver) retrying(ctx context.Context, attempt func() error) error {
 	if delay <= 0 {
 		delay = DefaultRetryDelay
 	}
-	var lastErr error
-	for number := 1; number <= attempts; number++ {
-		if err := attempt(); err == nil {
-			return nil
-		} else {
-			lastErr = err
-			d.logf("attempt %d/%d failed: %v", number, attempts, err)
-		}
-		if number < attempts {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(delay):
-			}
-		}
-	}
-	return lastErr
+	return ble.Retry{Attempts: attempts, Delay: delay, Logf: d.Logf}.Do(ctx, "", attempt)
 }
 
 // bleTransport carries the session over one characteristic, which is both
@@ -371,10 +342,7 @@ func (t *bleTransport) Write(frame []byte) error {
 
 // stopScanRetry is how often the scan is asked again to stop, and
 // stopScanLimit is how long that is worth doing before giving up on it.
-const (
-	stopScanRetry = 100 * time.Millisecond
-	stopScanLimit = 5 * time.Second
-)
+const ()
 
 // stopScanning ends a scan and waits for it to say that it has ended.
 //
@@ -393,17 +361,13 @@ const (
 //
 // stop is passed as a function rather than an adapter so that this can be
 // exercised without a radio.
-func stopScanning(stop func() error, done <-chan error) error {
-	deadline := time.Now().Add(stopScanLimit)
-	for {
-		_ = stop()
-		select {
-		case err := <-done:
-			return err
-		case <-time.After(stopScanRetry):
-		}
-		if time.Now().After(deadline) {
-			return errors.New("the scan did not stop when it was asked to")
-		}
-	}
-}
+
+// Collector accumulates one scan into this family's devices, so that a single
+// pass of the radio can feed both families. See gicisky.Collector.
+type Collector struct{ seen *deviceSet }
+
+func NewCollector() *Collector { return &Collector{seen: newDeviceSet()} }
+
+func (c *Collector) Observe(result bluetooth.ScanResult) { c.seen.observe(result) }
+
+func (c *Collector) Devices() []FoundDevice { return c.seen.sorted() }

@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/xwvike/inkwire/internal/ble"
 	"tinygo.org/x/bluetooth"
 )
 
@@ -108,51 +108,22 @@ func identifiedBy(target string) func(*deviceSet) bool {
 // Passing nil for stop waits the whole window, which is what enumerating
 // everything nearby has to do.
 func (d *Driver) scanUntil(ctx context.Context, stop func(*deviceSet) bool) ([]FoundDevice, error) {
-	if d.Adapter == nil {
-		return nil, errors.New("Bluetooth adapter is nil")
-	}
 	timeout := d.ScanTimeout
 	if timeout <= 0 {
 		timeout = DefaultScanTimeout
 	}
-
-	var mutex sync.Mutex
-	var once sync.Once
 	seen := newDeviceSet()
-	satisfied := make(chan struct{})
-	scanDone := make(chan error, 1)
-	go func() {
-		scanDone <- d.Adapter.Scan(func(_ *bluetooth.Adapter, result bluetooth.ScanResult) {
-			advertised, ok := giciskyAdvertisement(result)
-			mutex.Lock()
-			defer mutex.Unlock()
-			seen.observe(result.Address, result.LocalName(), result.RSSI, advertised, ok)
-			if stop != nil && stop(seen) {
-				once.Do(func() { close(satisfied) })
-			}
-		})
-	}()
-
-	scanCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	select {
-	case <-satisfied:
-	case <-scanCtx.Done():
-	case err := <-scanDone:
-		// The scan ended without being asked to, so there is nothing to stop.
-		if err != nil {
-			return nil, fmt.Errorf("scan: %w", err)
-		}
-		mutex.Lock()
-		defer mutex.Unlock()
-		return seen.sorted(), nil
+	var satisfied func() bool
+	if stop != nil {
+		satisfied = func() bool { return stop(seen) }
 	}
-	if err := stopScanning(d.Adapter.StopScan, scanDone); err != nil {
-		return nil, fmt.Errorf("scan: %w", err)
+	err := ble.Scan(ctx, d.Adapter, timeout, func(result bluetooth.ScanResult) {
+		advertised, ok := giciskyAdvertisement(result)
+		seen.observe(result.Address, result.LocalName(), result.RSSI, advertised, ok)
+	}, satisfied)
+	if err != nil {
+		return nil, err
 	}
-
-	mutex.Lock()
-	defer mutex.Unlock()
 	return seen.sorted(), nil
 }
 
@@ -394,10 +365,8 @@ func (d *Driver) FindAndPushWithRetry(ctx context.Context, payload []byte, optio
 	})
 }
 
-// retrying runs one attempt up to Attempts times, waiting RetryDelay between
-// them. Every command that reaches the radio goes through it: a tag that is
-// merely between advertising windows looks exactly like a tag that is not
-// there, and only a second look tells them apart.
+// retrying runs one attempt up to Attempts times. Every command that reaches
+// the radio goes through it; see ble.Retry for why.
 func (d *Driver) retrying(ctx context.Context, what string, attempt func() error) error {
 	attempts := d.Attempts
 	if attempts <= 0 {
@@ -407,21 +376,7 @@ func (d *Driver) retrying(ctx context.Context, what string, attempt func() error
 	if delay <= 0 {
 		delay = DefaultRetryDelay
 	}
-	var lastErr error
-	for number := 1; number <= attempts; number++ {
-		if err := attempt(); err == nil {
-			return nil
-		} else {
-			lastErr = err
-			d.logf("%s attempt %d/%d failed: %v", what, number, attempts, err)
-		}
-		if number < attempts {
-			if err := wait(ctx, delay); err != nil {
-				return err
-			}
-		}
-	}
-	return lastErr
+	return ble.Retry{Attempts: attempts, Delay: delay, Logf: d.Logf}.Do(ctx, what, attempt)
 }
 
 func (d *Driver) targetOrDefault() string {
@@ -520,10 +475,7 @@ func writeCharacteristic(characteristic bluetooth.DeviceCharacteristic, data []b
 
 // stopScanRetry is how often the scan is asked again to stop, and
 // stopScanLimit is how long that is worth doing before giving up on it.
-const (
-	stopScanRetry = 100 * time.Millisecond
-	stopScanLimit = 5 * time.Second
-)
+const ()
 
 // stopScanning ends a scan and waits for it to say that it has ended.
 //
@@ -542,17 +494,21 @@ const (
 //
 // stop is passed as a function rather than an adapter so that this can be
 // exercised without a radio.
-func stopScanning(stop func() error, done <-chan error) error {
-	deadline := time.Now().Add(stopScanLimit)
-	for {
-		_ = stop()
-		select {
-		case err := <-done:
-			return err
-		case <-time.After(stopScanRetry):
-		}
-		if time.Now().After(deadline) {
-			return errors.New("the scan did not stop when it was asked to")
-		}
-	}
+
+// Collector accumulates one scan into this family's devices.
+//
+// It exists so a single pass of the radio can feed both families at once.
+// Scanning is promiscuous — every advertisement nearby arrives whatever it
+// belongs to — so the families are told apart by a filter, not by a scan each.
+// Observe is called from ble.Scan, which serialises it, so there is no lock
+// here.
+type Collector struct{ seen *deviceSet }
+
+func NewCollector() *Collector { return &Collector{seen: newDeviceSet()} }
+
+func (c *Collector) Observe(result bluetooth.ScanResult) {
+	advertised, ok := giciskyAdvertisement(result)
+	c.seen.observe(result.Address, result.LocalName(), result.RSSI, advertised, ok)
 }
+
+func (c *Collector) Devices() []FoundDevice { return c.seen.sorted() }

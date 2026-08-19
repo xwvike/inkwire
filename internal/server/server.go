@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xwvike/inkwire/internal/ble"
 	"github.com/xwvike/inkwire/internal/compose"
 	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/gicisky"
@@ -224,9 +225,9 @@ func (h *Handler) devices(writer http.ResponseWriter, request *http.Request) {
 			fmt.Errorf("the adapter is busy writing %s", busy.Device), busy)
 		return
 	}
-	// One radio runs one scan, so the families are looked for in turn and the
-	// budget covers both.
-	ctx, cancel := context.WithTimeout(request.Context(), 2*h.scanTimeout+5*time.Second)
+	// One pass of the radio covers both families, so the budget is one window
+	// and the slack to stop it in.
+	ctx, cancel := context.WithTimeout(request.Context(), h.scanTimeout+5*time.Second)
 	defer cancel()
 	devices, err := h.scanBothFamilies(ctx)
 	h.release(scanHolder, 0, err)
@@ -238,17 +239,13 @@ func (h *Handler) devices(writer http.ResponseWriter, request *http.Request) {
 }
 
 func (h *Handler) scanBothFamilies(ctx context.Context) ([]Device, error) {
-	found, err := h.scanDevices(ctx)
+	found, others, err := h.scanRadio(ctx)
 	if err != nil {
 		return nil, err
 	}
-	devices := make([]Device, 0, len(found))
+	devices := make([]Device, 0, len(found)+len(others))
 	for _, device := range found {
 		devices = append(devices, describeDevice(device))
-	}
-	others, err := h.scanNRFEPDDevices(ctx)
-	if err != nil {
-		return nil, err
 	}
 	for _, device := range others {
 		devices = append(devices, Device{
@@ -281,31 +278,53 @@ func describeDevice(found gicisky.FoundDevice) Device {
 	return device
 }
 
-func (h *Handler) scanDevices(ctx context.Context) ([]gicisky.FoundDevice, error) {
+// scanRadio listens once and sorts the result into the two families.
+//
+// Scanning is promiscuous, so both families arrive on the same pass and are
+// told apart by a filter rather than by a scan each. Looking for them in turn
+// cost two windows and gave each family half the listening.
+//
+// The hooks stay per-family because that is what a test wants to supply. They
+// replace the pass's answer for their own family rather than sitting on a
+// second code path, so the radio route is the one route.
+func (h *Handler) scanRadio(ctx context.Context) ([]gicisky.FoundDevice, []nrfepd.FoundDevice, error) {
+	// This family is not reachable without a radio, so a handler holding its
+	// own transport reports none rather than failing the whole listing.
+	wantNRFEPD := h.scanNRFEPD == nil && !h.ownTransport
+	var tags []gicisky.FoundDevice
+	var others []nrfepd.FoundDevice
+	if h.scan == nil || wantNRFEPD {
+		if err := h.enableAdapter(); err != nil {
+			return nil, nil, err
+		}
+		gathered, otherGathered := gicisky.NewCollector(), nrfepd.NewCollector()
+		err := ble.Scan(ctx, h.adapter, h.scanTimeout, func(result bluetooth.ScanResult) {
+			gathered.Observe(result)
+			otherGathered.Observe(result)
+		}, nil)
+		if err != nil {
+			return nil, nil, err
+		}
+		tags = gathered.Devices()
+		if wantNRFEPD {
+			others = otherGathered.Devices()
+		}
+	}
 	if h.scan != nil {
-		return h.scan(ctx)
+		hooked, err := h.scan(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		tags = hooked
 	}
-	if err := h.enableAdapter(); err != nil {
-		return nil, err
-	}
-	driver := h.newDriver("")
-	driver.ScanTimeout = h.scanTimeout
-	return driver.ScanAll(ctx)
-}
-
-func (h *Handler) scanNRFEPDDevices(ctx context.Context) ([]nrfepd.FoundDevice, error) {
 	if h.scanNRFEPD != nil {
-		return h.scanNRFEPD(ctx)
+		hooked, err := h.scanNRFEPD(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		others = hooked
 	}
-	if h.ownTransport {
-		return nil, nil
-	}
-	if err := h.enableAdapter(); err != nil {
-		return nil, err
-	}
-	driver := nrfepd.NewDriver(h.adapter, "", h.logf)
-	driver.ScanTimeout = h.scanTimeout
-	return driver.ScanAll(ctx)
+	return tags, others, nil
 }
 
 // The two families a target can belong to. They are strings rather than a type

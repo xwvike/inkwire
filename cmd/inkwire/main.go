@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/xwvike/inkwire"
+	"github.com/xwvike/inkwire/internal/ble"
 	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/gicisky"
 	"github.com/xwvike/inkwire/internal/nrfepd"
@@ -229,22 +230,20 @@ func runScan(ctx context.Context, args []string, logger *log.Logger, stdout, std
 	if !enableBluetooth(logger) {
 		return 1
 	}
-	// One radio can only run one scan, so the families are looked for in turn
-	// and the timeout is what each of them gets.
-	driver := gicisky.NewDriver(bluetooth.DefaultAdapter, "", logger.Printf)
-	driver.ScanTimeout = *timeout
-	devices, err := driver.ScanAll(ctx)
+	// One radio runs one scan, and one scan is all this needs. Scanning is
+	// promiscuous: every advertisement nearby arrives whatever family it
+	// belongs to, and the families are told apart by a filter. Looking for
+	// them in turn cost two windows and gave each family half the listening.
+	tags, others := gicisky.NewCollector(), nrfepd.NewCollector()
+	err := ble.Scan(ctx, bluetooth.DefaultAdapter, *timeout, func(result bluetooth.ScanResult) {
+		tags.Observe(result)
+		others.Observe(result)
+	}, nil)
 	if err != nil {
 		logger.Print(err)
 		return 1
 	}
-	others := nrfepd.NewDriver(bluetooth.DefaultAdapter, "", logger.Printf)
-	others.ScanTimeout = *timeout
-	found, err := others.ScanAll(ctx)
-	if err != nil {
-		logger.Print(err)
-		return 1
-	}
+	devices, found := tags.Devices(), others.Devices()
 	if len(devices) == 0 && len(found) == 0 {
 		fmt.Fprintln(stdout, "no tags found")
 		return 1

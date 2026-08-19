@@ -1,4 +1,4 @@
-package nrfepd
+package ble
 
 import (
 	"errors"
