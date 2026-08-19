@@ -78,12 +78,24 @@ func Scan(ctx context.Context, adapter *bluetooth.Adapter, timeout time.Duration
 	return nil
 }
 
-// stopScanning asks until the scan says it has stopped.
+// stopScanning ends a scan and waits for it to say that it has ended.
 //
-// StopScan before the scan has begun does nothing, and the scan that starts a
-// moment later has nobody left to stop it, so a single ask can leave a wait
-// that never ends. Asking again is what makes the stop reliable; giving up is
-// what keeps a scan that will not stop from taking the process with it.
+// Asking more than once is not belt and braces. StopScan before Scan has begun
+// does nothing at all, and the scan that starts a moment later has nobody left
+// to stop it: the wait never returns, and whoever called this holds the adapter
+// for the life of the process. The window is wide open whenever the context is
+// already cancelled on the way in. That used to be routine — /v1/devices
+// scanned the two families in turn, so the second scan began with a context an
+// abandoned request had already cancelled, and one client hanging up wedged the
+// service until it was restarted. That particular path is gone now that one
+// pass serves both families, but a cancelled context arriving here is not.
+//
+// The waiting is bounded for the same reason. A scan that will not stop is bad;
+// saying so lets the caller release the adapter and report a failure, which is
+// recoverable. Blocking here is not.
+//
+// stop is passed as a function rather than an adapter so that this can be
+// exercised without a radio.
 func stopScanning(stop func() error, done <-chan error) error {
 	deadline := time.Now().Add(stopScanLimit)
 	for {

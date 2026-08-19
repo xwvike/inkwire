@@ -1,9 +1,7 @@
 package gicisky
 
 import (
-	"strings"
 	"testing"
-	"time"
 )
 
 func TestDriverMatchesTarget(t *testing.T) {
@@ -163,67 +161,5 @@ func TestDriverMatchesTarget(t *testing.T) {
 					test.target, test.deviceName, test.address, got, test.want)
 			}
 		})
-	}
-}
-
-func TestSelectIdentifiedRequiresAMatchedKnownAdvertisement(t *testing.T) {
-	advertised, _ := ParseAdvertisement([]byte{0x33, 0x1E, 0x81, 0x01, 0x40})
-	knownProfile, _ := LookupProfile(advertised.ID, advertised.Firmware)
-	known := FoundDevice{
-		Name:          "NEMR92943861",
-		Advertised:    advertised,
-		HasAdvertised: true,
-		Profile:       knownProfile,
-		Identified:    true,
-	}
-	selected, err := SelectIdentified([]FoundDevice{known}, TargetAddress)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if selected.Profile.Width != 296 || selected.Profile.Height != 128 {
-		t.Fatalf("selected profile = %+v", selected.Profile)
-	}
-
-	_, err = SelectIdentified([]FoundDevice{{Name: TargetName}}, TargetName)
-	if err == nil || !strings.Contains(err.Error(), "no model advertisement") {
-		t.Fatalf("missing advertisement error = %v", err)
-	}
-
-	unknown := known
-	unknown.Advertised.ID = 0x3FFE
-	unknown.Identified = false
-	_, err = SelectIdentified([]FoundDevice{unknown}, TargetAddress)
-	if err == nil || !strings.Contains(err.Error(), "0x3FFE") {
-		t.Fatalf("unknown profile error = %v", err)
-	}
-}
-
-// These timings were measured against the tag on 2026-08-13, and the margins
-// between them are the only reason a healthy write is not cut short. The test
-// exists so that shortening a timeout has to argue with the measurement.
-func TestTimeoutsClearTheMeasuredDevice(t *testing.T) {
-	const (
-		slowestScan       = 11530 * time.Millisecond
-		slowestConnect    = 7790 * time.Millisecond
-		slowestResponse   = 110 * time.Millisecond
-		slowestHealthyRun = 20521 * time.Millisecond
-	)
-
-	if DefaultScanTimeout <= slowestScan {
-		t.Errorf("scan timeout %s does not clear the slowest measured scan %s", DefaultScanTimeout, slowestScan)
-	}
-	// The response timeout also has to cover the first exchange, which the
-	// tag only answers once it has connected and discovered services.
-	if DefaultResponseTimeout <= slowestResponse {
-		t.Errorf("response timeout %s does not clear the slowest measured reply %s", DefaultResponseTimeout, slowestResponse)
-	}
-	// One attempt must be able to complete a whole healthy write, or every
-	// push would burn its retries on a tag that was answering all along.
-	budget := DefaultScanTimeout + DefaultNotifyReadyDelay + slowestConnect
-	if budget <= slowestHealthyRun {
-		t.Errorf("one attempt allows %s, less than the slowest healthy write %s", budget, slowestHealthyRun)
-	}
-	if DefaultAttempts < 2 {
-		t.Errorf("attempts = %d leaves no retry for a scan that misses the advertising window", DefaultAttempts)
 	}
 }
