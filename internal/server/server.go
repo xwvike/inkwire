@@ -547,7 +547,7 @@ func (h *Handler) pushGiciskyPayload(ctx context.Context, target string, found g
 	if err := h.enableAdapter(); err != nil {
 		return err
 	}
-	return h.newDriver(target).PushFoundWithRetry(ctx, found, payload, options)
+	return h.newDriver(target).PushWithRetry(ctx, found, payload, options)
 }
 
 // pushPageTo sends a rendered page to an EPD-nRF5 tag, reporting how many

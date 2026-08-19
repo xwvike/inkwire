@@ -437,7 +437,7 @@ func pushGiciskyScene(ctx context.Context, target, path string, logger *log.Logg
 		return 1
 	}
 	logger.Printf("pushing %d bytes to %s (%s %dx%d)", len(payload), target, profile.Model, profile.Width, profile.Height)
-	if err := driver.PushFoundWithRetry(ctx, found, payload, gicisky.UploadOptions{Compression2: profile.Compression2}); err != nil {
+	if err := driver.PushWithRetry(ctx, found, payload, gicisky.UploadOptions{Compression2: profile.Compression2}); err != nil {
 		logger.Print(err)
 		return 1
 	}
@@ -591,17 +591,7 @@ func runPushPayload(ctx context.Context, args []string, logger *log.Logger, stdo
 	}
 	logger.Printf("pushing %d bytes to %s (%s %dx%d)", len(payload), target, profile.Model, profile.Width, profile.Height)
 	driver := gicisky.NewDriver(bluetooth.DefaultAdapter, target, logger.Printf)
-	if err := driver.PushWithOptionsWithRetry(ctx, payload, gicisky.UploadOptions{Compression2: profile.Compression2}); err != nil {
-		logger.Print(err)
-		return 1
-	}
-	return 0
-}
-
-func push(ctx context.Context, adapter *bluetooth.Adapter, target string, payload []byte, logger *log.Logger) int {
-	logger.Printf("pushing %d bytes to %s", len(payload), target)
-	driver := gicisky.NewDriver(adapter, target, logger.Printf)
-	if err := driver.PushWithRetry(ctx, payload); err != nil {
+	if err := driver.FindAndPushWithRetry(ctx, payload, gicisky.UploadOptions{Compression2: profile.Compression2}); err != nil {
 		logger.Print(err)
 		return 1
 	}

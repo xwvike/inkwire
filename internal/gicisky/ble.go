@@ -179,30 +179,16 @@ func (d *Driver) FindIdentified(ctx context.Context) (FoundDevice, error) {
 }
 
 func (d *Driver) FindIdentifiedWithRetry(ctx context.Context) (FoundDevice, error) {
-	attempts := d.Attempts
-	if attempts <= 0 {
-		attempts = DefaultAttempts
+	var device FoundDevice
+	err := d.retrying(ctx, "identify", func() error {
+		found, err := d.FindIdentified(ctx)
+		device = found
+		return err
+	})
+	if err != nil {
+		return FoundDevice{}, err
 	}
-	retryDelay := d.RetryDelay
-	if retryDelay <= 0 {
-		retryDelay = DefaultRetryDelay
-	}
-
-	var lastErr error
-	for attempt := 1; attempt <= attempts; attempt++ {
-		device, err := d.FindIdentified(ctx)
-		if err == nil {
-			return device, nil
-		}
-		lastErr = err
-		d.logf("identify attempt %d/%d failed: %v", attempt, attempts, err)
-		if attempt < attempts {
-			if err := wait(ctx, retryDelay); err != nil {
-				return FoundDevice{}, err
-			}
-		}
-	}
-	return FoundDevice{}, lastErr
+	return device, nil
 }
 
 func SelectIdentified(devices []FoundDevice, target string) (FoundDevice, error) {
@@ -294,18 +280,13 @@ func looksLikeTag(name string) bool {
 	return strings.EqualFold(name, TargetName) || strings.HasPrefix(strings.ToUpper(name), "NEMR")
 }
 
-func (d *Driver) Push(ctx context.Context, payload []byte) error {
-	if err := ValidatePayload(payload); err != nil {
-		return err
-	}
-	found, err := d.Find(ctx)
-	if err != nil {
-		return err
-	}
-	return d.PushFound(ctx, found, payload, UploadOptions{})
-}
-
-func (d *Driver) PushFound(ctx context.Context, found FoundDevice, payload []byte, options UploadOptions) error {
+// Push writes a payload to a tag that has already been found, in one attempt.
+//
+// Finding and writing are separate because the tag says which panel it has in
+// its advertisement, so a scene cannot be rendered — let alone encoded — until
+// the tag has been found. A caller that has a payload already and no need for
+// that answer can use FindAndPushWithRetry instead.
+func (d *Driver) Push(ctx context.Context, found FoundDevice, payload []byte, options UploadOptions) error {
 	if err := ValidatePayload(payload); err != nil {
 		return err
 	}
@@ -351,67 +332,58 @@ func (d *Driver) PushFound(ctx context.Context, found FoundDevice, payload []byt
 	return d.Uploader.UploadWithOptions(ctx, transport, payload, options)
 }
 
-func (d *Driver) PushWithRetry(ctx context.Context, payload []byte) error {
-	return d.PushWithOptionsWithRetry(ctx, payload, UploadOptions{})
-}
-
-func (d *Driver) PushWithOptionsWithRetry(ctx context.Context, payload []byte, options UploadOptions) error {
+// PushWithRetry writes to a tag that has already been found, retrying the
+// write alone. Use it when the tag was found in order to learn its panel, so
+// that a failed write does not throw that answer away.
+func (d *Driver) PushWithRetry(ctx context.Context, found FoundDevice, payload []byte, options UploadOptions) error {
 	if err := ValidatePayload(payload); err != nil {
 		return err
 	}
-	attempts := d.Attempts
-	if attempts <= 0 {
-		attempts = DefaultAttempts
-	}
-	retryDelay := d.RetryDelay
-	if retryDelay <= 0 {
-		retryDelay = DefaultRetryDelay
-	}
+	return d.retrying(ctx, "write", func() error {
+		return d.Push(ctx, found, payload, options)
+	})
+}
 
-	var lastErr error
-	for attempt := 1; attempt <= attempts; attempt++ {
+// FindAndPushWithRetry scans for the driver's target and writes to it, taking
+// a fresh scan on every attempt. A tag takes an unsteady several seconds to
+// advertise again after a disconnect, so the address that answered last time
+// is not the thing worth retrying — the scan is.
+func (d *Driver) FindAndPushWithRetry(ctx context.Context, payload []byte, options UploadOptions) error {
+	if err := ValidatePayload(payload); err != nil {
+		return err
+	}
+	return d.retrying(ctx, "write", func() error {
 		found, err := d.Find(ctx)
-		if err == nil {
-			err = d.PushFound(ctx, found, payload, options)
+		if err != nil {
+			return err
 		}
-		if err == nil {
-			return nil
-		} else {
-			lastErr = err
-			d.logf("attempt %d/%d failed: %v", attempt, attempts, err)
-		}
-		if attempt < attempts {
-			if err := wait(ctx, retryDelay); err != nil {
-				return err
-			}
-		}
-	}
-	return lastErr
+		return d.Push(ctx, found, payload, options)
+	})
 }
 
-func (d *Driver) PushFoundWithRetry(ctx context.Context, found FoundDevice, payload []byte, options UploadOptions) error {
-	if err := ValidatePayload(payload); err != nil {
-		return err
-	}
+// retrying runs one attempt up to Attempts times, waiting RetryDelay between
+// them. Every command that reaches the radio goes through it: a tag that is
+// merely between advertising windows looks exactly like a tag that is not
+// there, and only a second look tells them apart.
+func (d *Driver) retrying(ctx context.Context, what string, attempt func() error) error {
 	attempts := d.Attempts
 	if attempts <= 0 {
 		attempts = DefaultAttempts
 	}
-	retryDelay := d.RetryDelay
-	if retryDelay <= 0 {
-		retryDelay = DefaultRetryDelay
+	delay := d.RetryDelay
+	if delay <= 0 {
+		delay = DefaultRetryDelay
 	}
-
 	var lastErr error
-	for attempt := 1; attempt <= attempts; attempt++ {
-		if err := d.PushFound(ctx, found, payload, options); err == nil {
+	for number := 1; number <= attempts; number++ {
+		if err := attempt(); err == nil {
 			return nil
 		} else {
 			lastErr = err
-			d.logf("attempt %d/%d failed: %v", attempt, attempts, err)
+			d.logf("%s attempt %d/%d failed: %v", what, number, attempts, err)
 		}
-		if attempt < attempts {
-			if err := wait(ctx, retryDelay); err != nil {
+		if number < attempts {
+			if err := wait(ctx, delay); err != nil {
 				return err
 			}
 		}
