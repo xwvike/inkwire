@@ -1,3 +1,18 @@
+// Package nrfepd drives e-paper tags running the EPD-nRF5 replacement
+// firmware, https://github.com/tsl0922/EPD-nRF5.
+//
+// A tag of this family advertises a name and nothing else. What panel is
+// attached lives in the firmware's own flash and comes out only once the tag
+// has been connected to and asked, so a page cannot be built in advance: the
+// conversation learns the panel first and renders for the answer. That is the
+// one difference from the other family that cannot be designed away.
+//
+// Two more come from the firmware rather than the panel. A page is run-length
+// encoded when that makes it smaller and sent plain when it would not, because
+// the link is slow enough for the difference to matter. And the connection is
+// held open after the refresh command rather than dropped: disconnecting
+// cancels the redraw, which is why DefaultSettle is a correctness setting and
+// not a courtesy.
 package nrfepd
 
 import (

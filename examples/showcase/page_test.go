@@ -1,3 +1,6 @@
+// Package showcase is the one page to look at first: a single 296x128 document
+// that uses the ordinary nodes — rows, text, rectangles, an image — at the
+// density a real tag page is written at.
 package showcase
 
 import (

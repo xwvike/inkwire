@@ -1,3 +1,10 @@
+// Package testscene holds what the example pages need to be tested and nothing
+// else: comparing a render against a reference image, and checking that a page
+// still encodes for the panel it was drawn for.
+//
+// Both exist because a page can stop being right in ways that reading it will
+// not show. It can drift a pixel, or it can quietly stop fitting the panel it
+// was written for — the wrong size, or an ink that panel cannot show.
 package testscene
 
 import (

@@ -1,3 +1,9 @@
+// Command gallery answers one question: what happens when a caller hands over
+// an image without saying what it is.
+//
+// Each asset is profiled, drawn with whatever the profile suggests, and shown
+// next to the numbers that produced the suggestion, so a wrong call is visible
+// rather than mysterious.
 package main
 
 import (
@@ -21,10 +27,6 @@ import (
 //go:embed assets/*.png assets/*.jpeg
 var assets embed.FS
 
-// The gallery answers one question: what happens when a caller hands over an
-// image without saying what it is. Each asset is profiled, drawn with whatever
-// the profile suggests, and shown next to the numbers that produced the
-// suggestion, so a wrong call is visible rather than mysterious.
 func main() {
 	outputDir := flag.String("out", "out", "directory for the per-asset panel images")
 	sheetPath := flag.String("sheet", "gallery.png", "contact sheet of every asset")

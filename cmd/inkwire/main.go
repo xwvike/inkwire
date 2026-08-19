@@ -1,3 +1,10 @@
+// Command inkwire renders Scene Schema documents and writes them to BLE
+// e-paper tags of two families.
+//
+// Every subcommand is here rather than in a package of its own because there
+// is little to them: they parse flags, call a driver, and turn an error into
+// an exit code. What is worth knowing about them is which of the two families
+// a flag belongs to, since the families do not share defaults — see targetFor.
 package main
 
 import (

@@ -1,3 +1,8 @@
+// Package compose_showcase is one page carrying an image through the automatic
+// adaptations a document does not ask for: the tone decision, the contrast
+// enhancement, the dither. Its test holds the report to exactly one image
+// decision, so an adaptation that silently stops happening is a failure rather
+// than a slightly different picture.
 package compose_showcase
 
 import (

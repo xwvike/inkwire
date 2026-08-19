@@ -1,3 +1,7 @@
+// Package state_showcase is a page about clipping and nesting rather than
+// about content: four absolute frames, each clipped, with lines drawn past
+// their edges on purpose. What it proves is that a clip is still a clip
+// several levels down.
 package state_showcase
 
 import (

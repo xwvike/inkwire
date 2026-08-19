@@ -1,3 +1,12 @@
+// Package server exposes rendering and writing over HTTP, for the callers that
+// are not a command line: a cron job, a home automation rule, a phone.
+//
+// One radio can hold one conversation, so a write is claimed exclusively and a
+// second one is refused outright rather than queued behind ten seconds the
+// caller cannot see. Everything else follows from that: the budgets, the
+// device-busy status, and the fact that this binds loopback only. There is no
+// authentication and every request reaches hardware, so the address is the
+// whole of the access control.
 package server
 
 import (

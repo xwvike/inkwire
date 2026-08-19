@@ -1,3 +1,7 @@
+// Package card_showcase is a name card, and the page that holds the two colour
+// rules to the panel. It has to use all three inks, and it has to use no red
+// in portrait, because red is what the 2.9" panel is slowest to draw and a
+// portrait page is turned before it is sent.
 package card_showcase
 
 import (

@@ -1,3 +1,18 @@
+// Package gicisky drives the factory-firmware BLE price tags sold as Gicisky
+// and advertised as PICKSMART.
+//
+// A tag of this family says what panel it has without being connected to. The
+// model id, the firmware version and the battery voltage are all in the
+// advertisement, so a page can be rendered and encoded for the right panel
+// before anything is connected to — which is precisely what the other family
+// cannot do, and the reason writing to the two takes different shapes.
+//
+// Two things follow from that and are easy to get wrong. The name and the
+// manufacturer data arrive in separate advertisements, so identifying one tag
+// means merging packets by address rather than reading one packet. And the
+// panel table is somebody else's work: only the 2.9" BWR entry has been held
+// up against hardware here, which is what Profile.Verified records and why an
+// unrecognised panel is reported rather than quietly driven.
 package gicisky
 
 import (
