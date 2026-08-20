@@ -354,6 +354,13 @@ func runPushScene(ctx context.Context, args []string, logger *log.Logger, stdout
 		fmt.Fprintln(stderr, "`inkwire scan` lists what is in range, under NAME and ADDRESS.")
 		return 2
 	}
+	// A misspelled family is a bad argument, not a tag that could not be
+	// reached, so it is refused here rather than fifteen seconds later with
+	// the exit code of a device failure.
+	if err := tag.ValidateFamily(*family); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
 	document, err := (scene.Decoder{}).DecodeFile(flags.Arg(0))
 	if err != nil {
 		logger.Print(err)

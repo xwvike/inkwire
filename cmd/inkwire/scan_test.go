@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/xwvike/inkwire/internal/gicisky"
@@ -113,5 +115,21 @@ func TestOneScanSortsEachTagIntoExactlyOneFamily(t *testing.T) {
 	}
 	if got := len(others.Devices()); got != 1 {
 		t.Errorf("one pass produced %d EPD-nRF5 tags, want 1", got)
+	}
+}
+
+// A misspelled family is an argument this program will not accept, not a tag it
+// could not reach. It used to be discovered inside the scan and reported with a
+// device failure's exit code, fifteen seconds later.
+func TestAMisspelledFamilyIsAnArgumentError(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"push", "-device", "NEMR92943861", "-family", "nrf", "page.json"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code = %d, want 2 (usage): %s", code, stderr.String())
+	}
+	for _, want := range []string{"unknown family", "gicisky", "nrfepd"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("stderr does not say %q: %s", want, stderr.String())
+		}
 	}
 }
