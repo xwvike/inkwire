@@ -49,11 +49,6 @@ func TestTheSchemaCanReachEveryKindOfLength(t *testing.T) {
 		called[name] = true
 	}
 	for _, name := range lengthConstructors(t, "../compose") {
-		// Auto is the zero value, which is what a document says by leaving the
-		// field out. There is nothing for this package to call.
-		if name == "Auto" {
-			continue
-		}
 		if !called[name] {
 			t.Errorf("compose.%s builds a Length and no document can ask for one; "+
 				"give it a spelling in lengthJSON or take it out of compose", name)

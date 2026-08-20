@@ -20,9 +20,6 @@ type Length struct {
 	pixels  int
 }
 
-// Auto is the absent length: the box takes whatever size it measures.
-func Auto() Length { return Length{} }
-
 func Pixels(value int) Length { return Length{set: true, pixels: value} }
 
 // Tenths builds a percentage from tenths of a percent, so 873 is 87.3%.

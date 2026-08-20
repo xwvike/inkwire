@@ -116,9 +116,6 @@ var models = []Model{
 	{ID: 0x11, Name: "UC8179_583_BW", Driver: "UC8179", Width: 648, Height: 480, Palette: PaletteBW, Packing: PackingPlanes},
 }
 
-// Models lists every panel in the table, in ID order.
-func Models() []Model { return append([]Model(nil), models...) }
-
 // LookupModel finds a panel by the firmware's ID.
 func LookupModel(id uint8) (Model, bool) {
 	for _, model := range models {

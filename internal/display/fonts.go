@@ -9,7 +9,6 @@ const (
 	DefaultFontFamily = "ui"
 	DefaultFontSize   = 12
 	DefaultFont       = "ui-12"
-	fontSource        = "https://github.com/aguegu/BitmapFont@fd7dd723d26e59a815a0871e63fa077825f11c00"
 )
 
 //go:embed fonts/HZK* fonts/MONACO*
@@ -169,10 +168,6 @@ func registerSet(registry *FontRegistry, name string, faces ...Face) error {
 		return err
 	}
 	return registry.Register(set)
-}
-
-func BundledFontSource() string {
-	return fontSource
 }
 
 func defaultInt(value, fallback int) int {
