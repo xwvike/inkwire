@@ -94,10 +94,6 @@ func (d *Driver) logf(format string, args ...any) {
 	}
 }
 
-func (d *Driver) matches(name, address string) bool {
-	return MatchesTarget(d.Target, name, address)
-}
-
 // MatchesTarget decides whether a device answers to the target given. An empty
 // target takes any tag of this family, which is what a single-tag setup wants;
 // anything else is matched by name or by address.

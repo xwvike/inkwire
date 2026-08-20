@@ -9,12 +9,11 @@ import (
 	"time"
 
 	"github.com/xwvike/inkwire/internal/compose"
-	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/scene"
 	"github.com/xwvike/inkwire/internal/server"
 )
 
-func TestRenderAndEncodeCommands(t *testing.T) {
+func TestRenderWritesAPreview(t *testing.T) {
 	directory := t.TempDir()
 	scenePath := filepath.Join(directory, "page.json")
 	scene := `{
@@ -35,60 +34,6 @@ func TestRenderAndEncodeCommands(t *testing.T) {
 	}
 	if info, err := os.Stat(pngPath); err != nil || info.Size() == 0 {
 		t.Fatalf("preview = %v, %v", info, err)
-	}
-
-	stdout.Reset()
-	stderr.Reset()
-	payloadPath := filepath.Join(directory, "payload.bin")
-	if code := run([]string{"encode", "-profile-id", "0x0033", "-o", payloadPath, scenePath}, &stdout, &stderr); code != 0 {
-		t.Fatalf("encode code = %d, stderr = %s", code, stderr.String())
-	}
-	payload, err := os.ReadFile(payloadPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(payload) != display.GiciskyPayloadSize {
-		t.Fatalf("payload = %d bytes", len(payload))
-	}
-
-	stdout.Reset()
-	stderr.Reset()
-	largePayloadPath := filepath.Join(directory, "payload-420.bin")
-	if code := run([]string{"encode", "-profile-id", "0x004B", "-o", largePayloadPath, scenePath}, &stdout, &stderr); code != 0 {
-		t.Fatalf("encode 4.2 code = %d, stderr = %s", code, stderr.String())
-	}
-	largePayload, err := os.ReadFile(largePayloadPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(largePayload) != 400*300/8*2 {
-		t.Fatalf("4.2 payload = %d bytes", len(largePayload))
-	}
-}
-
-// A payload is built for one panel and encode has no tag to ask which, so the
-// panel is not something it may assume. It used to default to 0x0033, which
-// wrote a 2.9 inch payload for a 4.2 inch scene without a word.
-func TestEncodeRefusesToGuessThePanel(t *testing.T) {
-	directory := t.TempDir()
-	scenePath := filepath.Join(directory, "scene.json")
-	scene := `{"version":1,"root":{"type":"rectangle","fill":"red"}}`
-	if err := os.WriteFile(scenePath, []byte(scene), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var stdout, stderr bytes.Buffer
-	code := run([]string{"encode", "-o", filepath.Join(directory, "out.bin"), scenePath}, &stdout, &stderr)
-	if code != 2 {
-		t.Fatalf("code = %d, want 2 (usage), stderr = %s", code, stderr.String())
-	}
-	if !strings.Contains(stderr.String(), "-profile-id") {
-		t.Errorf("stderr does not say which flag is missing: %s", stderr.String())
-	}
-	if !strings.Contains(stderr.String(), "inkwire scan") {
-		t.Errorf("stderr does not say where to find the id: %s", stderr.String())
-	}
-	if _, err := os.Stat(filepath.Join(directory, "out.bin")); !os.IsNotExist(err) {
-		t.Errorf("a payload was written anyway: %v", err)
 	}
 }
 

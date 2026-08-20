@@ -10,10 +10,11 @@ import (
 
 // Push writes a payload to a tag that has already been found, in one attempt.
 //
-// Finding and writing are separate because the tag says which panel it has in
-// its advertisement, so a scene cannot be rendered — let alone encoded — until
-// the tag has been found. A caller that has a payload already and no need for
-// that answer can use FindAndPushWithRetry instead.
+// Finding is somebody else's job, and one job for the whole program: a tag is
+// located once, by internal/tag, which is also where its family is settled.
+// This driver never scans. That is not only tidiness — the tag says which
+// panel it has in its advertisement, so the page cannot be rendered, let alone
+// encoded, until the scan that found it has also heard it.
 func (d *Driver) Push(ctx context.Context, found FoundDevice, payload []byte, options UploadOptions) error {
 	if err := ValidatePayload(payload); err != nil {
 		return err
@@ -51,23 +52,6 @@ func (d *Driver) PushWithRetry(ctx context.Context, found FoundDevice, payload [
 		return err
 	}
 	return d.retrying(ctx, "write", func() error {
-		return d.Push(ctx, found, payload, options)
-	})
-}
-
-// FindAndPushWithRetry scans for the driver's target and writes to it, taking
-// a fresh scan on every attempt. A tag takes an unsteady several seconds to
-// advertise again after a disconnect, so the address that answered last time
-// is not the thing worth retrying — the scan is.
-func (d *Driver) FindAndPushWithRetry(ctx context.Context, payload []byte, options UploadOptions) error {
-	if err := ValidatePayload(payload); err != nil {
-		return err
-	}
-	return d.retrying(ctx, "write", func() error {
-		found, err := d.Find(ctx)
-		if err != nil {
-			return err
-		}
 		return d.Push(ctx, found, payload, options)
 	})
 }

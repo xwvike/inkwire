@@ -19,21 +19,13 @@ second download.
 | Command | Purpose |
 |---|---|
 | `inkwire render [-o out.png] <scene.json>` | PNG preview |
-| `inkwire encode -profile-id 0x0033 [-o out.bin] <scene.json>` | Device payload, Gicisky only |
 | `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] <scene.json>` | Render and write |
 | `inkwire scan [-timeout 15s]` | List tags |
 | `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 clock and mode |
 | `inkwire serve [-listen ADDR] [-device NAME] [-assets DIR]` | HTTP service |
-| `inkwire push-payload <NAME> <payload.bin>` | Write a raw payload |
 | `inkwire schema [-lang en\|zh]` | Print the Scene Schema reference |
 | `inkwire help` | This list; also `-h`, `--help` |
 | `inkwire version` | Release tag, or the commit a source build came from; also `-v`, `--version` |
-
-`inkwire encode` is an offline Gicisky-only developer tool. It renders a scene
-for the `-profile-id` you name and writes that model's payload to a `.bin`
-file. The id is required: encode connects to nothing, so there is no tag to
-ask which panel the scene is for. `inkwire push-payload` sends the result and
-asks the tag itself.
 
 Everything that writes to a tag finds it first, and takes the panel from what
 it finds. A scene laid out for another size is laid out again for the panel
@@ -55,7 +47,6 @@ inkwire push -device NEMR92943861 page.json
 |---|---|
 | `-device` | Advertised name (`NAME` column) or BLE address. Required by everything that writes: which tag is not something to work out |
 | `-family` | Rarely needed: the family comes from the advertisement. Given, it is obeyed and checked, and a target that turns out to be the other family is refused by name |
-| `-profile-id` | Gicisky model id from `inkwire scan`. Required by `encode`. `push-payload` asks the tag and only needs it for a model this build does not know |
 | `-timeout` | One listening window; both families come out of it |
 | `-settle` | Connection held open after `REFRESH`. See [Refresh](#refresh) |
 
@@ -204,7 +195,7 @@ complete report structure once rendering has happened. `/v1/display` identifies
 a Gicisky profile before rendering, so identification failures return device
 status without a render report. If rendering completes and the push then fails,
 the error JSON still includes the report. The HTTP API intentionally does not
-expose the raw `.bin` encoder; use `/v1/display` for direct device use or
+expose a raw payload route; use `/v1/display` for direct device use or
 `/v1/render` for a preview.
 
 ```bash
@@ -238,7 +229,7 @@ Non-fatal.
 | `invalid-request` | 400 | Malformed multipart, or unknown `family` |
 | `request-too-large` | 413 | Over the size limit |
 | `invalid-scene` | 422 | Will not decode or render |
-| `unprocessable-scene` | 422 | Renders, but cannot encode for the selected Gicisky display |
+| `unprocessable-scene` | 422 | Renders, but cannot be packed for the panel that answered |
 | `render-failed` | 500 | PNG encoding failed |
 | `device-busy` | 409 | Adapter in use |
 | `device-identify-failed` | 502 | Gicisky target was not found, did not advertise a known model, or scan failed |

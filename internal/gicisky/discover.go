@@ -1,14 +1,12 @@
 package gicisky
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
 
-	"github.com/xwvike/inkwire/internal/ble"
 	"tinygo.org/x/bluetooth"
 )
 
@@ -25,109 +23,6 @@ type FoundDevice struct {
 	HasAdvertised bool
 	Profile       Profile
 	Identified    bool
-}
-
-// matchedBy and identifiedBy are the two questions a scan can be stopped on.
-//
-// They are named rather than written inline at the call sites so that a test
-// can hold the real ones, not a copy that goes on passing after the driver has
-// changed under it.
-func matchedBy(target string) func(*deviceSet) bool {
-	return func(seen *deviceSet) bool {
-		_, ok := seen.match(target)
-		return ok
-	}
-}
-
-func identifiedBy(target string) func(*deviceSet) bool {
-	return func(seen *deviceSet) bool {
-		device, ok := seen.match(target)
-		return ok && device.HasAdvertised
-	}
-}
-
-// scanUntil merges advertisements into one entry per address and stops as soon
-// as stop is satisfied, or when the scan window closes if it never is.
-//
-// A tag does not put its local name and its manufacturer data in the same
-// advertisement, so what a caller is waiting for is never a single packet: it
-// is one address having been seen enough times to answer the question asked.
-// Passing nil for stop waits the whole window, which is what enumerating
-// everything nearby has to do.
-func (d *Driver) scanUntil(ctx context.Context, stop func(*deviceSet) bool) ([]FoundDevice, error) {
-	timeout := d.ScanTimeout
-	if timeout <= 0 {
-		timeout = DefaultScanTimeout
-	}
-	seen := newDeviceSet()
-	var satisfied func() bool
-	if stop != nil {
-		satisfied = func() bool { return stop(seen) }
-	}
-	err := ble.Scan(ctx, d.Adapter, timeout, func(result bluetooth.ScanResult) {
-		advertised, ok := giciskyAdvertisement(result)
-		seen.observe(result.Address, result.LocalName(), result.RSSI, advertised, ok)
-	}, satisfied)
-	if err != nil {
-		return nil, err
-	}
-	return seen.sorted(), nil
-}
-
-// Find resolves the driver's target and stops looking the moment it has it.
-//
-// This answers "which tag", not "what panel". A caller that already knows the
-// model — push-payload is told it on the command line — needs nothing more.
-func (d *Driver) Find(ctx context.Context) (FoundDevice, error) {
-	devices, err := d.scanUntil(ctx, matchedBy(d.Target))
-	if err != nil {
-		return FoundDevice{}, err
-	}
-	for _, device := range devices {
-		if MatchesTarget(d.Target, device.Name, device.Address.String()) {
-			return device, nil
-		}
-	}
-	return FoundDevice{}, fmt.Errorf("no Gicisky tag %s is in range", describeTarget(d.Target))
-}
-
-// ScanAll reports every Gicisky tag advertising nearby instead of stopping at
-// the first match, and identifies each one from its advertisement.
-//
-// It waits the whole window on purpose. There is no way to know that the last
-// tag has been heard from, so a listing that stopped early would be a listing
-// that quietly omits whichever tag advertises least often.
-func (d *Driver) ScanAll(ctx context.Context) ([]FoundDevice, error) {
-	return d.scanUntil(ctx, nil)
-}
-
-// FindIdentified resolves the target and the panel it has, stopping as soon as
-// one address has answered both questions.
-//
-// Waiting for both halves costs nothing measurable: the tag sends its name and
-// its manufacturer data in the same advertising burst, about a millisecond
-// apart. What varies is when that burst lands, which on hardware here is
-// anywhere from 0.7s to 5s — against the 15s this used to spend every time,
-// because it read the whole window meant for listing every tag nearby.
-func (d *Driver) FindIdentified(ctx context.Context) (FoundDevice, error) {
-	devices, err := d.scanUntil(ctx, identifiedBy(d.Target))
-	if err != nil {
-		return FoundDevice{}, err
-	}
-	return SelectIdentified(devices, d.Target)
-}
-
-func (d *Driver) FindIdentifiedWithRetry(ctx context.Context) (FoundDevice, error) {
-	var device FoundDevice
-	err := d.retrying(ctx, "identify", func() error {
-		found, err := d.FindIdentified(ctx)
-		device = found
-		return err
-	})
-	if err != nil {
-		return FoundDevice{}, err
-	}
-	return device, nil
 }
 
 // ErrNotIdentified marks the tag that answered but did not say what panel it
@@ -195,18 +90,6 @@ func (s *deviceSet) observe(address bluetooth.Address, name string, rssi int16, 
 		device.Profile, device.Identified = LookupProfile(advertised.ID, advertised.Firmware)
 	}
 	return true
-}
-
-// match reports the entry the target names, if one has been heard from yet.
-// It is the same question SelectIdentified asks afterwards, asked early so a
-// scan can stop as soon as the answer exists.
-func (s *deviceSet) match(target string) (*FoundDevice, bool) {
-	for _, device := range s.found {
-		if MatchesTarget(target, device.Name, device.Address.String()) {
-			return device, true
-		}
-	}
-	return nil, false
 }
 
 func (s *deviceSet) sorted() []FoundDevice {

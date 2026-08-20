@@ -428,7 +428,7 @@ func (h *Handler) display(writer http.ResponseWriter, request *http.Request) {
 	}
 	// The page is built once the panel has said what it is, so there is no
 	// report to answer with until the write has been attempted.
-	written, rendered, pushErr := h.pushPageTo(ctx, target, document)
+	written, rendered, pushErr := h.pushPageTo(ctx, target, found.NRFEPD, document)
 	status := h.release(target, written, pushErr)
 	if pushErr != nil {
 		code, httpStatus := "push-failed", http.StatusBadGateway
@@ -548,25 +548,6 @@ func (h *Handler) statusLocked(device string) DeviceStatus {
 	return status
 }
 
-func (h *Handler) findGiciskyDevice(ctx context.Context, target string) (gicisky.FoundDevice, error) {
-	if h.scan != nil {
-		devices, err := h.scan(ctx)
-		if err != nil {
-			return gicisky.FoundDevice{}, err
-		}
-		return gicisky.SelectIdentified(devices, target)
-	}
-	if h.ownTransport {
-		return gicisky.FoundDevice{}, errors.New("this handler was given its own transport and no Scan hook, so it cannot identify a Gicisky tag")
-	}
-	if err := h.enableAdapter(); err != nil {
-		return gicisky.FoundDevice{}, err
-	}
-	driver := h.newDriver(target)
-	driver.ScanTimeout = h.scanTimeout
-	return driver.FindIdentifiedWithRetry(ctx)
-}
-
 func (h *Handler) pushGiciskyPayload(ctx context.Context, target string, found gicisky.FoundDevice, payload []byte, options gicisky.UploadOptions) error {
 	if h.push != nil {
 		return h.push(ctx, target, payload)
@@ -586,7 +567,11 @@ func (h *Handler) pushGiciskyPayload(ctx context.Context, target string, found g
 // The count comes back rather than being known in advance because the page is
 // not encoded until the panel has said what it is. A page whose size does not
 // match is refused here, at the one moment both are known.
-func (h *Handler) pushPageTo(ctx context.Context, target string, document compose.Document) (int, scene.Result, error) {
+// pushPageTo takes both the target as the caller named it and the tag the scan
+// found under that name. The hook is given the name, because that is what a
+// caller recognises; the driver is given the address, because that is what it
+// connects to.
+func (h *Handler) pushPageTo(ctx context.Context, target string, found nrfepd.FoundDevice, document compose.Document) (int, scene.Result, error) {
 	written := 0
 	var rendered scene.Result
 	// The panel is only known here, inside the callback, which is why the
@@ -613,9 +598,9 @@ func (h *Handler) pushPageTo(ctx context.Context, target string, document compos
 	if err := h.enableAdapter(); err != nil {
 		return 0, rendered, err
 	}
-	driver := nrfepd.NewDriver(h.adapter, target, h.logf)
+	driver := nrfepd.NewDriver(h.adapter, found.Address.String(), h.logf)
 	driver.Attempts = h.attempts
-	err := driver.PushWithRetry(ctx, page)
+	err := driver.PushWithRetry(ctx, found, page)
 	return written, rendered, err
 }
 

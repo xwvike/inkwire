@@ -16,20 +16,13 @@ Schema驱动的电子纸标签渲染器。
 | 命令 | 用途 |
 |---|---|
 | `inkwire render [-o out.png] <scene.json>` | PNG 预览 |
-| `inkwire encode -profile-id 0x0033 [-o out.bin] <scene.json>` | 设备 payload，仅 Gicisky |
 | `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] <scene.json>` | 渲染并写入 |
 | `inkwire scan [-timeout 15s]` | 列出标签 |
 | `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 时钟与模式 |
 | `inkwire serve [-listen ADDR] [-device NAME] [-assets DIR]` | HTTP 服务 |
-| `inkwire push-payload <NAME> <payload.bin>` | 写入原始 payload |
 | `inkwire schema [-lang en\|zh]` | 打印 Scene Schema 参考 |
 | `inkwire help` | 本列表；也可用 `-h`、`--help` |
 | `inkwire version` | 发布 tag，源码构建则给出提交号；也可用 `-v`、`--version` |
-
-`inkwire encode` 是离线的 Gicisky 开发工具。它按你指定的 `-profile-id`
-渲染场景，写出该型号的 payload 到 `.bin` 文件。这个 id 是必填的：encode
-不连接任何设备，没有标签可问这个场景是给哪块面板的。写入用
-`inkwire push-payload`，它会自己问标签。
 
 所有写入标签的命令都先找到它，再按找到的面板渲染。为别的尺寸写的场景会
 按实际面板重新排版，差异以警告报出，而不是拒绝写入。
@@ -50,7 +43,6 @@ inkwire push -device NEMR92943861 page.json
 |---|---|
 | `-device` | 广播名（`NAME` 列）或 BLE 地址。所有写入标签的命令都必填：写给哪一块不是靠推断的 |
 | `-family` | 通常不需要：家族由广播判定。给了就照办并核对，目标若属于另一个家族则指名拒绝 |
-| `-profile-id` | `inkwire scan` 输出的 Gicisky 型号 id。`encode` 必填；`push-payload` 会自己问标签，只有遇到本版本不认识的型号才需要给 |
 | `-timeout` | 一个监听窗口，两个家族都从这一趟里出来 |
 | `-settle` | `REFRESH` 后保持连接的时长，见[刷新](#刷新) |
 

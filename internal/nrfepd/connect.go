@@ -14,8 +14,8 @@ import (
 //
 // The page is asked for rather than passed in, because until this has connected
 // nobody knows what panel is on the other end. See PageFor.
-func (d *Driver) Push(ctx context.Context, page PageFor) error {
-	return d.converse(ctx, func(link transport) error {
+func (d *Driver) Push(ctx context.Context, found FoundDevice, page PageFor) error {
+	return d.converse(ctx, found, func(link transport) error {
 		return Session(ctx, link, page, d.Timings, d.Logf)
 	})
 }
@@ -26,19 +26,20 @@ func (d *Driver) Push(ctx context.Context, page PageFor) error {
 // It is here because Push takes this away: the refresh that ends every page
 // puts the tag into picture mode. Without a way back, this program would only
 // ever subtract from what the tag could do before it arrived.
-func (d *Driver) SetMode(ctx context.Context, when time.Time, mode Mode, weekStart *time.Weekday) error {
-	return d.converse(ctx, func(link transport) error {
+func (d *Driver) SetMode(ctx context.Context, found FoundDevice, when time.Time, mode Mode, weekStart *time.Weekday) error {
+	return d.converse(ctx, found, func(link transport) error {
 		return ModeSession(ctx, link, when, mode, weekStart, d.Timings, d.Logf)
 	})
 }
 
-// converse finds the tag, opens the one characteristic that carries both
-// directions, and hands it to whatever wants to talk over it.
-func (d *Driver) converse(ctx context.Context, talk func(transport) error) error {
-	found, err := d.Find(ctx)
-	if err != nil {
-		return err
-	}
+// converse opens the one characteristic that carries both directions and hands
+// it to whatever wants to talk over it.
+//
+// The tag is passed in rather than looked for. Whoever called this has already
+// scanned — that is how they know which family it belongs to — and scanning
+// again would spend a second window rediscovering the answer they arrived
+// with.
+func (d *Driver) converse(ctx context.Context, found FoundDevice, talk func(transport) error) error {
 	d.logf("connecting to %s (%s)", found.Name, found.Address.String())
 
 	return ble.Connect(d.Adapter, found.Address, ble.Service{
@@ -75,8 +76,8 @@ func (d *Driver) logFirmwareVersion(characteristics []bluetooth.DeviceCharacteri
 	d.logf("firmware version 0x%02x", value[0])
 }
 
-func (d *Driver) PushWithRetry(ctx context.Context, page PageFor) error {
-	return d.retrying(ctx, func() error { return d.Push(ctx, page) })
+func (d *Driver) PushWithRetry(ctx context.Context, found FoundDevice, page PageFor) error {
+	return d.retrying(ctx, func() error { return d.Push(ctx, found, page) })
 }
 
 // SetModeWithRetry is SetMode, given the same second chance as a push.
@@ -84,8 +85,8 @@ func (d *Driver) PushWithRetry(ctx context.Context, page PageFor) error {
 // The time is asked for once per attempt rather than passed in, because a
 // retry that set the tag to the time the first attempt was made would put the
 // clock out by however long the failures took.
-func (d *Driver) SetModeWithRetry(ctx context.Context, now func() time.Time, mode Mode, weekStart *time.Weekday) error {
-	return d.retrying(ctx, func() error { return d.SetMode(ctx, now(), mode, weekStart) })
+func (d *Driver) SetModeWithRetry(ctx context.Context, found FoundDevice, now func() time.Time, mode Mode, weekStart *time.Weekday) error {
+	return d.retrying(ctx, func() error { return d.SetMode(ctx, found, now(), mode, weekStart) })
 }
 
 // bleTransport carries the session over one characteristic, which is both

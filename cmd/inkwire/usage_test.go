@@ -75,7 +75,7 @@ func TestAnUnknownOptionIsRefusedRatherThanOpened(t *testing.T) {
 // learn that it wants a scene document. Each command has a line saying the
 // whole shape, and this is what checks that -h is given that line.
 func TestEveryCommandAnswersHelpWithItsOwnUsage(t *testing.T) {
-	commands := []string{"push-payload"}
+	commands := []string{"render", "scan"}
 	for command := range flagSets(t) {
 		commands = append(commands, command)
 	}
@@ -107,7 +107,7 @@ func TestEveryCommandAnswersHelpWithItsOwnUsage(t *testing.T) {
 // for -h.
 func TestHelpAndTheArgumentErrorAgree(t *testing.T) {
 	// Commands that refuse an empty invocation, with what they refuse it over.
-	for _, command := range []string{"render", "encode", "push", "push-payload"} {
+	for _, command := range []string{"render", "push"} {
 		var help, ignored bytes.Buffer
 		run([]string{command, "-h"}, &help, &ignored)
 

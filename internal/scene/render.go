@@ -39,14 +39,6 @@ func (d Decoder) RenderFile(path string) (Result, error) {
 	return Render(document)
 }
 
-func (d Decoder) RenderFileForSize(path string, size image.Point) (Result, error) {
-	document, err := d.DecodeFile(path)
-	if err != nil {
-		return Result{}, err
-	}
-	return RenderForSize(document, size)
-}
-
 func Render(document compose.Document) (Result, error) {
 	return render(document)
 }

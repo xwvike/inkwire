@@ -15,8 +15,8 @@ import (
 // size, or it can use an ink the panel cannot show. Encoding is what notices
 // either, which is why examples that write to nothing still encode.
 //
-// The id is the one `inkwire scan` prints and `inkwire encode -profile-id`
-// takes, so a failure names the model rather than a byte count.
+// The id is the one `inkwire scan` prints under MODEL, so a failure names the
+// model rather than a byte count.
 func AssertEncodesFor(t *testing.T, id uint16, frame *display.Frame, orientation display.Orientation) []byte {
 	t.Helper()
 	profile, known := gicisky.LookupProfile(id, 0)

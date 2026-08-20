@@ -50,7 +50,7 @@ func TestBothReadmesDocumentEveryCommandAndFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 	commands := regexp.MustCompile(`case "([\w-]+)":\n\s*return run`).FindAllStringSubmatch(string(source), -1)
-	if len(commands) < 7 {
+	if len(commands) < 6 {
 		t.Fatalf("found %d subcommands, which cannot be right", len(commands))
 	}
 	sets := flagSets(t)

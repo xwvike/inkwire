@@ -160,45 +160,27 @@ func TestATagStillPoweringUpIsListed(t *testing.T) {
 	}
 }
 
-// The two scans stop on different questions, and getting that wrong is not
-// visible in a payload or a picture — only in how long a write takes, or in a
-// write to a tag whose panel was never established.
-//
-// Identify must not stop on the named packet. The name says which tag; the
-// model is in a packet that has no name in it, so stopping at the first match
-// would leave the panel unknown and the page unrenderable.
-func TestIdentifyWaitsForBothHalvesAndFindDoesNot(t *testing.T) {
+// The name and the model arrive in different packets, and merging them is what
+// makes a scan able to say which tag it is looking at and what panel it has.
+// Deciding when that pair is complete moved to internal/tag, which is where a
+// scan is now stopped; see TestAScanOnlyStopsForAMatchItCanUse.
+func TestBothHalvesLandOnOneEntry(t *testing.T) {
 	const target = "NEMRAABBCCDD"
-	findStop, identifyStop := matchedBy(target), identifiedBy(target)
-
 	set := newDeviceSet()
-	if findStop(set) || identifyStop(set) {
-		t.Fatal("an empty scan satisfied something")
-	}
-
-	// A different tag's packets must not satisfy either question.
-	set.observe(at(t, 0x02), "NEMR000000FF", -60, advertisement(t, otherRaw), true)
-	if findStop(set) || identifyStop(set) {
-		t.Fatal("somebody else's tag satisfied a question about ours")
-	}
-
-	// Our tag, named, with no manufacturer data yet.
+	// Named, with no manufacturer data yet.
 	set.observe(at(t, 0x01), target, -50, Advertisement{}, false)
-	if !findStop(set) {
-		t.Error("find should stop here: the tag it was asked for has answered")
-	}
-	if identifyStop(set) {
-		t.Fatal("identify stopped before the panel was known; the name packet carries no model")
-	}
-
-	// The identifying packet, which carries no name of its own.
+	// Then the identifying packet, which carries no name of its own.
 	set.observe(at(t, 0x01), "", -47, advertisement(t, oursRaw), true)
-	if !identifyStop(set) {
-		t.Fatal("identify did not stop once both halves had arrived")
+
+	devices := set.sorted()
+	if len(devices) != 1 {
+		t.Fatalf("one tag produced %d entries", len(devices))
 	}
-	device, _ := set.match(target)
-	if !device.Identified || device.Profile.Width != 296 {
-		t.Errorf("profile = %+v, want the 2.9 inch panel", device.Profile)
+	if devices[0].Name != target {
+		t.Errorf("name = %q; the nameless packet erased what the named one taught", devices[0].Name)
+	}
+	if !devices[0].Identified || devices[0].Profile.Width != 296 {
+		t.Errorf("profile = %+v, want the 2.9 inch panel", devices[0].Profile)
 	}
 }
 

@@ -21,7 +21,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
-	"strconv"
 	"strings"
 	"time"
 
@@ -59,14 +58,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "render":
 		return runRender(args[1:], stdout, stderr)
-	case "encode":
-		return runEncode(args[1:], stdout, stderr)
 	case "scan":
 		return runScan(ctx, args[1:], logger, stdout, stderr)
 	case "push":
 		return runPushScene(ctx, args[1:], logger, stdout, stderr)
-	case "push-payload":
-		return runPushPayload(ctx, args[1:], logger, stdout, stderr)
 	case "mode":
 		return runMode(ctx, args[1:], logger, stdout, stderr)
 	case "serve":
@@ -74,16 +69,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "schema":
 		return runSchema(args[1:], stdout, stderr)
 	default:
-		// Preserve the original raw-payload invocation while the JSON commands
-		// become the normal user-facing path. A leading dash is never a file
-		// somebody meant to send, though, and treating one as a payload path is
-		// how `inkwire --help` used to answer that it could not open --help.
+		// Every invocation names a command. There used to be a bare form that
+		// took a file path and wrote it to a tag, which is how `inkwire
+		// --help` once answered that it could not open a file called --help.
 		if strings.HasPrefix(args[0], "-") {
 			fmt.Fprintf(stderr, "unknown option %q\n", args[0])
-			printUsage(stderr)
-			return 2
+		} else {
+			fmt.Fprintf(stderr, "unknown command %q\n", args[0])
 		}
-		return runPushPayload(ctx, args, logger, stdout, stderr)
+		printUsage(stderr)
+		return 2
 	}
 }
 
@@ -341,65 +336,6 @@ func runRender(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runEncode(args []string, stdout, stderr io.Writer) int {
-	flags := command("encode", "inkwire encode -profile-id 0x0033 [-o payload.bin] <scene.json>", stderr)
-	profileID := flags.String("profile-id", "", "Gicisky profile id from `inkwire scan` (required)")
-	output := flags.String("o", "", "payload output path")
-	if code, ok := parseFlags(flags, args, stdout); !ok {
-		return code
-	}
-	if flags.NArg() != 1 {
-		flags.Usage()
-		return 2
-	}
-	// A panel is not a default. This command connects to nothing, so nothing
-	// can tell it which model the scene is for, and a wrong guess is a file
-	// that looks fine until a tag draws it. It used to assume 0x0033.
-	if *profileID == "" {
-		fmt.Fprintln(stderr, "encode needs -profile-id: it builds a payload for one panel and has no tag to ask.")
-		fmt.Fprintln(stderr, "`inkwire scan` prints the id under MODEL; the 2.9\" BWR tag is 0x0033.")
-		return 2
-	}
-	source := flags.Arg(0)
-	if *output == "" {
-		*output = replaceExtension(source, ".bin")
-	}
-	profile, err := parseGiciskyProfile(*profileID)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	result, err := (scene.Decoder{}).RenderFileForSize(source, image.Pt(profile.Width, profile.Height))
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	payload, err := gicisky.EncodeOriented(result.Frame, result.Orientation, profile)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	if err := os.WriteFile(*output, payload, 0o644); err != nil {
-		fmt.Fprintf(stderr, "write payload: %v\n", err)
-		return 1
-	}
-	printReport(stdout, result)
-	fmt.Fprintf(stdout, "wrote %s (%d bytes)\n", *output, len(payload))
-	return 0
-}
-
-func parseGiciskyProfile(value string) (gicisky.Profile, error) {
-	id, err := strconv.ParseUint(strings.TrimSpace(value), 0, 16)
-	if err != nil {
-		return gicisky.Profile{}, fmt.Errorf("invalid Gicisky profile id %q", value)
-	}
-	profile, known := gicisky.LookupProfile(uint16(id), 0)
-	if !known {
-		return gicisky.Profile{}, fmt.Errorf("unknown Gicisky profile id 0x%04X", uint16(id))
-	}
-	return profile, nil
-}
-
 func runPushScene(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
 	flags := command("push", "inkwire push -device MAC-or-name [-family gicisky|nrfepd] [-settle 30s] <scene.json>", stderr)
 	target := flags.String("device", "", "BLE address or advertised name (required); `inkwire scan` lists them")
@@ -430,8 +366,7 @@ func runPushScene(ctx context.Context, args []string, logger *log.Logger, stdout
 	// of the name somebody typed. One pass of the radio answers both "which
 	// tag" and "whose tag", and -family, if given, is checked against the
 	// answer rather than used in place of it.
-	found, err := tag.LocateWithRetry(ctx, bluetooth.DefaultAdapter, gicisky.DefaultScanTimeout,
-		*target, *family, ble.Retry{Attempts: gicisky.DefaultAttempts, Delay: gicisky.DefaultRetryDelay, Logf: logger.Printf})
+	found, err := locate(ctx, *target, *family, logger)
 	if err != nil {
 		logger.Print(err)
 		return 1
@@ -507,11 +442,20 @@ func runMode(ctx context.Context, args []string, logger *log.Logger, stdout, std
 	if !enableBluetooth(logger) {
 		return 1
 	}
-	driver := nrfepd.NewDriver(bluetooth.DefaultAdapter, *target, logger.Printf)
+	// Asserting the family is how a Gicisky tag gets told what is wrong with
+	// asking it for a clock. It has no mode to set — the whole command is a
+	// property of the other firmware — and "no NRF_EPD tag found" is not what
+	// somebody looking at the tag on their desk needs to hear.
+	found, err := locate(ctx, *target, tag.NRFEPD, logger)
+	if err != nil {
+		logger.Print(err)
+		return 1
+	}
+	driver := nrfepd.NewDriver(bluetooth.DefaultAdapter, found.Address(), logger.Printf)
 	driver.Timings.Settle = *settle
 	// The clock is read per attempt rather than in the flag parsing, so that
 	// what the tag is told is the time the exchange actually happened.
-	if err := driver.SetModeWithRetry(ctx, time.Now, chosen, day); err != nil {
+	if err := driver.SetModeWithRetry(ctx, found.NRFEPD, time.Now, chosen, day); err != nil {
 		logger.Print(err)
 		return 1
 	}
@@ -551,6 +495,15 @@ func parseWeekStart(name string) (*time.Weekday, error) {
 // known once the connection is up, and a page of the wrong size is the failure
 // this family invites: nothing rejects it, the bytes simply land in the panel's
 // RAM meaning something other than what they meant here.
+// locate is how every command that writes to a tag finds it: one pass of the
+// radio, the family taken from what answered, and a stated family checked
+// against that. Commands used to find their own, each in its own way, and the
+// two that did could only report what their own family had failed to see.
+func locate(ctx context.Context, target, family string, logger *log.Logger) (tag.Found, error) {
+	return tag.LocateWithRetry(ctx, bluetooth.DefaultAdapter, gicisky.DefaultScanTimeout, target, family,
+		ble.Retry{Attempts: gicisky.DefaultAttempts, Delay: gicisky.DefaultRetryDelay, Logf: logger.Printf})
+}
+
 func pushNRFEPD(ctx context.Context, found nrfepd.FoundDevice, document compose.Document, settle time.Duration, logger *log.Logger) int {
 	driver := nrfepd.NewDriver(bluetooth.DefaultAdapter, found.Address.String(), logger.Printf)
 	driver.Timings.Settle = settle
@@ -559,7 +512,7 @@ func pushNRFEPD(ctx context.Context, found nrfepd.FoundDevice, document compose.
 	// anything that did not match what it found, which made the callback a
 	// size assertion and left the caller to guess the size it was asserting.
 	var rendered scene.Result
-	err := driver.PushWithRetry(ctx, func(model nrfepd.Model) ([]byte, []byte, error) {
+	err := driver.PushWithRetry(ctx, found, func(model nrfepd.Model) ([]byte, []byte, error) {
 		result, err := scene.RenderForSize(document, image.Pt(model.Width, model.Height))
 		if err != nil {
 			return nil, nil, err
@@ -571,73 +524,6 @@ func pushNRFEPD(ctx context.Context, found nrfepd.FoundDevice, document compose.
 		printReport(logger.Writer(), rendered)
 	}
 	if err != nil {
-		logger.Print(err)
-		return 1
-	}
-	return 0
-}
-
-func runPushPayload(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
-	flags := command("push-payload", "inkwire push-payload [-profile-id 0x0033] <MAC-or-name> <payload.bin>", stderr)
-	profileID := flags.String("profile-id", "",
-		"Gicisky profile id, only for a tag whose advertised model this build does not know")
-	if code, ok := parseFlags(flags, args, stdout); !ok {
-		return code
-	}
-	if flags.NArg() != 2 {
-		flags.Usage()
-		return 2
-	}
-	target, path := flags.Arg(0), flags.Arg(1)
-	var stated gicisky.Profile
-	if *profileID != "" {
-		var err error
-		if stated, err = parseGiciskyProfile(*profileID); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 2
-		}
-	}
-	payload, err := os.ReadFile(path)
-	if err != nil {
-		logger.Printf("read payload: %v", err)
-		return 1
-	}
-	if err := gicisky.ValidatePayload(payload); err != nil {
-		logger.Print(err)
-		return 1
-	}
-	if !enableBluetooth(logger) {
-		return 1
-	}
-	driver := gicisky.NewDriver(bluetooth.DefaultAdapter, target, logger.Printf)
-
-	// The model decides how the payload is announced, and this command is
-	// about to connect to the tag that knows. Being told instead is for the
-	// tag this build cannot identify, which is the only case where asking
-	// cannot answer. It used to assume 0x0033 and say nothing.
-	if *profileID == "" {
-		found, err := driver.FindIdentifiedWithRetry(ctx)
-		if err != nil {
-			logger.Print(err)
-			// Only a tag that answered without naming its panel can be got
-			// past by stating one. A tag that was never found stays not found,
-			// and sending somebody to a flag that cannot help them is worse
-			// than saying nothing.
-			if errors.Is(err, gicisky.ErrNotIdentified) {
-				logger.Print("pass -profile-id to write to it anyway")
-			}
-			return 1
-		}
-		profile := found.Profile
-		logger.Printf("pushing %d bytes to %s (%s %dx%d)", len(payload), target, profile.Model, profile.Width, profile.Height)
-		if err := driver.PushWithRetry(ctx, found, payload, gicisky.UploadOptions{Compression2: profile.Compression2}); err != nil {
-			logger.Print(err)
-			return 1
-		}
-		return 0
-	}
-	logger.Printf("pushing %d bytes to %s (%s %dx%d, stated)", len(payload), target, stated.Model, stated.Width, stated.Height)
-	if err := driver.FindAndPushWithRetry(ctx, payload, gicisky.UploadOptions{Compression2: stated.Compression2}); err != nil {
 		logger.Print(err)
 		return 1
 	}
@@ -710,12 +596,10 @@ func replaceExtension(path, extension string) string {
 
 func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "usage: inkwire render [-o preview.png] <scene.json>")
-	fmt.Fprintln(writer, "       inkwire encode -profile-id 0x0033 [-o payload.bin] <scene.json>")
 	fmt.Fprintln(writer, "       inkwire push -device MAC-or-name [-family gicisky|nrfepd] <scene.json>")
 	fmt.Fprintln(writer, "       inkwire scan [-timeout 15s]")
 	fmt.Fprintln(writer, "       inkwire mode -device MAC-or-name [-mode picture|calendar|clock] [-week-start sunday|monday]")
 	fmt.Fprintln(writer, "       inkwire serve [-listen address] [-device MAC-or-name] [-assets directory]")
-	fmt.Fprintln(writer, "       inkwire push-payload <MAC-or-name> <payload.bin>")
 	fmt.Fprintln(writer, "       inkwire schema [-lang en|zh]")
 	fmt.Fprintln(writer, "       inkwire version")
 }

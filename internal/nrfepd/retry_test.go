@@ -98,7 +98,7 @@ func TestEachModeAttemptReadsTheClockAgain(t *testing.T) {
 	}
 	// The adapter is nil, so every attempt fails before touching a radio; what
 	// is under test is how often the clock is read, not what reaches the tag.
-	_ = driver.SetModeWithRetry(context.Background(), clock, ModePicture, nil)
+	_ = driver.SetModeWithRetry(context.Background(), FoundDevice{}, clock, ModePicture, nil)
 
 	if len(asked) != 3 {
 		t.Fatalf("read the clock %d times over 3 attempts", len(asked))
