@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/xwvike/inkwire/internal/ble"
@@ -87,7 +88,7 @@ func (d *Driver) Find(ctx context.Context) (FoundDevice, error) {
 			return device, nil
 		}
 	}
-	return FoundDevice{}, fmt.Errorf("PICKSMART tag not found (target %s)", d.targetOrDefault())
+	return FoundDevice{}, fmt.Errorf("no Gicisky tag %s is in range", describeTarget(d.Target))
 }
 
 // ScanAll reports every Gicisky tag advertising nearby instead of stopping at
@@ -140,23 +141,20 @@ func (d *Driver) FindIdentifiedWithRetry(ctx context.Context) (FoundDevice, erro
 var ErrNotIdentified = errors.New("the tag did not identify its panel")
 
 func SelectIdentified(devices []FoundDevice, target string) (FoundDevice, error) {
-	if target == "" {
-		target = TargetAddress
-	}
 	for _, device := range devices {
 		if !MatchesTarget(target, device.Name, device.Address.String()) {
 			continue
 		}
 		if !device.HasAdvertised {
-			return FoundDevice{}, fmt.Errorf("PICKSMART tag found (target %s), but no model advertisement was seen: %w", target, ErrNotIdentified)
+			return FoundDevice{}, fmt.Errorf("the Gicisky tag %s sent no model advertisement: %w", describeTarget(target), ErrNotIdentified)
 		}
 		if !device.Identified {
-			return FoundDevice{}, fmt.Errorf("PICKSMART tag found (target %s), but advertised id 0x%04X is not supported: %w",
-				target, device.Advertised.ID, ErrNotIdentified)
+			return FoundDevice{}, fmt.Errorf("the Gicisky tag %s advertised id 0x%04X, which this build does not know: %w",
+				describeTarget(target), device.Advertised.ID, ErrNotIdentified)
 		}
 		return device, nil
 	}
-	return FoundDevice{}, fmt.Errorf("PICKSMART tag not found (target %s)", target)
+	return FoundDevice{}, fmt.Errorf("no Gicisky tag %s is in range", describeTarget(target))
 }
 
 // deviceSet accumulates advertisements into one entry per address.
@@ -248,3 +246,12 @@ func (c *Collector) Observe(result bluetooth.ScanResult) {
 }
 
 func (c *Collector) Devices() []FoundDevice { return c.seen.sorted() }
+
+// describeTarget names what was asked for, in a sentence that still reads when
+// nothing was.
+func describeTarget(target string) string {
+	if target == "" {
+		return "of any name"
+	}
+	return strconv.Quote(target)
+}

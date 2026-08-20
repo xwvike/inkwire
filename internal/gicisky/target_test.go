@@ -4,6 +4,12 @@ import (
 	"testing"
 )
 
+// sampleAddress is a Gicisky MAC to test the matching rules against. It was
+// once a constant in the package — the address this was written against, used
+// as the default target, so anybody else running with no argument addressed
+// hardware they did not have.
+const sampleAddress = "FF:FF:92:94:38:61"
+
 func TestDriverMatchesTarget(t *testing.T) {
 	// A second tag, so that "does this match" can be distinguished from
 	// "does this match anything".
@@ -18,8 +24,8 @@ func TestDriverMatchesTarget(t *testing.T) {
 	}{
 		{
 			name:    "address as advertised on a host that exposes MACs",
-			target:  TargetAddress,
-			address: TargetAddress,
+			target:  sampleAddress,
+			address: sampleAddress,
 			want:    true,
 		},
 		{
@@ -27,7 +33,7 @@ func TestDriverMatchesTarget(t *testing.T) {
 			// is a per-host UUID, so this is the only way a MAC target ever
 			// reaches its tag.
 			name:       "MAC target matches the name that MAC implies",
-			target:     TargetAddress,
+			target:     sampleAddress,
 			deviceName: "NEMR92943861",
 			address:    "e2ada7d1-187a-caea-21e4-d895f8240b62",
 			want:       true,
@@ -54,7 +60,7 @@ func TestDriverMatchesTarget(t *testing.T) {
 			// for a MAC target would send a write to whichever tag happened
 			// to be booting.
 			name:       "MAC target does not match a tag that is still powering up",
-			target:     TargetAddress,
+			target:     sampleAddress,
 			deviceName: TargetName,
 			want:       false,
 		},

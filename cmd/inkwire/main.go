@@ -27,11 +27,13 @@ import (
 
 	"github.com/xwvike/inkwire"
 	"github.com/xwvike/inkwire/internal/ble"
+	"github.com/xwvike/inkwire/internal/compose"
 	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/gicisky"
 	"github.com/xwvike/inkwire/internal/nrfepd"
 	"github.com/xwvike/inkwire/internal/scene"
 	"github.com/xwvike/inkwire/internal/server"
+	"github.com/xwvike/inkwire/internal/tag"
 	"tinygo.org/x/bluetooth"
 )
 
@@ -197,7 +199,7 @@ func runSchema(args []string, stdout, stderr io.Writer) int {
 func runServe(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
 	flags := command("serve", "inkwire serve [-listen 127.0.0.1:8080] [-device MAC-or-name] [-assets directory]", stderr)
 	address := flags.String("listen", "127.0.0.1:8080", "HTTP listen address")
-	target := flags.String("device", gicisky.TargetAddress, "default BLE address or advertised name")
+	target := flags.String("device", "", "default BLE address or advertised name; unset means the one tag in range")
 	assets := flags.String("assets", ".", "directory available to relative image sources")
 	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
@@ -270,7 +272,7 @@ func printDevices(writer io.Writer, devices []gicisky.FoundDevice, others []nrfe
 		// recognise.
 		fmt.Fprintf(writer, "%-38s %-13s %5d %5s  %-8s %-15s %-9s %s\n",
 			device.Address.String(), device.Name, device.RSSI, "-",
-			familyNRFEPD, "ask on connect", "", "not advertised")
+			tag.NRFEPD, "ask on connect", "", "not advertised")
 	}
 	for _, device := range devices {
 		model, size, palette := "unknown", "", ""
@@ -296,7 +298,7 @@ func printDevices(writer io.Writer, devices []gicisky.FoundDevice, others []nrfe
 		}
 		fmt.Fprintf(writer, "%-38s %-13s %5d %5s  %-8s %-15s %-9s %s\n",
 			device.Address.String(), device.Name, device.RSSI, battery,
-			familyGicisky, model, size, palette)
+			tag.Gicisky, model, size, palette)
 	}
 }
 
@@ -399,8 +401,8 @@ func parseGiciskyProfile(value string) (gicisky.Profile, error) {
 }
 
 func runPushScene(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
-	flags := command("push", "inkwire push [-device MAC-or-name] [-family auto|gicisky|nrfepd] [-settle 30s] <scene.json>", stderr)
-	target := flags.String("device", gicisky.TargetAddress, "BLE address or advertised name")
+	flags := command("push", "inkwire push -device MAC-or-name [-family gicisky|nrfepd] [-settle 30s] <scene.json>", stderr)
+	target := flags.String("device", "", "BLE address or advertised name (required); `inkwire scan` lists them")
 	family := flags.String("family", "auto", "tag family: auto, gicisky or nrfepd")
 	settle := flags.Duration("settle", nrfepd.DefaultSettle,
 		"nrfepd only: how long to stay connected while the panel refreshes; leaving early cancels it")
@@ -411,36 +413,43 @@ func runPushScene(ctx context.Context, args []string, logger *log.Logger, stdout
 		flags.Usage()
 		return 2
 	}
-	chosen, err := resolveFamily(*family, *target)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+	if *target == "" {
+		fmt.Fprintln(stderr, "push needs -device: it will not pick a tag for you.")
+		fmt.Fprintln(stderr, "`inkwire scan` lists what is in range, under NAME and ADDRESS.")
 		return 2
 	}
-	*target = targetFor(chosen, *target, wasSet(flags, "device"))
-	if !enableBluetooth(logger) {
-		return 1
-	}
-	if chosen == familyNRFEPD {
-		result, err := (scene.Decoder{}).RenderFile(flags.Arg(0))
-		if err != nil {
-			logger.Print(err)
-			return 1
-		}
-		printReport(logger.Writer(), result)
-		return pushNRFEPD(ctx, *target, result.Frame, *settle, logger)
-	}
-	return pushGiciskyScene(ctx, *target, flags.Arg(0), logger)
-}
-
-func pushGiciskyScene(ctx context.Context, target, path string, logger *log.Logger) int {
-	driver := gicisky.NewDriver(bluetooth.DefaultAdapter, target, logger.Printf)
-	found, err := driver.FindIdentifiedWithRetry(ctx)
+	document, err := (scene.Decoder{}).DecodeFile(flags.Arg(0))
 	if err != nil {
 		logger.Print(err)
 		return 1
 	}
+	if !enableBluetooth(logger) {
+		return 1
+	}
+	// Which family a tag belongs to is discovered, not deduced from the shape
+	// of the name somebody typed. One pass of the radio answers both "which
+	// tag" and "whose tag", and -family, if given, is checked against the
+	// answer rather than used in place of it.
+	found, err := tag.LocateWithRetry(ctx, bluetooth.DefaultAdapter, gicisky.DefaultScanTimeout,
+		*target, *family, ble.Retry{Attempts: gicisky.DefaultAttempts, Delay: gicisky.DefaultRetryDelay, Logf: logger.Printf})
+	if err != nil {
+		logger.Print(err)
+		return 1
+	}
+	logger.Printf("writing to %s", found)
+	if found.Family == tag.NRFEPD {
+		return pushNRFEPD(ctx, found.NRFEPD, document, *settle, logger)
+	}
+	return pushGiciskyScene(ctx, found.Gicisky, document, logger)
+}
+
+func pushGiciskyScene(ctx context.Context, found gicisky.FoundDevice, document compose.Document, logger *log.Logger) int {
+	if !found.Identified {
+		logger.Printf("%s advertised id 0x%04X, which this build does not know", found.Name, found.Advertised.ID)
+		return 1
+	}
 	profile := found.Profile
-	result, err := (scene.Decoder{}).RenderFileForSize(path, image.Pt(profile.Width, profile.Height))
+	result, err := scene.RenderForSize(document, image.Pt(profile.Width, profile.Height))
 	if err != nil {
 		logger.Print(err)
 		return 1
@@ -451,18 +460,14 @@ func pushGiciskyScene(ctx context.Context, target, path string, logger *log.Logg
 		logger.Print(err)
 		return 1
 	}
-	logger.Printf("pushing %d bytes to %s (%s %dx%d)", len(payload), target, profile.Model, profile.Width, profile.Height)
+	logger.Printf("pushing %d bytes (%s %dx%d)", len(payload), profile.Model, profile.Width, profile.Height)
+	driver := gicisky.NewDriver(bluetooth.DefaultAdapter, found.Address.String(), logger.Printf)
 	if err := driver.PushWithRetry(ctx, found, payload, gicisky.UploadOptions{Compression2: profile.Compression2}); err != nil {
 		logger.Print(err)
 		return 1
 	}
 	return 0
 }
-
-const (
-	familyGicisky = "gicisky"
-	familyNRFEPD  = "nrfepd"
-)
 
 // runMode hands an EPD-nRF5 tag back to its own clock or calendar.
 //
@@ -472,13 +477,18 @@ const (
 // involve the vendor's web tool, and a program that can only take a capability
 // away is a bad guest on somebody's hardware.
 func runMode(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
-	flags := command("mode", "inkwire mode [-device MAC-or-name] [-mode picture|calendar|clock] [-week-start sunday|monday] [-settle 30s]", stderr)
-	target := flags.String("device", "", "BLE address or advertised name")
+	flags := command("mode", "inkwire mode -device MAC-or-name [-mode picture|calendar|clock] [-week-start sunday|monday] [-settle 30s]", stderr)
+	target := flags.String("device", "", "BLE address or advertised name (required); `inkwire scan` lists them")
 	mode := flags.String("mode", "calendar", "what the tag draws for itself: picture, calendar or clock")
 	weekStart := flags.String("week-start", "", "first column of a calendar week: sunday or monday; unset leaves the tag's own setting alone")
 	settle := flags.Duration("settle", nrfepd.DefaultSettle, "how long to stay connected while the panel redraws")
 	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
+	}
+	if *target == "" {
+		fmt.Fprintln(stderr, "mode needs -device: it will not pick a tag for you.")
+		fmt.Fprintln(stderr, "`inkwire scan` lists what is in range, under NAME and ADDRESS.")
+		return 2
 	}
 	if flags.NArg() != 0 {
 		flags.Usage()
@@ -534,47 +544,6 @@ func parseWeekStart(name string) (*time.Weekday, error) {
 // EPD-nRF5 tag does say about itself in an advertisement. An address is not,
 // so it keeps the family that has always been the default and leaves -family
 // for saying otherwise.
-// targetFor keeps one family's default from being handed to the other.
-//
-// The default device is a Gicisky address. Given to the EPD-nRF5 driver it
-// matches nothing, and the symptom is three full scans and "no NRF_EPD tag
-// found (target FF:FF:92:94:38:61)" for a tag sitting on the desk — 49 seconds
-// to be told the wrong thing. That family's own default is no target at all,
-// which it reads as the first tag of its kind, and which `inkwire mode` has
-// always used because it never had the other family's default to inherit.
-//
-// A device the caller actually typed is always kept, whatever family it is for.
-func targetFor(family, target string, explicit bool) string {
-	if explicit || family != familyNRFEPD {
-		return target
-	}
-	return ""
-}
-
-// wasSet reports whether a flag was given rather than left at its default,
-// which is the only way to tell "-device FF:FF:92:94:38:61" from silence.
-func wasSet(flags *flag.FlagSet, name string) bool {
-	seen := false
-	flags.Visit(func(f *flag.Flag) {
-		if f.Name == name {
-			seen = true
-		}
-	})
-	return seen
-}
-
-func resolveFamily(requested, target string) (string, error) {
-	switch requested {
-	case familyGicisky, familyNRFEPD:
-		return requested, nil
-	case "auto":
-		if strings.HasPrefix(strings.ToUpper(target), nrfepd.NamePrefix) {
-			return familyNRFEPD, nil
-		}
-		return familyGicisky, nil
-	}
-	return "", fmt.Errorf("unknown family %q: use auto, %s or %s", requested, familyGicisky, familyNRFEPD)
-}
 
 // pushNRFEPD sends a page to a tag that does not say what it is until asked.
 //
@@ -582,17 +551,25 @@ func resolveFamily(requested, target string) (string, error) {
 // known once the connection is up, and a page of the wrong size is the failure
 // this family invites: nothing rejects it, the bytes simply land in the panel's
 // RAM meaning something other than what they meant here.
-func pushNRFEPD(ctx context.Context, target string, frame *display.Frame, settle time.Duration, logger *log.Logger) int {
-	driver := nrfepd.NewDriver(bluetooth.DefaultAdapter, target, logger.Printf)
+func pushNRFEPD(ctx context.Context, found nrfepd.FoundDevice, document compose.Document, settle time.Duration, logger *log.Logger) int {
+	driver := nrfepd.NewDriver(bluetooth.DefaultAdapter, found.Address.String(), logger.Printf)
 	driver.Timings.Settle = settle
+	// The page is built inside the callback because that is the only place the
+	// panel is known. This used to render before connecting and then refuse
+	// anything that did not match what it found, which made the callback a
+	// size assertion and left the caller to guess the size it was asserting.
+	var rendered scene.Result
 	err := driver.PushWithRetry(ctx, func(model nrfepd.Model) ([]byte, []byte, error) {
-		if frame.Width() != model.Width || frame.Height() != model.Height {
-			return nil, nil, fmt.Errorf(
-				"the page is %dx%d and the panel is %s; render it at the panel's size",
-				frame.Width(), frame.Height(), model)
+		result, err := scene.RenderForSize(document, image.Pt(model.Width, model.Height))
+		if err != nil {
+			return nil, nil, err
 		}
-		return display.EncodeNRFEPD(frame, model.Palette != nrfepd.PaletteBW)
+		rendered = result
+		return display.EncodeNRFEPD(result.Frame, model.Palette != nrfepd.PaletteBW)
 	})
+	if rendered.Frame != nil {
+		printReport(logger.Writer(), rendered)
+	}
 	if err != nil {
 		logger.Print(err)
 		return 1
@@ -601,22 +578,17 @@ func pushNRFEPD(ctx context.Context, target string, frame *display.Frame, settle
 }
 
 func runPushPayload(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
-	flags := command("push-payload", "inkwire push-payload [-profile-id 0x0033] [MAC-or-name] <payload.bin>", stderr)
+	flags := command("push-payload", "inkwire push-payload [-profile-id 0x0033] <MAC-or-name> <payload.bin>", stderr)
 	profileID := flags.String("profile-id", "",
 		"Gicisky profile id, only for a tag whose advertised model this build does not know")
 	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
 	}
-	var target, path string
-	switch flags.NArg() {
-	case 1:
-		target, path = gicisky.TargetAddress, flags.Arg(0)
-	case 2:
-		target, path = flags.Arg(0), flags.Arg(1)
-	default:
+	if flags.NArg() != 2 {
 		flags.Usage()
 		return 2
 	}
+	target, path := flags.Arg(0), flags.Arg(1)
 	var stated gicisky.Profile
 	if *profileID != "" {
 		var err error
@@ -739,11 +711,11 @@ func replaceExtension(path, extension string) string {
 func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "usage: inkwire render [-o preview.png] <scene.json>")
 	fmt.Fprintln(writer, "       inkwire encode -profile-id 0x0033 [-o payload.bin] <scene.json>")
-	fmt.Fprintln(writer, "       inkwire push [-device MAC-or-name] [-family auto|gicisky|nrfepd] <scene.json>")
+	fmt.Fprintln(writer, "       inkwire push -device MAC-or-name [-family gicisky|nrfepd] <scene.json>")
 	fmt.Fprintln(writer, "       inkwire scan [-timeout 15s]")
-	fmt.Fprintln(writer, "       inkwire mode [-device MAC-or-name] [-mode picture|calendar|clock] [-week-start sunday|monday]")
+	fmt.Fprintln(writer, "       inkwire mode -device MAC-or-name [-mode picture|calendar|clock] [-week-start sunday|monday]")
 	fmt.Fprintln(writer, "       inkwire serve [-listen address] [-device MAC-or-name] [-assets directory]")
-	fmt.Fprintln(writer, "       inkwire push-payload [MAC-or-name] <payload.bin>")
+	fmt.Fprintln(writer, "       inkwire push-payload <MAC-or-name> <payload.bin>")
 	fmt.Fprintln(writer, "       inkwire schema [-lang en|zh]")
 	fmt.Fprintln(writer, "       inkwire version")
 }

@@ -21,7 +21,25 @@ type FoundDevice struct {
 	RSSI    int16
 }
 
-func looksLikeTag(name string) bool {
+// Advertises reports whether an advertisement belongs to this family.
+//
+// The service UUID is the real evidence and the name is the fallback. A tag
+// puts 62750001-… in its advertisement because that is the service it serves,
+// which is a fact about the firmware rather than a convention; the name is
+// DEVICE_NAME and whoever builds the firmware may set it to anything.
+//
+// Both are accepted because only one tag has been seen here. Trusting the UUID
+// alone would drop any build that advertises the service without listing it,
+// and trusting the name alone is what this used to do — which meant a renamed
+// tag vanished from a scan that could plainly see it.
+func Advertises(result bluetooth.ScanResult) bool {
+	return result.HasServiceUUID(serviceUUID) || LooksLikeName(result.LocalName())
+}
+
+// LooksLikeName reports whether an advertised name follows this firmware's
+// convention. It answers a weaker question than Advertises and is kept for the
+// places that have a name and nothing else, such as a target somebody typed.
+func LooksLikeName(name string) bool {
 	return strings.HasPrefix(strings.ToUpper(name), NamePrefix)
 }
 
@@ -37,13 +55,19 @@ type deviceSet struct{ found map[string]FoundDevice }
 func newDeviceSet() *deviceSet { return &deviceSet{found: make(map[string]FoundDevice)} }
 
 func (s *deviceSet) observe(result bluetooth.ScanResult) {
-	name := result.LocalName()
-	if !looksLikeTag(name) {
+	if !Advertises(result) {
 		return
 	}
-	s.found[result.Address.String()] = FoundDevice{
-		Address: result.Address, Name: name, RSSI: result.RSSI,
+	// A packet that carries the service UUID need not carry the name, so this
+	// merges the way the other family has to: a later nameless packet must not
+	// erase a name an earlier one taught.
+	key := result.Address.String()
+	device := s.found[key]
+	device.Address, device.RSSI = result.Address, result.RSSI
+	if name := result.LocalName(); name != "" {
+		device.Name = name
 	}
+	s.found[key] = device
 }
 
 func (s *deviceSet) match(matches func(name, address string) bool) (FoundDevice, bool) {

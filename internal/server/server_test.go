@@ -24,6 +24,7 @@ import (
 	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/gicisky"
 	"github.com/xwvike/inkwire/internal/nrfepd"
+	"github.com/xwvike/inkwire/internal/tag"
 	"tinygo.org/x/bluetooth"
 )
 
@@ -210,7 +211,7 @@ func TestPushDeadlineReportsTheBluetoothLink(t *testing.T) {
 			<-ctx.Done()
 			return ctx.Err()
 		}})
-	response := request(t, handler, "/v1/display", testScene)
+	response := request(t, handler, "/v1/display?device=NEMR92943861", testScene)
 	if response.Code != http.StatusGatewayTimeout {
 		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusGatewayTimeout, response.Body.String())
 	}
@@ -248,7 +249,7 @@ func TestFailedPushIsReportedSeparatelyFromATimeout(t *testing.T) {
 			return errors.New("tag reported error 0503")
 		},
 	})
-	response := request(t, handler, "/v1/display", testScene)
+	response := request(t, handler, "/v1/display?device=NEMR92943861", testScene)
 	if response.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusBadGateway, response.Body.String())
 	}
@@ -417,7 +418,7 @@ func TestMultipartDisplayPushesUploadedImage(t *testing.T) {
 			return nil
 		},
 	})
-	response := multipartRequest(t, handler, "/v1/display", scene, map[string][]byte{"photo.png": solidPNG(t, color.NRGBA{A: 0xff})})
+	response := multipartRequest(t, handler, "/v1/display?device=NEMR92943861", scene, map[string][]byte{"photo.png": solidPNG(t, color.NRGBA{A: 0xff})})
 	if response.Code != http.StatusOK || len(payload) != display.GiciskyPayloadSize {
 		t.Fatalf("status=%d payload=%d: %s", response.Code, len(payload), response.Body.String())
 	}
@@ -579,6 +580,26 @@ var zeroAddress = func() string { var address bluetooth.Address; return address.
 // because an Address is a CoreBluetooth UUID on macOS and a MAC on Linux: a
 // literal of the wrong kind leaves every test device sharing the zero address,
 // and the test then passes without distinguishing them at all.
+// nrfResult stubs one tag of the other family. A write now has to find the tag
+// before it can address it, so a test that stubs the push must stub the scan.
+func nrfResult(t *testing.T, seed byte, rssi int16, name string) nrfepd.FoundDevice {
+	t.Helper()
+	device := nrfepd.FoundDevice{Name: name, RSSI: rssi}
+	for _, literal := range []string{
+		fmt.Sprintf("0000f00d-0000-1000-8000-00805f9b%04x", uint16(seed)),
+		fmt.Sprintf("AA:BB:CC:DD:EE:%02X", seed),
+	} {
+		device.Address.Set(literal)
+		if device.Address.String() != zeroAddress {
+			break
+		}
+	}
+	if device.Address.String() == zeroAddress {
+		t.Fatal("no address literal this test knows is accepted on this platform")
+	}
+	return device
+}
+
 func scanResult(t *testing.T, seed byte, rssi int16, id uint16, name string) gicisky.FoundDevice {
 	t.Helper()
 	device := gicisky.FoundDevice{Name: name, RSSI: rssi}
@@ -744,6 +765,9 @@ func TestDisplayBuildsAnNRFEPDPageForThePanelItFinds(t *testing.T) {
 	var gotTarget string
 	var black, colour []byte
 	handler := New(Config{Logf: func(string, ...any) {},
+		ScanNRFEPD: func(context.Context) ([]nrfepd.FoundDevice, error) {
+			return []nrfepd.FoundDevice{nrfResult(t, 0x11, -60, "NRF_EPD_C1F8")}, nil
+		},
 		Push: func(context.Context, string, []byte) error {
 			t.Error("the Gicisky driver was used for an EPD-nRF5 target")
 			return nil
@@ -775,59 +799,123 @@ func TestDisplayBuildsAnNRFEPDPageForThePanelItFinds(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Family != familyNRFEPD || body.Bytes != 2*50*300 {
+	if body.Family != tag.NRFEPD || body.Bytes != 2*50*300 {
 		t.Errorf("body reports family %q and %d bytes", body.Family, body.Bytes)
 	}
 }
 
-// A page of the wrong shape is the failure this family invites, and the server
-// is where a caller finds out rather than the panel.
-func TestDisplayRefusesAnNRFEPDPageOfTheWrongSize(t *testing.T) {
+// This family does not say what panel it has until it is connected to, so a
+// page cannot be built before then. It used to be built anyway and refused if
+// the panel turned out to disagree, which made the caller guess a size in
+// order to be allowed to send anything.
+//
+// Now the page is laid out for whatever panel answered, and a scene that
+// stated a different one is told so rather than turned away.
+func TestDisplayLaysAnNRFEPDPageOutForThePanelThatAnswered(t *testing.T) {
+	const statesTwoNineInch = `{"version":1,"size":{"width":296,"height":128},` +
+		`"root":{"type":"absolute","children":[{"bounds":{"x":0,"y":0,"width":20,"height":10},` +
+		`"node":{"type":"rectangle","fill":"red"}}]}}`
+
 	handler := New(Config{Logf: func(string, ...any) {},
+		ScanNRFEPD: func(context.Context) ([]nrfepd.FoundDevice, error) {
+			return []nrfepd.FoundDevice{nrfResult(t, 0x11, -60, "NRF_EPD_C1F8")}, nil
+		},
 		PushPage: func(_ context.Context, _ string, page nrfepd.PageFor) error {
 			model, _ := nrfepd.LookupModelName("UC8176_420_BWR")
 			_, _, err := page(model)
 			return err
 		}})
-	response := request(t, handler, "/v1/display?device=NRF_EPD_C1F8", testScene)
-	if response.Code != http.StatusBadGateway {
-		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusBadGateway, response.Body.String())
+	response := request(t, handler, "/v1/display?device=NRF_EPD_C1F8", statesTwoNineInch)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", response.Code, response.Body.String())
 	}
-	if !strings.Contains(response.Body.String(), "400x300") {
-		t.Errorf("the error does not name the panel's size: %s", response.Body.String())
+	var body struct {
+		Bytes  int `json:"bytes"`
+		Report struct {
+			Warnings []struct{ Path, Code, Message string }
+		} `json:"report"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	// The planes are the panel's, not the scene's: 400x300 over two planes.
+	if want := 2 * 400 * 300 / 8; body.Bytes != want {
+		t.Errorf("wrote %d bytes, want %d for the panel that answered", body.Bytes, want)
+	}
+	var found bool
+	for _, w := range body.Report.Warnings {
+		if w.Code == "size-mismatch" {
+			found = true
+			for _, mention := range []string{"296x128", "400x300"} {
+				if !strings.Contains(w.Message, mention) {
+					t.Errorf("the warning does not mention %s: %s", mention, w.Message)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Errorf("nothing warned that the scene stated another panel: %+v", body.Report.Warnings)
 	}
 }
 
-// An address says nothing about which family it belongs to, so reaching this
-// family by address means saying so. Getting it wrong is not a polite failure.
-func TestDisplayChoosesTheFamilyFromTheNameOrTheQuery(t *testing.T) {
+// Which family a tag belongs to comes from the scan that found it, not from
+// the shape of the name somebody typed. A Gicisky tag called anything at all is
+// still a Gicisky tag, and an address — which is what most targets are — says
+// nothing either way.
+//
+// ?family= is obeyed and then checked against that answer, because writing one
+// family's bytes to the other is not a polite failure.
+func TestDisplayTakesTheFamilyFromTheScanAndChecksWhatWasAsserted(t *testing.T) {
 	tests := []struct {
-		query       string
+		name, query string
 		wantGicisky bool
+		refused     string
 	}{
-		{"?device=NRF_EPD_C1F8", false},
-		{"?device=PICKSMART", true},
-		{"?device=FF:FF:92:94:38:61", true},
-		{"?device=FF:FF:92:94:38:61&family=nrfepd", false},
-		{"?device=NRF_EPD_C1F8&family=gicisky", true},
+		{name: "an EPD-nRF5 tag by name", query: "?device=NRF_EPD_C1F8"},
+		{name: "a Gicisky tag by name", query: "?device=NEMR92943861", wantGicisky: true},
+		{
+			// The name is a Gicisky one but the scan put it in the other
+			// family's list, and the scan is what counts.
+			name: "the scan overrules the name", query: "?device=NRF_EPD_C1F8&family=nrfepd",
+		},
+		{
+			name: "an assertion the tag contradicts", query: "?device=NRF_EPD_C1F8&family=gicisky",
+			refused: "is a nrfepd tag, but the family asked for is gicisky",
+		},
+		{
+			name: "a target nothing answers to", query: "?device=NEMR000000FF",
+			refused: "no tag matching",
+		},
+		{name: "a misspelled family", query: "?device=NEMR92943861&family=nrf", refused: "unknown family"},
 	}
 	for _, test := range tests {
-		usedGicisky, nrf := false, false
-		handler := New(Config{Logf: func(string, ...any) {},
-			Scan: func(context.Context) ([]gicisky.FoundDevice, error) {
-				return []gicisky.FoundDevice{
-					scanResult(t, 0x01, -40, 0x0033, "PICKSMART"),
-					scanResult(t, 0x02, -41, 0x0033, "NEMR92943861"),
-					scanResult(t, 0x03, -42, 0x0033, "NRF_EPD_C1F8"),
-				}, nil
-			},
-			Push:     func(context.Context, string, []byte) error { usedGicisky = true; return nil },
-			PushPage: func(context.Context, string, nrfepd.PageFor) error { nrf = true; return nil }})
-		// A 296x128 scene so the Gicisky route can encode it.
-		request(t, handler, "/v1/display"+test.query, testScene)
-		if usedGicisky != test.wantGicisky || nrf == test.wantGicisky {
-			t.Errorf("%s used gicisky=%v nrfepd=%v", test.query, usedGicisky, nrf)
-		}
+		t.Run(test.name, func(t *testing.T) {
+			usedGicisky, nrf := false, false
+			handler := New(Config{Logf: func(string, ...any) {},
+				Scan: func(context.Context) ([]gicisky.FoundDevice, error) {
+					return []gicisky.FoundDevice{scanResult(t, 0x01, -40, 0x0033, "NEMR92943861")}, nil
+				},
+				ScanNRFEPD: func(context.Context) ([]nrfepd.FoundDevice, error) {
+					return []nrfepd.FoundDevice{nrfResult(t, 0x02, -42, "NRF_EPD_C1F8")}, nil
+				},
+				Push:     func(context.Context, string, []byte) error { usedGicisky = true; return nil },
+				PushPage: func(context.Context, string, nrfepd.PageFor) error { nrf = true; return nil }})
+
+			// A 296x128 scene so the Gicisky route can encode it.
+			response := request(t, handler, "/v1/display"+test.query, testScene)
+			if test.refused != "" {
+				if usedGicisky || nrf {
+					t.Fatalf("a refused request still wrote: gicisky=%v nrfepd=%v", usedGicisky, nrf)
+				}
+				if !strings.Contains(response.Body.String(), test.refused) {
+					t.Fatalf("refusal does not say %q: %s", test.refused, response.Body.String())
+				}
+				return
+			}
+			if usedGicisky != test.wantGicisky || nrf == test.wantGicisky {
+				t.Errorf("used gicisky=%v nrfepd=%v: %s", usedGicisky, nrf, response.Body.String())
+			}
+		})
 	}
 }
 
@@ -868,10 +956,10 @@ func TestDevicesListsBothFamilies(t *testing.T) {
 	for _, device := range body.Devices {
 		byFamily[device.Family] = device
 	}
-	if _, ok := byFamily[familyGicisky]; !ok {
+	if _, ok := byFamily[tag.Gicisky]; !ok {
 		t.Error("no gicisky tag in the listing")
 	}
-	other, ok := byFamily[familyNRFEPD]
+	other, ok := byFamily[tag.NRFEPD]
 	if !ok {
 		t.Fatal("no nrfepd tag in the listing")
 	}
@@ -906,17 +994,21 @@ func TestAStubbedHandlerNeverReachesForTheRadio(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.Devices) != 1 || body.Devices[0].Family != familyGicisky {
+	if len(body.Devices) != 1 || body.Devices[0].Family != tag.Gicisky {
 		t.Errorf("listing = %+v, want only the stubbed family", body.Devices)
 	}
 
-	// And the write path says so outright rather than reaching for a radio it
-	// was told it does not have.
+	// And the write path refuses from what it was given rather than reaching
+	// for a radio it was told it does not have. It is told about one Gicisky
+	// tag, so a request for the other family is answered out of that: nothing
+	// here matches, and here is what does.
 	write := request(t, handler, "/v1/display?device=NRF_EPD_C1F8", testScene)
 	if write.Code != http.StatusBadGateway {
 		t.Fatalf("write status = %d, want %d: %s", write.Code, http.StatusBadGateway, write.Body.String())
 	}
-	if !strings.Contains(write.Body.String(), "PushPage") {
-		t.Errorf("the error does not name the missing hook: %s", write.Body.String())
+	for _, want := range []string{"no tag matching", "NEMR92943861"} {
+		if !strings.Contains(write.Body.String(), want) {
+			t.Errorf("the refusal does not say %q: %s", want, write.Body.String())
+		}
 	}
 }

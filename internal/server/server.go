@@ -21,7 +21,6 @@ import (
 	"log"
 	"mime"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -31,6 +30,7 @@ import (
 	"github.com/xwvike/inkwire/internal/gicisky"
 	"github.com/xwvike/inkwire/internal/nrfepd"
 	"github.com/xwvike/inkwire/internal/scene"
+	"github.com/xwvike/inkwire/internal/tag"
 	"tinygo.org/x/bluetooth"
 )
 
@@ -183,9 +183,6 @@ func New(config Config) *Handler {
 	if config.Adapter == nil {
 		config.Adapter = bluetooth.DefaultAdapter
 	}
-	if config.Target == "" {
-		config.Target = gicisky.TargetAddress
-	}
 	if config.Attempts <= 0 {
 		config.Attempts = DefaultAttempts
 	}
@@ -259,7 +256,7 @@ func (h *Handler) scanBothFamilies(ctx context.Context) ([]Device, error) {
 	for _, device := range others {
 		devices = append(devices, Device{
 			Address: device.Address.String(), Name: device.Name, RSSI: device.RSSI,
-			Family: familyNRFEPD,
+			Family: tag.NRFEPD,
 			// Drivable without being described: this family is written to by
 			// asking it what it is first, so not knowing the panel here is
 			// the normal case rather than the refusal it is for a Gicisky tag.
@@ -270,7 +267,7 @@ func (h *Handler) scanBothFamilies(ctx context.Context) ([]Device, error) {
 }
 
 func describeDevice(found gicisky.FoundDevice) Device {
-	device := Device{Address: found.Address.String(), Name: found.Name, RSSI: found.RSSI, Family: familyGicisky}
+	device := Device{Address: found.Address.String(), Name: found.Name, RSSI: found.RSSI, Family: tag.Gicisky}
 	if found.HasAdvertised {
 		device.ID = fmt.Sprintf("0x%04X", found.Advertised.ID)
 		device.Voltage = found.Advertised.Voltage()
@@ -297,66 +294,48 @@ func describeDevice(found gicisky.FoundDevice) Device {
 // replace the pass's answer for their own family rather than sitting on a
 // second code path, so the radio route is the one route.
 func (h *Handler) scanRadio(ctx context.Context) ([]gicisky.FoundDevice, []nrfepd.FoundDevice, error) {
-	// This family is not reachable without a radio, so a handler holding its
-	// own transport reports none rather than failing the whole listing.
-	wantNRFEPD := h.scanNRFEPD == nil && !h.ownTransport
-	var tags []gicisky.FoundDevice
-	var others []nrfepd.FoundDevice
-	if h.scan == nil || wantNRFEPD {
-		if err := h.enableAdapter(); err != nil {
-			return nil, nil, err
+	// A handler holding its own transport must not reach for a radio, whatever
+	// it was or was not given. Its hooks are the whole of its world, and one
+	// that finds a real tag in the room is a test that passes for the wrong
+	// reason — or, on a machine with a tag nearby, fails for one.
+	if h.ownTransport {
+		if h.scan == nil && h.scanNRFEPD == nil {
+			return nil, nil, errors.New("this handler was given its own transport and no Scan or ScanNRFEPD hook, so it cannot find a tag")
 		}
-		gathered, otherGathered := gicisky.NewCollector(), nrfepd.NewCollector()
-		err := ble.Scan(ctx, h.adapter, h.scanTimeout, func(result bluetooth.ScanResult) {
-			gathered.Observe(result)
-			otherGathered.Observe(result)
-		}, nil)
-		if err != nil {
-			return nil, nil, err
+		var tags []gicisky.FoundDevice
+		var others []nrfepd.FoundDevice
+		if h.scan != nil {
+			found, err := h.scan(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
+			tags = found
 		}
-		tags = gathered.Devices()
-		if wantNRFEPD {
-			others = otherGathered.Devices()
+		if h.scanNRFEPD != nil {
+			found, err := h.scanNRFEPD(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
+			others = found
 		}
+		return tags, others, nil
 	}
-	if h.scan != nil {
-		hooked, err := h.scan(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-		tags = hooked
-	}
-	if h.scanNRFEPD != nil {
-		hooked, err := h.scanNRFEPD(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-		others = hooked
-	}
-	return tags, others, nil
-}
 
-// The two families a target can belong to. They are strings rather than a type
-// because they leave this package as JSON and arrive as a query parameter.
-const (
-	familyGicisky = "gicisky"
-	familyNRFEPD  = "nrfepd"
-)
-
-// resolveFamily decides which driver a request wants, the same way the command
-// line does: a name settles it, an address does not, and saying so outright
-// always wins. Sending one family's bytes to the other does not fail politely.
-func resolveFamily(requested, target string) (string, error) {
-	switch requested {
-	case familyGicisky, familyNRFEPD:
-		return requested, nil
-	case "", "auto":
-		if strings.HasPrefix(strings.ToUpper(target), nrfepd.NamePrefix) {
-			return familyNRFEPD, nil
-		}
-		return familyGicisky, nil
+	// Scanning is promiscuous, so both families arrive on the same pass and are
+	// told apart by a filter rather than by a scan each. Looking for them in
+	// turn cost two windows and gave each family half the listening.
+	if err := h.enableAdapter(); err != nil {
+		return nil, nil, err
 	}
-	return "", fmt.Errorf("unknown family %q: use auto, %s or %s", requested, familyGicisky, familyNRFEPD)
+	gathered, otherGathered := gicisky.NewCollector(), nrfepd.NewCollector()
+	err := ble.Scan(ctx, h.adapter, h.scanTimeout, func(result bluetooth.ScanResult) {
+		gathered.Observe(result)
+		otherGathered.Observe(result)
+	}, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	return gathered.Devices(), otherGathered.Devices(), nil
 }
 
 func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -395,40 +374,61 @@ func (h *Handler) display(writer http.ResponseWriter, request *http.Request) {
 	if target == "" {
 		target = h.target
 	}
-	family, err := resolveFamily(request.URL.Query().Get("family"), target)
-	if err != nil {
+	// Checked before anything is claimed or listened for: a misspelled family
+	// and an unnamed device are bad requests, not device failures.
+	asserted := request.URL.Query().Get("family")
+	if err := tag.ValidateFamily(asserted); err != nil {
 		writeError(writer, http.StatusBadRequest, "invalid-request", err)
 		return
 	}
-	if family == familyGicisky {
-		h.displayGicisky(writer, request, target, document)
+	if target == "" {
+		writeError(writer, http.StatusBadRequest, "invalid-request",
+			errors.New("no device: name one with ?device= or start the service with -device"))
 		return
 	}
 
-	result, err := scene.Render(document)
-	if err != nil {
-		writeError(writer, http.StatusUnprocessableEntity, "invalid-scene", err)
-		return
-	}
 	busy, claimed := h.claim(target)
 	if !claimed {
 		// One adapter can hold one conversation, so a second write is
 		// refused outright instead of queued behind a ten-second upload the
 		// caller cannot see.
-		writeStatusWithReport(writer, http.StatusConflict, "device-busy",
-			fmt.Errorf("device %s is being written", busy.Device), busy, result.Report)
+		writeStatus(writer, http.StatusConflict, "device-busy",
+			fmt.Errorf("device %s is being written", busy.Device), busy)
 		return
 	}
-	timeout := h.pushTimeout
-	if family == familyNRFEPD {
-		timeout = h.nrfepdPushTimeout
+
+	// Which family the target belongs to is discovered, so the listening comes
+	// first and gets its own budget. The write that follows is billed to the
+	// family that answered, which is the only point either budget was measured
+	// against.
+	locateCtx, done := context.WithTimeout(request.Context(), h.scanTimeout+5*time.Second)
+	found, err := h.locate(locateCtx, target, asserted)
+	locateFailed := locateCtx.Err()
+	done()
+	if err != nil {
+		status := h.release(target, 0, err)
+		code, httpStatus := "device-identify-failed", http.StatusBadGateway
+		if errors.Is(locateFailed, context.DeadlineExceeded) {
+			code, httpStatus = "device-timeout", http.StatusGatewayTimeout
+		}
+		writeStatus(writer, httpStatus, code, err, status)
+		return
 	}
-	ctx, cancel := context.WithTimeout(request.Context(), timeout)
+
+	budget := h.pushTimeout
+	if found.Family == tag.NRFEPD {
+		budget = h.nrfepdPushTimeout
+	}
+	ctx, cancel := context.WithTimeout(request.Context(), budget)
 	defer cancel()
 
-	var pushErr error
-	var written int
-	written, pushErr = h.pushPageTo(ctx, target, result.Frame)
+	if found.Family == tag.Gicisky {
+		h.writeGicisky(writer, ctx, target, found.Gicisky, document)
+		return
+	}
+	// The page is built once the panel has said what it is, so there is no
+	// report to answer with until the write has been attempted.
+	written, rendered, pushErr := h.pushPageTo(ctx, target, document)
 	status := h.release(target, written, pushErr)
 	if pushErr != nil {
 		code, httpStatus := "push-failed", http.StatusBadGateway
@@ -438,33 +438,35 @@ func (h *Handler) display(writer http.ResponseWriter, request *http.Request) {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			code, httpStatus = "device-timeout", http.StatusGatewayTimeout
 		}
-		writeStatusWithReport(writer, httpStatus, code, pushErr, status, result.Report)
+		if rendered.Frame == nil {
+			writeStatus(writer, httpStatus, code, pushErr, status)
+			return
+		}
+		writeStatusWithReport(writer, httpStatus, code, pushErr, status, rendered.Report)
 		return
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{
-		"ok": true, "device": target, "family": family, "bytes": written,
-		"status": status, "report": result.Report,
+		"ok": true, "device": target, "family": tag.NRFEPD, "bytes": written,
+		"status": status, "report": rendered.Report,
 	})
 }
 
-func (h *Handler) displayGicisky(writer http.ResponseWriter, request *http.Request, target string, document compose.Document) {
-	busy, claimed := h.claim(target)
-	if !claimed {
-		writeStatus(writer, http.StatusConflict, "device-busy",
-			fmt.Errorf("device %s is being written", busy.Device), busy)
-		return
-	}
-	ctx, cancel := context.WithTimeout(request.Context(), h.pushTimeout)
-	defer cancel()
-
-	found, err := h.findGiciskyDevice(ctx, target)
+// locate works out which tag a request means, from one pass of the radio or
+// from whatever the hooks supply in place of one.
+func (h *Handler) locate(ctx context.Context, target, asserted string) (tag.Found, error) {
+	tags, others, err := h.scanRadio(ctx)
 	if err != nil {
+		return tag.Found{}, err
+	}
+	return tag.Choose(tags, others, target, asserted)
+}
+
+func (h *Handler) writeGicisky(writer http.ResponseWriter, ctx context.Context,
+	target string, found gicisky.FoundDevice, document compose.Document) {
+	if !found.Identified {
+		err := fmt.Errorf("%s advertised id 0x%04X, which this build does not know", target, found.Advertised.ID)
 		status := h.release(target, 0, err)
-		code, httpStatus := "device-identify-failed", http.StatusBadGateway
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			code, httpStatus = "device-timeout", http.StatusGatewayTimeout
-		}
-		writeStatus(writer, httpStatus, code, err, status)
+		writeStatus(writer, http.StatusBadGateway, "device-identify-failed", err, status)
 		return
 	}
 	profile := found.Profile
@@ -492,7 +494,7 @@ func (h *Handler) displayGicisky(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{
-		"ok": true, "device": target, "family": familyGicisky, "bytes": len(payload),
+		"ok": true, "device": target, "family": tag.Gicisky, "bytes": len(payload),
 		"status": status, "report": result.Report,
 	})
 }
@@ -584,14 +586,18 @@ func (h *Handler) pushGiciskyPayload(ctx context.Context, target string, found g
 // The count comes back rather than being known in advance because the page is
 // not encoded until the panel has said what it is. A page whose size does not
 // match is refused here, at the one moment both are known.
-func (h *Handler) pushPageTo(ctx context.Context, target string, frame *display.Frame) (int, error) {
+func (h *Handler) pushPageTo(ctx context.Context, target string, document compose.Document) (int, scene.Result, error) {
 	written := 0
+	var rendered scene.Result
+	// The panel is only known here, inside the callback, which is why the
+	// document rather than a finished frame is carried this far down.
 	page := func(model nrfepd.Model) ([]byte, []byte, error) {
-		if frame.Width() != model.Width || frame.Height() != model.Height {
-			return nil, nil, fmt.Errorf("the page is %dx%d and the panel is %s; render it at the panel's size",
-				frame.Width(), frame.Height(), model)
+		result, err := scene.RenderForSize(document, image.Pt(model.Width, model.Height))
+		if err != nil {
+			return nil, nil, err
 		}
-		black, colour, err := display.EncodeNRFEPD(frame, model.Palette != nrfepd.PaletteBW)
+		rendered = result
+		black, colour, err := display.EncodeNRFEPD(result.Frame, model.Palette != nrfepd.PaletteBW)
 		written = len(black) + len(colour)
 		return black, colour, err
 	}
@@ -599,18 +605,18 @@ func (h *Handler) pushPageTo(ctx context.Context, target string, frame *display.
 		// Called before the count is read: the page builds the planes, so
 		// written means nothing until it has run.
 		err := h.pushPage(ctx, target, page)
-		return written, err
+		return written, rendered, err
 	}
 	if h.ownTransport {
-		return 0, errors.New("this handler was given its own transport and no PushPage hook, so it cannot reach an EPD-nRF5 tag")
+		return 0, rendered, errors.New("this handler was given its own transport and no PushPage hook, so it cannot reach an EPD-nRF5 tag")
 	}
 	if err := h.enableAdapter(); err != nil {
-		return 0, err
+		return 0, rendered, err
 	}
 	driver := nrfepd.NewDriver(h.adapter, target, h.logf)
 	driver.Attempts = h.attempts
 	err := driver.PushWithRetry(ctx, page)
-	return written, err
+	return written, rendered, err
 }
 
 // newDriver is separate so the attempt cap can be checked without a radio.

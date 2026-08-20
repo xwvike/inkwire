@@ -63,11 +63,31 @@ func RenderForSize(document compose.Document, size image.Point) (Result, error) 
 	default:
 		return Result{}, fmt.Errorf("invalid orientation %d", document.Orientation)
 	}
-	if document.Size != (image.Point{}) && document.Size != logical {
-		return Result{}, fmt.Errorf("scene declares size %dx%d but target page is %dx%d", document.Size.X, document.Size.Y, logical.X, logical.Y)
-	}
+	stated := document.Size
 	document.Size = logical
-	return render(document)
+	result, err := render(document)
+	if err != nil {
+		return Result{}, err
+	}
+	// A page written for one panel and sent to another is laid out again for
+	// the panel it reached, and said so rather than refused. Whoever asked for
+	// this has a tag in front of them and a page they want on it; deciding for
+	// them that it cannot be done is the one outcome that helps nobody.
+	//
+	// It is laid out again rather than scaled. The fonts are bitmaps with a
+	// few fixed sizes, so shrinking a finished 400x300 render onto a 296x128
+	// panel turns every word to mush, while laying it out again leaves
+	// anything sized in percentages or fr fitting and anything placed
+	// absolutely clipped at the edge — a loss that can be seen and corrected.
+	if stated != (image.Point{}) && stated != logical {
+		result.Report.Warnings = append(result.Report.Warnings, compose.Warning{
+			Path: "document",
+			Code: "size-mismatch",
+			Message: fmt.Sprintf("scene declares %dx%d and the panel is %dx%d, so it was laid out again for the panel; anything placed beyond it is clipped",
+				stated.X, stated.Y, logical.X, logical.Y),
+		})
+	}
+	return result, nil
 }
 
 func render(document compose.Document) (Result, error) {

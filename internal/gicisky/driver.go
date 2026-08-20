@@ -24,10 +24,6 @@ import (
 )
 
 const (
-	// TargetAddress is the tag this build was developed against, kept as the
-	// default so a single-tag setup needs no arguments. Any other tag is
-	// reached with -device.
-	TargetAddress = "FF:FF:92:94:38:61"
 	// TargetName is advertised by every tag while it powers up, before it
 	// settles on its own NEMR name. It identifies the product, not a tag.
 	TargetName = "PICKSMART"
@@ -62,9 +58,6 @@ type Driver struct {
 }
 
 func NewDriver(adapter *bluetooth.Adapter, target string, logf func(string, ...any)) *Driver {
-	if target == "" {
-		target = TargetAddress
-	}
 	return &Driver{
 		Adapter:     adapter,
 		Target:      target,
@@ -88,13 +81,6 @@ func (d *Driver) retrying(ctx context.Context, what string, attempt func() error
 		delay = DefaultRetryDelay
 	}
 	return ble.Retry{Attempts: attempts, Delay: delay, Logf: d.Logf}.Do(ctx, what, attempt)
-}
-
-func (d *Driver) targetOrDefault() string {
-	if d.Target == "" {
-		return TargetAddress
-	}
-	return d.Target
 }
 
 // macHexDigits is the length of a MAC in hex digits once separators are gone.

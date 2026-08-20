@@ -212,7 +212,7 @@ func TestSelectIdentifiedRequiresAMatchedKnownAdvertisement(t *testing.T) {
 		Profile:       knownProfile,
 		Identified:    true,
 	}
-	selected, err := SelectIdentified([]FoundDevice{known}, TargetAddress)
+	selected, err := SelectIdentified([]FoundDevice{known}, sampleAddress)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestSelectIdentifiedRequiresAMatchedKnownAdvertisement(t *testing.T) {
 	unknown := known
 	unknown.Advertised.ID = 0x3FFE
 	unknown.Identified = false
-	_, err = SelectIdentified([]FoundDevice{unknown}, TargetAddress)
+	_, err = SelectIdentified([]FoundDevice{unknown}, sampleAddress)
 	if err == nil || !strings.Contains(err.Error(), "0x3FFE") {
 		t.Fatalf("unknown profile error = %v", err)
 	}

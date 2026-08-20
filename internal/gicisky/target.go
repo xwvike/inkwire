@@ -4,9 +4,15 @@ import (
 	"strings"
 )
 
+// MatchesTarget decides whether a device answers to the target given. An empty
+// target takes any tag of this family, which is what a single-tag setup wants.
+//
+// It used to mean one particular address — the tag this was written against —
+// so anybody else running this with no argument was addressing hardware they
+// did not have.
 func MatchesTarget(target, name, address string) bool {
 	if target == "" {
-		target = TargetAddress
+		return looksLikeTag(name)
 	}
 	if strings.EqualFold(name, target) || strings.EqualFold(address, target) {
 		return true

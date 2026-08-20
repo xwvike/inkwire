@@ -94,14 +94,22 @@ func (d *Driver) logf(format string, args ...any) {
 	}
 }
 
-// matches decides whether a scan result is the tag that was asked for. An empty
-// target takes the first tag of this family, which is what a single-tag setup
-// wants; anything else is matched by name or by address.
 func (d *Driver) matches(name, address string) bool {
-	if d.Target == "" {
-		return looksLikeTag(name)
+	return MatchesTarget(d.Target, name, address)
+}
+
+// MatchesTarget decides whether a device answers to the target given. An empty
+// target takes any tag of this family, which is what a single-tag setup wants;
+// anything else is matched by name or by address.
+//
+// Unlike the other family there is nothing to derive: this firmware's name
+// carries the last two bytes of the address rather than the whole of it, so a
+// full address cannot be turned into the name it implies.
+func MatchesTarget(target, name, address string) bool {
+	if target == "" {
+		return LooksLikeName(name)
 	}
-	return strings.EqualFold(name, d.Target) || strings.EqualFold(address, d.Target)
+	return strings.EqualFold(name, target) || strings.EqualFold(address, target)
 }
 
 // retrying runs an attempt until one succeeds or they run out.

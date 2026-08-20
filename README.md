@@ -20,11 +20,11 @@ second download.
 |---|---|
 | `inkwire render [-o out.png] <scene.json>` | PNG preview |
 | `inkwire encode -profile-id 0x0033 [-o out.bin] <scene.json>` | Device payload, Gicisky only |
-| `inkwire push [-device NAME] [-family auto\|gicisky\|nrfepd] [-settle 30s] <scene.json>` | Render and write |
+| `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] <scene.json>` | Render and write |
 | `inkwire scan [-timeout 15s]` | List tags |
-| `inkwire mode [-device NAME] [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 clock and mode |
+| `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 clock and mode |
 | `inkwire serve [-listen ADDR] [-device NAME] [-assets DIR]` | HTTP service |
-| `inkwire push-payload [NAME] <payload.bin>` | Write a raw payload |
+| `inkwire push-payload <NAME> <payload.bin>` | Write a raw payload |
 | `inkwire schema [-lang en\|zh]` | Print the Scene Schema reference |
 | `inkwire help` | This list; also `-h`, `--help` |
 | `inkwire version` | Release tag, or the commit a source build came from; also `-v`, `--version` |
@@ -34,6 +34,10 @@ for the `-profile-id` you name and writes that model's payload to a `.bin`
 file. The id is required: encode connects to nothing, so there is no tag to
 ask which panel the scene is for. `inkwire push-payload` sends the result and
 asks the tag itself.
+
+Everything that writes to a tag finds it first, and takes the panel from what
+it finds. A scene laid out for another size is laid out again for the panel
+that answered, and the difference is reported rather than refused.
 
 ```
 $ inkwire scan
@@ -49,8 +53,8 @@ inkwire push -device NEMR92943861 page.json
 
 | Flag | Notes |
 |---|---|
-| `-device` | Advertised name (`NAME` column) or BLE address. Defaults to `FF:FF:92:94:38:61` for gicisky and to the first tag found for nrfepd |
-| `-family` | `auto` maps `NRF_EPD*` → nrfepd, else gicisky. An address carries no family |
+| `-device` | Advertised name (`NAME` column) or BLE address. Required by everything that writes: which tag is not something to work out |
+| `-family` | Rarely needed: the family comes from the advertisement. Given, it is obeyed and checked, and a target that turns out to be the other family is refused by name |
 | `-profile-id` | Gicisky model id from `inkwire scan`. Required by `encode`. `push-payload` asks the tag and only needs it for a model this build does not know |
 | `-timeout` | One listening window; both families come out of it |
 | `-settle` | Connection held open after `REFRESH`. See [Refresh](#refresh) |
