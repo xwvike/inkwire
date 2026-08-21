@@ -131,3 +131,22 @@ func TestBuildVersionAlwaysSaysSomething(t *testing.T) {
 		t.Error("buildVersion is empty")
 	}
 }
+
+// A flag description may name the argument's type by backquoting one word in
+// it, and the flag package takes the first one it finds. Anything else that
+// happens to be backquoted stays literal, so a description with two of them
+// prints one as the type name and the other with its quotes still on.
+//
+// -device did this once, rendering as `-device inkwire scan`, and -panel did
+// it again with an example for its type. Both were only visible by running -h
+// and reading it, which is not something a test was doing.
+func TestNoFlagDescriptionCarriesAStrayBackquote(t *testing.T) {
+	for command := range flagSets(t) {
+		var out, errOut bytes.Buffer
+		run([]string{command, "-h"}, &out, &errOut)
+		help := out.String() + errOut.String()
+		if strings.Contains(help, "`") {
+			t.Errorf("%s -h prints a backquote, so a description has more than one:\n%s", command, help)
+		}
+	}
+}

@@ -300,7 +300,7 @@ func runRender(args []string, stdout, stderr io.Writer) int {
 	flags := command("render", "inkwire render [-o preview.png] [-size WxH | -panel family:id] <scene.json>", stderr)
 	output := flags.String("o", "", "PNG output path")
 	size := flags.String("size", "", "lay the scene out at this size instead of the one it declares, as `WxH`")
-	target := flags.String("panel", "", "lay the scene out for a named panel and check its inks, as `gicisky:0x0033` or `nrfepd:UC8176_420_BWR`")
+	target := flags.String("panel", "", "lay the scene out for a named `family:id` panel and check its inks, such as gicisky:0x0033 or nrfepd:UC8176_420_BWR")
 	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
 	}
