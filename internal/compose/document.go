@@ -82,18 +82,9 @@ func (d *CompiledDocument) Render() (*display.Frame, error) {
 	if d == nil || d.List == nil {
 		return nil, fmt.Errorf("compiled document must not be nil")
 	}
-	native, err := display.NewPage(d.Orientation, d.Background)
+	frame, err := display.NewFrame(d.Size.X, d.Size.Y, d.Background)
 	if err != nil {
 		return nil, err
-	}
-	var frame *display.Frame
-	if native.Bounds().Size() == d.Size {
-		frame = native
-	} else {
-		frame, err = display.NewFrame(d.Size.X, d.Size.Y, d.Background)
-		if err != nil {
-			return nil, err
-		}
 	}
 	if err := d.List.Replay(display.NewCanvas(frame)); err != nil {
 		return nil, err
@@ -131,16 +122,20 @@ func (c *Compiler) Compile(document Document) (*CompiledDocument, Report, error)
 	if document.Background != nil {
 		background = *document.Background
 	}
-	var page *display.Frame
-	var err error
-	if document.Size != (image.Point{}) {
-		if !validSize(document.Size) || document.Size.X == 0 || document.Size.Y == 0 {
-			return nil, Report{}, fmt.Errorf("document size must be positive, got %v", document.Size)
-		}
-		page, err = display.NewFrame(document.Size.X, document.Size.Y, background)
-	} else {
-		page, err = display.NewPage(document.Orientation, background)
+	// The compiler lays out for a page and will not invent one. It used to
+	// fall back to a size that was one family's 2.9" panel, written into the
+	// display layer under a constant named after that family — so a document
+	// that said nothing got somebody else's tag, and said nothing about it.
+	if !document.Orientation.Valid() {
+		return nil, Report{}, fmt.Errorf("invalid orientation %d", document.Orientation)
 	}
+	if document.Size == (image.Point{}) {
+		return nil, Report{}, fmt.Errorf("document has no size, and there is no default page to lay it out on")
+	}
+	if !validSize(document.Size) || document.Size.X <= 0 || document.Size.Y <= 0 {
+		return nil, Report{}, fmt.Errorf("document size must be positive, got %v", document.Size)
+	}
+	page, err := display.NewFrame(document.Size.X, document.Size.Y, background)
 	if err != nil {
 		return nil, Report{}, err
 	}

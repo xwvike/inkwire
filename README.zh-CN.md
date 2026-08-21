@@ -65,7 +65,16 @@ wrote preview.png (296x128)
 | `-size` | 场景自己的 `size` | 改按 `WxH` 排版 |
 | `-panel` | 未设置 | 按指定面板排版，并检查它的墨水 |
 
-场景没有声明 `size` 时按 296x128 渲染。`-size` 覆盖它，不查任何面板表：
+场景要么自己说多大，要么由别人替它说。**没有默认页面尺寸**了——以前有一个，
+是某家族的 2.9" 面板，写死在 display 层里，于是一个什么都没说的场景拿到的是
+别人桌上那块标签的尺寸，而且从来没人告诉它。
+
+```
+$ inkwire render page.json
+this scene states no size: give the document a size, or render with -size WxH or -panel family:id
+```
+
+`-size` 直接说明尺寸，不查任何面板表：
 
 ```bash
 inkwire render -size 400x300 page.json
@@ -458,6 +467,7 @@ inkwire render -o output/dashboard.png scenes/dashboard/page.json
 ```json
 {
   "version": 1,
+  "size": {"width": 296, "height": 128},
   "root": {
     "type": "image",
     "source": "portrait",

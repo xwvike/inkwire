@@ -18,8 +18,17 @@ func testCompiler(t *testing.T) *Compiler {
 	return compiler
 }
 
+// testPage is the size these tests lay out on when they are not about the page
+// size. The compiler will not invent one — that used to be a default named
+// after one family's 2.9" panel — so something has to say, and for a test about
+// layout it may as well be the helper.
+var testPage = image.Pt(296, 128)
+
 func compileAndRender(t *testing.T, document Document) (*display.Frame, Report) {
 	t.Helper()
+	if document.Size == (image.Point{}) {
+		document.Size = testPage
+	}
 	compiled, report, err := testCompiler(t).Compile(document)
 	if err != nil {
 		t.Fatal(err)
@@ -52,6 +61,7 @@ func TestDocumentPaintsOnlyExplicitContent(t *testing.T) {
 func TestCompiledDocumentKeepsOrientationAndBackground(t *testing.T) {
 	compiled, _, err := testCompiler(t).Compile(Document{
 		Orientation: display.OrientationPortraitClockwise,
+		Size:        image.Pt(128, 296),
 		Background:  Ink(display.InkRed),
 	})
 	if err != nil {
@@ -264,7 +274,7 @@ func TestAllPrimitiveNodesCompileAndPaint(t *testing.T) {
 
 func TestCompilerRejectsAmbiguousImageModesAndReportsPaths(t *testing.T) {
 	source := image.NewNRGBA(image.Rect(0, 0, 1, 1))
-	_, _, err := testCompiler(t).Compile(Document{Root: Absolute{Children: []Placed{
+	_, _, err := testCompiler(t).Compile(Document{Size: testPage, Root: Absolute{Children: []Placed{
 		{Bounds: image.Rect(0, 0, 1, 1), Node: Image{
 			Source: source, Processing: ImageAuto,
 			Options: display.ImageOptions{DisableRed: true},
@@ -312,7 +322,7 @@ func TestClippedTextIsReported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	document := Document{Root: Absolute{Children: []Placed{{
+	document := Document{Size: testPage, Root: Absolute{Children: []Placed{{
 		// Ten characters of Monaco 12 need seventy pixels.
 		Bounds: image.Rect(0, 0, 40, 15),
 		Node: Text{Runs: []display.TextRun{{
@@ -347,7 +357,7 @@ func TestTextThatFitsIsNotReported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	document := Document{Root: Absolute{Children: []Placed{{
+	document := Document{Size: testPage, Root: Absolute{Children: []Placed{{
 		Bounds: image.Rect(0, 0, 200, 15),
 		Node: Text{Runs: []display.TextRun{{
 			Text:  "3260/3720G",

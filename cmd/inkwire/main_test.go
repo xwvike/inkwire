@@ -18,6 +18,7 @@ func TestRenderWritesAPreview(t *testing.T) {
 	scenePath := filepath.Join(directory, "page.json")
 	scene := `{
 		"version":1,
+		"size":{"width":296,"height":128},
 		"root":{"type":"absolute","children":[
 			{"bounds":{"x":0,"y":0,"width":30,"height":20},"node":{"type":"rectangle","fill":"red"}},
 			{"bounds":{"x":2,"y":2,"width":26,"height":14},"node":{"type":"text","runs":[{"text":"API","font":"monaco","size":10,"ink":"black"}]}}
@@ -195,6 +196,33 @@ func TestAMistypedPanelOrSizeExitsAsAUsageError(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		if code := run(args, &stdout, &stderr); code != 2 {
 			t.Errorf("%v = %d, want 2; stderr = %s", args[1:], code, stderr.String())
+		}
+	}
+}
+
+// There is no default page size any more. There was one, and it was one
+// family's 2.9" panel written into the display layer, so a scene that said
+// nothing got somebody else's tag and was never told. Saying nothing is now a
+// usage error that names all three ways to say something.
+func TestASceneWithNoSizeIsRefusedAndSaysHowToFixIt(t *testing.T) {
+	_, scenePath := writeScene(t, redPage)
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"render", scenePath}, &stdout, &stderr); code != 2 {
+		t.Fatalf("render code = %d, want 2; stderr = %s", code, stderr.String())
+	}
+	for _, wanted := range []string{"states no size", "-size", "-panel"} {
+		if !strings.Contains(stderr.String(), wanted) {
+			t.Errorf("stderr = %q, want it to mention %q", stderr.String(), wanted)
+		}
+	}
+	// Any one of the three is enough.
+	for _, args := range [][]string{
+		{"render", "-size", "296x128", scenePath},
+		{"render", "-panel", "gicisky:0x0033", scenePath},
+	} {
+		var out, errOut bytes.Buffer
+		if code := run(args, &out, &errOut); code != 0 {
+			t.Errorf("%v = %d, stderr = %s", args[1:], code, errOut.String())
 		}
 	}
 }

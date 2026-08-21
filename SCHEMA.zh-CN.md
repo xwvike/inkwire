@@ -11,6 +11,7 @@
 {
   "version": 1,
   "orientation": "landscape",
+  "size": {"width": 296, "height": 128},
   "background": "white",
   "root": {
     "type": "absolute",
@@ -58,7 +59,7 @@
 |---|---|---|---|
 | `version` | integer | `1` | 必填 |
 | `orientation` | string | `landscape`、`portraitClockwise`、`portraitCounterClockwise` | `landscape` |
-| `size` | size | 仅预览 | 设备尺寸 |
+| `size` | size | 这一页排版所用的画布 | 必填，除非调用方给了尺寸 |
 | `background` | ink | `white`、`black`、`red`、`yellow` | `white` |
 | `root` | node | | 空 |
 

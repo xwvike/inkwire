@@ -53,7 +53,7 @@ func TestNotesRefusesToBeClipped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	frame, err := display.NewPage(display.OrientationLandscape, display.InkWhite)
+	frame, err := display.NewFrame(panelWidth, panelHeight, display.InkWhite)
 	if err != nil {
 		t.Fatal(err)
 	}

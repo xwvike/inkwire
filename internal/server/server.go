@@ -385,6 +385,13 @@ func (h *Handler) serveRender(writer http.ResponseWriter, request *http.Request)
 	default:
 		result, renderErr = scene.Render(document)
 	}
+	if errors.Is(renderErr, scene.ErrNoSize) {
+		// The document is fine; nobody said how big to draw it. That is the
+		// request's shape rather than the scene's contents.
+		writeError(writer, http.StatusBadRequest, "invalid-request",
+			fmt.Errorf("%w: give the document a size, or ask for one with ?size=WxH or ?panel=family:id", renderErr))
+		return
+	}
 	if result.Frame == nil {
 		writeError(writer, http.StatusUnprocessableEntity, "invalid-scene", renderErr)
 		return

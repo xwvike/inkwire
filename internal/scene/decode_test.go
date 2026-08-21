@@ -27,6 +27,7 @@ func TestDecodeRenderRepresentativeScene(t *testing.T) {
 	scene := `{
 		"version": 1,
 		"orientation": "landscape",
+		"size": {"width": 296, "height": 128},
 		"background": "white",
 		"root": {
 			"type": "absolute",
@@ -44,7 +45,7 @@ func TestDecodeRenderRepresentativeScene(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Frame.Bounds().Size() != image.Pt(display.GiciskyWidth, display.GiciskyHeight) {
+	if result.Frame.Bounds().Size() != image.Pt(296, 128) {
 		t.Fatalf("frame size = %v", result.Frame.Bounds().Size())
 	}
 	if len(result.Report.MissingRunes) != 0 || len(result.Report.Warnings) != 0 {
@@ -89,7 +90,7 @@ func TestDecoderResolvesImagesRelativeToSceneFile(t *testing.T) {
 	if err := os.WriteFile(directory+"/asset.png", encoded.Bytes(), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	page := `{"version":1,"root":{"type":"image","source":"asset.png","size":{"width":10,"height":10}}}`
+	page := `{"version":1,"size":{"width":40,"height":40},"root":{"type":"image","source":"asset.png","size":{"width":10,"height":10}}}`
 	if err := os.WriteFile(directory+"/page.json", []byte(page), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +139,7 @@ func TestDecodeEveryNodeType(t *testing.T) {
 // panel is the encoder's job, and the encoder needs to be told which way up the
 // page was drawn, so the orientation has to survive rendering.
 func TestDecodePortraitKeepsItsOrientation(t *testing.T) {
-	value := `{"version":1,"orientation":"portraitClockwise","root":{"type":"rectangle","fill":"red"}}`
+	value := `{"version":1,"orientation":"portraitClockwise","size":{"width":128,"height":296},"root":{"type":"rectangle","fill":"red"}}`
 	result, err := (Decoder{}).Render(strings.NewReader(value))
 	if err != nil {
 		t.Fatal(err)
@@ -166,7 +167,7 @@ func TestHTTPFileRestrictionsConfineSymlinks(t *testing.T) {
 	if err := os.Symlink(outsideAsset, root+"/linked.png"); err != nil {
 		t.Fatal(err)
 	}
-	value := `{"version":1,"root":{"type":"image","source":"linked.png","size":{"width":1,"height":1}}}`
+	value := `{"version":1,"size":{"width":8,"height":8},"root":{"type":"image","source":"linked.png","size":{"width":1,"height":1}}}`
 	_, err := (Decoder{BaseDir: root, RestrictFiles: true}).Render(strings.NewReader(value))
 	if err == nil || !strings.Contains(err.Error(), "escapes") {
 		t.Fatalf("error = %v", err)
@@ -180,7 +181,7 @@ func TestInMemoryResourcePrecedesFilesystemAndDataURLRules(t *testing.T) {
 	if err := png.Encode(&encoded, resource); err != nil {
 		t.Fatal(err)
 	}
-	value := `{"version":1,"root":{"type":"image","source":"../not-allowed.png","size":{"width":2,"height":2}}}`
+	value := `{"version":1,"size":{"width":8,"height":8},"root":{"type":"image","source":"../not-allowed.png","size":{"width":2,"height":2}}}`
 	result, err := (Decoder{BaseDir: t.TempDir(), RestrictFiles: true, Resources: map[string][]byte{"../not-allowed.png": encoded.Bytes()}}).Render(strings.NewReader(value))
 	if err != nil {
 		t.Fatal(err)

@@ -11,6 +11,7 @@ Integer pixels throughout.
 {
   "version": 1,
   "orientation": "landscape",
+  "size": {"width": 296, "height": 128},
   "background": "white",
   "root": {
     "type": "absolute",
@@ -58,7 +59,7 @@ Integer pixels throughout.
 |---|---|---|---|
 | `version` | integer | `1` | required |
 | `orientation` | string | `landscape`, `portraitClockwise`, `portraitCounterClockwise` | `landscape` |
-| `size` | size | preview only | device size |
+| `size` | size | the page this scene is laid out on | required unless the caller states one |
 | `background` | ink | `white`, `black`, `red`, `yellow` | `white` |
 | `root` | node | | empty |
 

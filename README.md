@@ -69,8 +69,17 @@ wrote preview.png (296x128)
 | `-size` | the scene's own `size` | Lay the scene out at `WxH` instead |
 | `-panel` | unset | Lay the scene out for a named panel and check its inks |
 
-A scene that states no `size` renders at 296x128. `-size` overrides that
-without consulting any panel table:
+A scene has to say how big it is, or something has to say for it. There is no
+default page size: there was one, and it was one family's 2.9" panel written
+into the display layer, so a scene that said nothing got somebody else's tag
+and was never told.
+
+```
+$ inkwire render page.json
+this scene states no size: give the document a size, or render with -size WxH or -panel family:id
+```
+
+`-size` says it without consulting any panel table:
 
 ```bash
 inkwire render -size 400x300 page.json
@@ -486,6 +495,7 @@ inkwire render -o output/dashboard.png scenes/dashboard/page.json
 ```json
 {
   "version": 1,
+  "size": {"width": 296, "height": 128},
   "root": {
     "type": "image",
     "source": "portrait",

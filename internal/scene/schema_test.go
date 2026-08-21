@@ -1,6 +1,7 @@
 package scene
 
 import (
+	"image"
 	"strings"
 	"testing"
 
@@ -11,9 +12,14 @@ import (
 // from a document. These tests are what "reachable" has to mean: not that the
 // decoder accepts the spelling, but that the drawing changes because of it.
 
+// schemaPage is the page these scenes are laid out on. They are about what a
+// node draws rather than about how big the page is, and nothing fills a page
+// size in on its own any more, so the helper is what states it.
+var schemaPage = image.Pt(296, 128)
+
 func renderScene(t *testing.T, document string) Result {
 	t.Helper()
-	result, err := (Decoder{}).Render(strings.NewReader(document))
+	result, err := (Decoder{}).RenderForSize(strings.NewReader(document), schemaPage)
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -60,7 +66,7 @@ func TestGridSizesAutomaticAndFractionalTracks(t *testing.T) {
 	assertInk(t, result, 10, 0, display.InkWhite, "the gap separates the two columns")
 	assertInk(t, result, 15, 0, display.InkWhite, "the gap is six wide")
 	assertInk(t, result, 16, 0, display.InkRed, "the fractional column starts after the gap")
-	assertInk(t, result, display.GiciskyWidth-1, 0, display.InkRed, "and runs to the far edge")
+	assertInk(t, result, schemaPage.X-1, 0, display.InkRed, "and runs to the far edge")
 }
 
 // A stated span reaches across tracks it was not placed in.

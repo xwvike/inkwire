@@ -27,6 +27,11 @@ import (
 //go:embed assets/*.png assets/*.jpeg
 var assets embed.FS
 
+// panelSize is the 2.9" panel every sheet in this gallery is drawn for. It is
+// stated because nothing fills a page size in on its own: a document says how
+// big it is, or something tells it.
+var panelSize = image.Pt(296, 128)
+
 func main() {
 	outputDir := flag.String("out", "out", "directory for the per-asset panel images")
 	sheetPath := flag.String("sheet", "gallery.png", "contact sheet of every asset")
@@ -199,6 +204,7 @@ func renderCard(entry asset, _ *display.FontRegistry) (*display.Frame, error) {
 	}
 	compiled, report, err := compiler.Compile(compose.Document{
 		Orientation: display.OrientationLandscape,
+		Size:        panelSize,
 		Background:  compose.Value(display.InkWhite),
 		Root: compose.Absolute{Size: image.Pt(296, 128), Clip: true, Children: []compose.Placed{
 			{Bounds: image.Rect(0, 0, 296, 18), Node: compose.Rectangle{Size: image.Pt(296, 18), Fill: compose.Ink(display.InkBlack)}},

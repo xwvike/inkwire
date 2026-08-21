@@ -1,6 +1,7 @@
 {
   "version": 1,
   "orientation": "landscape",
+  "size": {"width": 296, "height": 128},
   "background": "white",
   "root": {
     "type": "absolute",

@@ -1,6 +1,7 @@
 package scene
 
 import (
+	"errors"
 	"fmt"
 	"image"
 	"io"
@@ -39,7 +40,20 @@ func (d Decoder) RenderFile(path string) (Result, error) {
 	return Render(document)
 }
 
+// ErrNoSize is returned for a document that states no size, when nothing else
+// has said what size to lay it out at.
+//
+// There is no default any more. There was one, and it was one family's 2.9"
+// panel: a scene that said nothing got 296x128 because that is the tag this
+// was written on, and nothing anywhere said so. Callers recognise this error
+// to say what they offer instead, since a flag and a query parameter are not
+// words this package knows.
+var ErrNoSize = errors.New("this scene states no size")
+
 func Render(document compose.Document) (Result, error) {
+	if document.Size == (image.Point{}) {
+		return Result{}, ErrNoSize
+	}
 	return render(document)
 }
 

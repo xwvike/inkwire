@@ -584,6 +584,11 @@ func renderFile(source, size, key string) (scene.Result, error, error) {
 		return result, err, nil
 	}
 	result, err := decoder.RenderFile(source)
+	if errors.Is(err, scene.ErrNoSize) {
+		// A usage error rather than a bad scene: the document is fine, nobody
+		// said how big to draw it, and there are three ways to say.
+		return scene.Result{}, nil, fmt.Errorf("%w: give the document a size, or render with -size WxH or -panel family:id", err)
+	}
 	return result, err, nil
 }
 

@@ -43,6 +43,13 @@ type section struct {
 	draw func(*display.Canvas, *display.FontRegistry) error
 }
 
+// The panel this cookbook is written for. Every reference image here was
+// rendered at this size, and nothing fills a size in on its own any more.
+const (
+	panelWidth  = 296
+	panelHeight = 128
+)
+
 func main() {
 	outputDir := flag.String("out", "out", "directory for the panel images")
 	sheetPath := flag.String("sheet", "cookbook.png", "contact sheet of every panel")
@@ -94,14 +101,15 @@ func main() {
 }
 
 func renderPanel(s section, fonts *display.FontRegistry) (*display.Frame, error) {
-	// NewPage is NewFrame with the panel's own dimensions filled in. Ask for a
-	// portrait page and you get 128x296 plus a rotation at encode time.
-	frame, err := display.NewPage(display.OrientationLandscape, display.InkWhite)
+	// The size is stated because nothing fills one in any more. A page is made
+	// for a panel somebody named, and this cookbook is written for the 2.9"
+	// one that every reference image here was rendered against.
+	frame, err := display.NewFrame(panelWidth, panelHeight, display.InkWhite)
 	if err != nil {
 		return nil, err
 	}
 	canvas := display.NewCanvas(frame)
-	canvas.FillRect(image.Rect(0, 0, 296, 15), display.InkBlack)
+	canvas.FillRect(image.Rect(0, 0, panelWidth, 15), display.InkBlack)
 	if err := label(canvas, fonts, image.Rect(4, 1, 292, 14), display.AlignStart,
 		run(s.name, "monaco", 10, display.InkWhite)); err != nil {
 		return nil, err
@@ -599,7 +607,7 @@ var sinTable = map[int]float64{0: 0, 30: 0.5, 60: 0.866, 90: 1}
 // taller than one.
 func stack(frames []*display.Frame) (*display.Frame, error) {
 	const gap = 6
-	sheet, err := display.NewFrame(296+2*gap, len(frames)*(128+gap)+gap, display.InkWhite)
+	sheet, err := display.NewFrame(panelWidth+2*gap, len(frames)*(panelHeight+gap)+gap, display.InkWhite)
 	if err != nil {
 		return nil, err
 	}
@@ -607,12 +615,12 @@ func stack(frames []*display.Frame) (*display.Frame, error) {
 	for index, frame := range frames {
 		top := gap + index*(128+gap)
 		for y := range 128 {
-			for x := range 296 {
+			for x := range panelWidth {
 				ink, _ := frame.InkAt(x, y)
 				canvas.Set(gap+x, top+y, ink)
 			}
 		}
-		canvas.StrokeRect(image.Rect(gap, top, gap+296, top+128), thin(display.InkBlack))
+		canvas.StrokeRect(image.Rect(gap, top, gap+panelWidth, top+panelHeight), thin(display.InkBlack))
 	}
 	return sheet, nil
 }

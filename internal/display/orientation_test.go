@@ -2,19 +2,23 @@ package display
 
 import "testing"
 
-func TestNewPageUsesLogicalOrientationDimensions(t *testing.T) {
-	landscape, err := NewPage(OrientationLandscape, InkWhite)
-	if err != nil {
-		t.Fatal(err)
+// Orientation used to be validated on the way through NewPage, which every
+// page went through. Nothing does any more — a page is made at a size somebody
+// stated — so the check has to stand on its own, and something has to still be
+// asking it.
+func TestOrientationKnowsItsThreeValues(t *testing.T) {
+	for _, valid := range []Orientation{
+		OrientationLandscape,
+		OrientationPortraitClockwise,
+		OrientationPortraitCounterClockwise,
+	} {
+		if !valid.Valid() {
+			t.Errorf("orientation %d reported invalid", valid)
+		}
 	}
-	if landscape.Width() != 296 || landscape.Height() != 128 {
-		t.Fatalf("landscape size = %dx%d", landscape.Width(), landscape.Height())
-	}
-	portrait, err := NewPage(OrientationPortraitClockwise, InkWhite)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if portrait.Width() != 128 || portrait.Height() != 296 {
-		t.Fatalf("portrait size = %dx%d", portrait.Width(), portrait.Height())
+	for _, invalid := range []Orientation{3, 9, 255} {
+		if invalid.Valid() {
+			t.Errorf("orientation %d reported valid", invalid)
+		}
 	}
 }

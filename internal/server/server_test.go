@@ -28,7 +28,7 @@ import (
 	"tinygo.org/x/bluetooth"
 )
 
-const testScene = `{"version":1,"root":{"type":"absolute","children":[{"bounds":{"x":0,"y":0,"width":20,"height":10},"node":{"type":"rectangle","fill":"red"}}]}}`
+const testScene = `{"version":1,"size":{"width":296,"height":128},"root":{"type":"absolute","children":[{"bounds":{"x":0,"y":0,"width":20,"height":10},"node":{"type":"rectangle","fill":"red"}}]}}`
 
 func TestRenderReturnsJSONReport(t *testing.T) {
 	handler := New(Config{Logf: func(string, ...any) {}})
@@ -375,7 +375,7 @@ func TestMultipartResourceOverridesAssetDirectory(t *testing.T) {
 	if err := writeSolidPNG(filepath.Join(root, "portrait.png"), color.NRGBA{A: 0xff}); err != nil {
 		t.Fatal(err)
 	}
-	scene := `{"version":1,"root":{"type":"image","source":"portrait.png","size":{"width":8,"height":8},"options":{"dither":"threshold"}}}`
+	scene := `{"version":1,"size":{"width":16,"height":16},"root":{"type":"image","source":"portrait.png","size":{"width":8,"height":8},"options":{"dither":"threshold"}}}`
 	uploaded := solidPNG(t, color.NRGBA{R: 0xff, A: 0xff})
 	handler := New(Config{BaseDir: root, Logf: func(string, ...any) {}})
 	response := multipartRequest(t, handler, "/v1/render", scene, map[string][]byte{"portrait.png": uploaded})
@@ -408,7 +408,7 @@ func TestRenderReportsImplicitGridTracksInBody(t *testing.T) {
 }
 
 func TestMultipartPushSendsUploadedImage(t *testing.T) {
-	scene := `{"version":1,"root":{"type":"image","source":"photo.png","size":{"width":8,"height":8}}}`
+	scene := `{"version":1,"size":{"width":16,"height":16},"root":{"type":"image","source":"photo.png","size":{"width":8,"height":8}}}`
 	var payload []byte
 	handler := New(Config{
 		Logf: func(string, ...any) {},
@@ -1103,7 +1103,7 @@ func post(t *testing.T, handler *Handler, path string) *httptest.ResponseRecorde
 	return response
 }
 
-const redScene = `{"version":1,"root":{"type":"absolute","children":[{"bounds":{"x":0,"y":0,"width":20,"height":10},"node":{"type":"rectangle","fill":"red"}}]}}`
+const redScene = `{"version":1,"size":{"width":296,"height":128},"root":{"type":"absolute","children":[{"bounds":{"x":0,"y":0,"width":20,"height":10},"node":{"type":"rectangle","fill":"red"}}]}}`
 
 // Rendering for a named panel is how a page is checked against a tag that is
 // not in the room. Both ways of stating the size have to reach the layout, and
