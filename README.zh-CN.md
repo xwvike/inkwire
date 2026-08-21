@@ -1,6 +1,6 @@
 # Inkwire
 
-Schema驱动的电子纸标签渲染器。
+Json Schema驱动的电子纸标签渲染器。
 
 | | Gicisky | EPD-nRF5 |
 |---|---|---|
@@ -15,36 +15,156 @@ Schema驱动的电子纸标签渲染器。
 
 | 命令 | 用途 |
 |---|---|
+| `inkwire scan [-timeout 15s]` | 列出当前可被扫描出来的标签 |
 | `inkwire render [-o out.png] <scene.json>` | PNG 预览 |
 | `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] <scene.json>` | 渲染并写入 |
-| `inkwire scan [-timeout 15s]` | 列出标签 |
-| `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 时钟与模式 |
-| `inkwire serve [-listen ADDR] [-device NAME] [-assets DIR]` | HTTP 服务 |
-| `inkwire schema [-lang en\|zh]` | 打印 Scene Schema 参考 |
-| `inkwire help` | 本列表；也可用 `-h`、`--help` |
-| `inkwire version` | 发布 tag，源码构建则给出提交号；也可用 `-v`、`--version` |
+| `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 时钟/日历 模式 |
+| `inkwire serve [-listen ADDR] [-device NAME] [-assets DIR]` | 启动 HTTP 服务 |
+| `inkwire schema [-lang en\|zh]` | 打印 Json Schema 参考 |
+| `inkwire help` | `-h`、`--help` |
+| `inkwire version` | `-v`、`--version` |
 
-所有写入标签的命令都先找到它，再按找到的面板渲染。为别的尺寸写的场景会
-按实际面板重新排版，差异以警告报出，而不是拒绝写入。
+### scan
+
+列出当前环境中能扫描到的标签。不确定目标详细信息情况下，尽量先扫描，并取得 `-device` 要填的名字或地址。
+
+```bash
+inkwire scan -timeout 10s
+```
 
 ```
-$ inkwire scan
 ADDRESS                                NAME           RSSI  BATT  FAMILY   MODEL           SIZE      PALETTE
 FF:FF:92:94:38:61                      NEMR92943861    -50  3.0V  gicisky  EPD 2.9" BWR    296x128   BWR
 C1:57:DD:3F:C1:F8                      NRF_EPD_C1F8    -62     -  nrfepd   ask on connect            not advertised
 ```
 
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `-timeout` | `15s` | 扫描窗口时长 |
+
+扫描同时区分两个家族：Gicisky 通过厂商数据 `0x5053`，EPD-nRF5 通过 service UUID
+或名字前缀。
+
+标签扫描结果为空时退出码为 1。
+
+### render
+
+把场景渲染成 PNG，预览效果。
+
 ```bash
 inkwire render -o preview.png page.json
+```
+
+```
+wrote preview.png (296x128)
+```
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `-o` | 场景同名的 `.png` | PNG 输出路径 |
+
+场景没有声明 `size` 时按 296x128 渲染。要预览别的尺寸，在场景顶层写明：
+
+```json
+{
+  "version": 1,
+  "size": {"width": 400, "height": 300},
+  "root": {"type": "text", "runs": [{"text": "400x300", "font": "monaco", "size": 14}]}
+}
+```
+
+页面级字段的完整说明见 [SCHEMA.zh-CN.md](SCHEMA.zh-CN.md) 的「页面」一节。
+
+### push
+
+渲染并写入标签。
+
+```bash
 inkwire push -device NEMR92943861 page.json
 ```
 
-| 参数 | 说明 |
-|---|---|
-| `-device` | 广播名（`NAME` 列）或 BLE 地址。所有写入标签的命令都必填：写给哪一块不是靠推断的 |
-| `-family` | 通常不需要：家族由广播判定。给了就照办并核对，目标若属于另一个家族则指名拒绝 |
-| `-timeout` | 一个监听窗口，两个家族都从这一趟里出来 |
-| `-settle` | `REFRESH` 后保持连接的时长，见[刷新](#刷新) |
+```
+writing to NEMR92943861 (e2ada7d1-187a-caea-21e4-d895f8240b62, gicisky)
+pushing 9472 bytes (EPD 2.9" BWR 296x128)
+tag requested 244 byte messages -> 240 byte blocks
+upload complete, tag is refreshing
+```
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `-device` | 必填 | 广播名（`NAME` 列）或 BLE 地址 |
+| `-family` | `auto` | 指定则断言设备属于这个家族，不再内部判断 |
+| `-settle` | `30s` | 仅 EPD-nRF5：`REFRESH` 后保持连接的时长，见[写入间隔](#写入间隔) |
+
+场景声明的尺寸与面板不符不会拒绝，按面板重排并给出 `size-mismatch` 警告。
+
+渲染报告中的警告打印在写入日志里，见[警告](#警告)。
+
+### mode
+
+把 EPD-nRF5 标签交还给它自己的时钟或日历，并顺带对时。
+
+```bash
+inkwire mode -device NRF_EPD_C1F8 -mode clock
+```
+
+```
+connecting to NRF_EPD_C1F8 (C1:57:DD:3F:C1:F8)
+firmware version 0x76
+panel is UC8176_420_BWR 400x300 BWR
+setting the clock to 2026-08-21 16:04:28 +0800 and the mode to clock
+staying connected 30s while the panel refreshes; disconnecting now would cancel it
+```
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `-device` | 必填 | 广播名或 BLE 地址 |
+| `-mode` | `calendar` | `picture`、`calendar` 或 `clock` |
+| `-week-start` | 保留标签原值 | 日历每周第一列：`sunday` 或 `monday` |
+| `-settle` | `30s` | 重绘期间保持连接的时长 |
+
+只有 EPD-nRF5 有这个功能。指向 Gicisky 标签会指名拒绝：
+
+```
+NEMR92943861 (e2ada7d1-…, gicisky) is a gicisky tag, but the family asked for is nrfepd
+```
+
+`push` 会把标签切回 picture 模式，所以这条命令是它的反向操作，详见[时钟与日历](#时钟与日历)。
+
+### serve
+
+启动 HTTP 服务，供不是命令行的调用方使用。
+
+```bash
+inkwire serve -listen 127.0.0.1:8080 -device NEMR92943861
+```
+
+```
+listening on http://127.0.0.1:8080
+```
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `-listen` | `127.0.0.1:8080` | 监听地址，仅限回环 |
+| `-device` | 无 | 请求未指名设备时使用的默认目标 |
+| `-assets` | `.` | 相对图片路径可以读取的目录 |
+
+没有任何鉴权，每个请求都会写硬件，所以只允许绑定回环地址，绑别的会被拒绝。
+路由与错误码见[创建HTTP服务](#创建http服务)。
+
+### schema
+
+打印 Json Schema 参考。内容随二进制一同分发。
+
+```bash
+inkwire schema -lang zh > SCHEMA.zh-CN.md
+```
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `-lang` | `en` | 打印哪一份翻译：`en` 或 `zh` |
+
+
 
 ## Gicisky
 
@@ -54,7 +174,6 @@ inkwire push -device NEMR92943861 page.json
 | 方向 | 横屏使用 profile 尺寸，竖屏交换宽高 |
 | Payload | 按型号选择平面、变换与压缩 |
 | GATT | 服务 `FEF0`，控制 `FEF1`，数据 `FEF2` |
-| 名称 | `PICKSMART` 仅开机期间；稳定后 `NEMR<mac8>` |
 
 厂商数据，公司 `0x5053`：
 
@@ -66,7 +185,34 @@ byte   0        1        2   3        4
 型号 id = `(data[4] << 8) | data[0]` 低 14 位。名称不携带型号，因此写入
 Gicisky 标签前必须先看到厂商数据，再按该型号渲染。
 
-11 个型号（212x104 … 960x640，BW/BWR/BWRY），来自 [hass-gicisky](https://github.com/eigger/hass-gicisky)（MIT，© 2025 eigger）。`0x0033` 已验证，其余打印 `unverified`。未知 id 列出但不可驱动。
+### 型号
+
+广播里读出，不需要连接。
+
+| ID | 名称 | 尺寸 | 颜色 | 变换与打包 |
+|---|---|---|---|---|
+| `0x000B` | EPD 2.1" BWR | 212x104 | BWR | 旋转 270°，X 镜像 |
+| `0x0028` | EPD 2.9" BW | 296x128 | BW | 旋转 90° |
+| `0x002E` | EPD 2.9" BWRY | 296x128 | BWRY | 旋转 90°，四色两位打包 |
+| **`0x0033`** | **EPD 2.9" BWR** | **296x128** | **BWR** | 旋转 90° |
+| `0x004B` | EPD 4.2" BWR | 400x300 | BWR | |
+| `0x004E` | EPD 4.2" BWRY | 400x300 | BWRY | 四色两位打包 |
+| `0x008B` | EPD 10.2" BWR | 960x640 | BWR | QuickLZ |
+| `0x00A0` | TFT 2.1" BW | 250x132 | BW | TFT，旋转 90°，X 镜像 |
+| `0x010B` | EPD 2.1" BWR | 250x128 | BWR | 旋转 270°，X 镜像 |
+| `0x012B` | EPD 7.5" BWR | 800x480 | BWR | Y 镜像，反色，QuickLZ |
+| `0x022B` | EPD 3.7" BWR | 240x416 | BWR | 旋转 180°，X 镜像，列压缩 |
+
+`0x012B` 在固件 `0x8101` 上改用列压缩。
+
+表来自 [hass-gicisky](https://github.com/eigger/hass-gicisky)（MIT，© 2025 eigger）。
+只有 `0x0033` 经过实机核对，其余在 `inkwire scan` 里标 `unverified`：
+
+```
+FF:FF:92:94:38:61                      NEMR92943861    -50  3.0V  gicisky  EPD 4.2" BWR    400x300   BWR (unverified)
+```
+
+不在表里的 id 仍会列出，但标为 `unrecognised model`，不会被驱动。
 
 ## EPD-nRF5
 
@@ -77,17 +223,10 @@ Gicisky 标签前必须先看到厂商数据，再按该型号渲染。
 | 平面 | 黑白 + 颜色，逐行，高位在前，置位为白，颜色平面取反 |
 | 压缩 | 固件 RLE；空白 400x300 平面 15000 → 232 字节 |
 
-```bash
-inkwire push -device NRF_EPD_C1F8 examples/fridge/page.json
-```
 
 ### 型号
 
-`INIT` 之后读出。尺寸不符被拒：
-
-```
-the page is 296x128 and the panel is UC8176_420_BWR 400x300 BWR; render it at the panel's size
-```
+`INIT` 连接后读出。尺寸不符不会拒绝，按实际面板重新排版并给出 `size-mismatch` 警告。
 
 | ID | 名称 | 尺寸 | 颜色 | 打包 |
 |---|---|---|---|---|
@@ -112,37 +251,6 @@ panel is UC8179_750_BWR 800x480 BWR (unverified), link carries 244 bytes and can
 
 未实现的打包被拒绝，不尝试。
 
-### 刷新
-
-```
-sending 40 frames compressed
-staying connected 30s while the panel refreshes; disconnecting now would cancel it
-```
-
-| | |
-|---|---|
-| `-settle` | 默认 30 秒。提前断开取消绘制。大屏或 BWR 用 60 秒 |
-| 写入间隔 | 同一标签 ≥45 秒；26 秒失败——刷新期间标签拒绝连接 |
-
-RSSI 属于整条链路——标签的发射、两端天线、路径与接收机——所以下表的距离是某一个适配器能跑多远，不是标签的极限。实测于 2026-08-17，接收端为 Realtek RTL8761BU dongle（USB `0bda:8771`，蓝牙 5.1，内置天线，USB 2.0 全速），标签立放且视距无遮挡：
-
-| 距离 | Gicisky | EPD-nRF5 | 推送 |
-|---|---|---|---|
-| 1 m | −66 dBm | −68 dBm | 4/4 |
-| 2 m | −74 dBm | −78 dBm | 2/2 |
-| 3 m | −76 dBm | −80 dBm | 2/2 |
-| 5 m | −80 dBm | −86 dBm | 2/2 |
-
-接收机更好、带外置天线的网卡（比如 AX210）在同一距离上读数更高，在同一读数下能跑得更远。看 dBm 列，不是米数。
-
-耗时不跟 RSSI 走：整个 18 dB 区间内，Gicisky 18–29 秒，EPD-nRF5 40–48 秒，21 帧与 40 帧页面同样如此。
-
-姿势约值 12 dB。同一标签在同一位置，躺平读 −80 dBm，立起读 −68 dBm，相当于 1 m 与 4 m 之差。先把标签立起来，再考虑搬近。
-
-更早一次运行在 −88 dBm 记录到 0/8。此后没有复现出那里存在悬崖——−86 dBm 是 2/2——所以它作为一条观察保留，不作为阈值。
-
-失败表现为连接阶段 `le-connection-abort-by-local`、缺少 config 回复、或随机帧 `ATT error: 0x0e`。
-
 ### 时钟与日历
 
 | 模式 | 重绘 |
@@ -159,20 +267,53 @@ inkwire mode -device NRF_EPD_C1F8 -mode clock
 
 `-week-start` 不写则保留标签原值。
 
-## HTTP
+## 蓝牙链路
+
+
+### 信号与距离
+
+RSSI 属于整条链路——标签的发射、两端天线、路径与接收机——所以下表是**某一个适配器**的状况。
+
+发送端 Realtek RTL8761BU dongle（OS: Debian，USB `0bda:8771`，蓝牙 5.1，内置天线，USB 2.0 全速），标签立放且视距无遮挡：
+
+| 距离 | Gicisky | EPD-nRF5 | 推送 |
+|---|---|---|---|
+| 1 m | −66 dBm | −68 dBm | 4/4 |
+| 2 m | −74 dBm | −78 dBm | 2/2 |
+| 3 m | −76 dBm | −80 dBm | 2/2 |
+| 5 m | −80 dBm | −86 dBm | 2/2 |
+
+
+### 写入间隔
+
+同一块标签两次写入间隔 ≥45 秒。刷新期间标签拒绝连接，实测 26 秒时失败。
+
+`-settle` 控制的是写完之后继续保持连接的时长，提前断开会取消这次绘制。
+
+### 连接失败
+
+| 现象 | 出现阶段 |
+|---|---|
+| `le-connection-abort-by-local` | 连接建立 |
+| 面板未在 5 秒内自报型号 | `INIT` 之后（仅 EPD-nRF5） |
+| `ATT error: 0x0e` | 传输中的随机一帧 |
+
+实际失败会自动重试，默认 3 次、间隔 2 秒。三次都失败才报错退出。
+
+标签在广播窗口之间静默是正常的，扫不到不等于不在——这也是重试存在的原因。
+
+## 创建HTTP服务
 
 ```bash
 inkwire serve -listen 127.0.0.1:8080 -device NEMR92943861
 ```
 
-| 路由 | 响应 |
-|---|---|
-| `POST /v1/render` | JSON，包含 `width`、`height`、base64 `pngBase64` 和完整 `report` |
-| `POST /v1/display` | JSON 结果，包含设备状态和完整 `report` |
-| `GET /v1/devices` | 标签列表，每条带 `family` |
+| 路由 | 功能 | 响应 |
+|---|---|---|
+| `POST /v1/render` | 本地渲染，预览生成效果 | JSON，包含 `width`、`height`、base64 `pngBase64` 和完整 `report` |
+| `POST /v1/display` | 连接标签进行实机渲染 | JSON 结果，包含设备状态和完整 `report` |
+| `GET /v1/devices` | 扫描环境中所有支持的标签 | 标签列表 |
 
-`-listen` 仅回环。`/v1/display` 接受 `?device=` 与 `?family=auto|gicisky|nrfepd`。预算：Gicisky 45 秒，EPD-nRF5 60 秒。
-两个渲染路由使用同一套场景编译和渲染逻辑；只要已经完成渲染，就返回相同的完整报告结构。`/v1/display` 会先识别 Gicisky profile 再渲染，因此识别失败只返回设备状态，不伪造渲染报告。如果已经完成渲染、但在连接或写入设备阶段失败，错误 JSON 仍会包含渲染阶段生成的报告。HTTP API 不暴露原始 `.bin` 编码器：直接使用设备请调用 `/v1/display`，预览请调用 `/v1/render`。
 
 ```bash
 curl -H 'Content-Type: application/json' --data-binary @page.json \
@@ -182,7 +323,6 @@ curl -H 'Content-Type: application/json' --data-binary @page.json \
   'http://127.0.0.1:8080/v1/display?device=NRF_EPD_C1F8'
 ```
 
-报告统一放在 JSON body 中，不再拆分到自定义响应头；内容包括边界、缺失字符、警告、图片决策和每个 Grid 的隐式轨道扩展。
 
 ### 警告
 
@@ -190,10 +330,11 @@ curl -H 'Content-Type: application/json' --data-binary @page.json \
 
 | `code` | 含义 |
 |---|---|
-| `text-clipped` | 文字超出其框，字符或整行被裁 |
+| `text-clipped` | 文字超出所在框，字符或整行被裁 |
 | `layout-overflow` | 子节点主轴超出容器 |
 | `empty-layout` | 内边距或尺寸使可绘制区域为零 |
 | `missing-runes` | 字库缺少这些字形 |
+| `size-mismatch` | 场景声明的尺寸与面板不符，已按面板重排，超出部分被裁 |
 
 ### 错误
 
@@ -203,7 +344,7 @@ curl -H 'Content-Type: application/json' --data-binary @page.json \
 | `invalid-request` | 400 | multipart 结构错误，或 `family` 未知 |
 | `request-too-large` | 413 | 超出体积上限 |
 | `invalid-scene` | 422 | 无法解码或渲染 |
-| `unprocessable-scene` | 422 | 能渲染，但无法为选定的 Gicisky 面板编码 |
+| `unprocessable-scene` | 422 | 渲染成功，但无法为选定的 Gicisky 面板编码 |
 | `render-failed` | 500 | PNG 编码失败 |
 | `device-busy` | 409 | 适配器占用中 |
 | `device-identify-failed` | 502 | 未找到 Gicisky 目标、目标未广播已知型号，或扫描失败 |

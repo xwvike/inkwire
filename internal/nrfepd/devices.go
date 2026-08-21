@@ -117,6 +117,11 @@ var models = []Model{
 }
 
 // LookupModel finds a panel by the firmware's ID.
+// Models lists every panel in the table, in ID order. Nothing in the program
+// needs it; the READMEs do, and the test that holds their tables to this one
+// is what keeps a panel added here from going unwritten there.
+func Models() []Model { return append([]Model(nil), models...) }
+
 func LookupModel(id uint8) (Model, bool) {
 	for _, model := range models {
 		if model.ID == id {

@@ -1,7 +1,11 @@
 package main
 
 import (
+	"fmt"
+	"github.com/xwvike/inkwire/internal/gicisky"
+	"github.com/xwvike/inkwire/internal/nrfepd"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -102,4 +106,104 @@ func readDoc(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(doc)
+}
+
+// Every warning code the compiler and the scene layer can produce, checked
+// against both READMEs.
+//
+// size-mismatch was reported for a fortnight before either README mentioned it.
+// A warning nobody has written down is a warning nobody can look up, and the
+// tables are exactly the kind of list that stops being complete the moment the
+// code that fills them moves on.
+func TestBothReadmesDocumentEveryWarningCode(t *testing.T) {
+	sources := []string{
+		"../../internal/compose", "../../internal/scene",
+	}
+	emitted := map[string]string{}
+	// ctx.warn(path, "code", …) and the Warning literals a package builds by
+	// hand are the only two ways a code reaches a report.
+	patterns := []*regexp.Regexp{
+		regexp.MustCompile(`\.warn\([^,]+,\s*"([a-z-]+)"`),
+		regexp.MustCompile(`Code:\s*"([a-z-]+)"`),
+	}
+	for _, dir := range sources {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+				continue
+			}
+			body, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, pattern := range patterns {
+				for _, match := range pattern.FindAllStringSubmatch(string(body), -1) {
+					emitted[match[1]] = filepath.Join(dir, entry.Name())
+				}
+			}
+		}
+	}
+	if len(emitted) < 4 {
+		t.Fatalf("found %d warning codes, which cannot be right", len(emitted))
+	}
+
+	for _, path := range readmes {
+		doc := readDoc(t, path)
+		for code, where := range emitted {
+			// A row of the table, not a mention in passing. Naming a code in
+			// a sentence somewhere is not the same as being able to look it
+			// up, and the first version of this test accepted one for the
+			// other.
+			row := regexp.MustCompile(`(?m)^\| ` + "`" + code + "`" + ` \|`)
+			if !row.MatchString(doc) {
+				t.Errorf("%s has no table row for the %s warning, which %s emits", path, code, where)
+			}
+		}
+	}
+}
+
+// Every panel either family knows, checked against both READMEs by id and by
+// size.
+//
+// A table in a document is a copy of a table in the code, and the copy is the
+// one nobody remembers. The Gicisky list went unwritten entirely until it was
+// asked for; the warning codes drifted the same way a week earlier.
+func TestBothReadmesListEveryPanelModel(t *testing.T) {
+	type panel struct{ id, size, name string }
+	var panels []panel
+	for _, profile := range gicisky.KnownProfiles() {
+		panels = append(panels, panel{
+			id:   fmt.Sprintf("`0x%04X`", profile.ID),
+			size: fmt.Sprintf("%dx%d", profile.Width, profile.Height),
+			name: profile.Model,
+		})
+	}
+	for _, model := range nrfepd.Models() {
+		panels = append(panels, panel{
+			id:   fmt.Sprintf("`0x%02x`", model.ID),
+			size: fmt.Sprintf("%dx%d", model.Width, model.Height),
+			name: model.Name,
+		})
+	}
+	if len(panels) < 20 {
+		t.Fatalf("found %d panels between the two families, which cannot be right", len(panels))
+	}
+
+	for _, path := range readmes {
+		doc := readDoc(t, path)
+		for _, p := range panels {
+			row := regexp.MustCompile(`(?m)^\|[^|]*` + regexp.QuoteMeta(p.id) + `[^|]*\|(.*)$`)
+			match := row.FindStringSubmatch(doc)
+			if match == nil {
+				t.Errorf("%s has no row for %s (%s)", path, p.id, p.name)
+				continue
+			}
+			if !strings.Contains(match[1], p.size) {
+				t.Errorf("%s lists %s (%s) without %s", path, p.id, p.name, p.size)
+			}
+		}
+	}
 }

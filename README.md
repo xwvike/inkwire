@@ -1,6 +1,6 @@
 # Inkwire
 
-Scene Schema → e-paper tags. Two families, one renderer.
+A JSON Schema driven renderer for e-paper tags.
 
 | | Gicisky | EPD-nRF5 |
 |---|---|---|
@@ -18,37 +18,163 @@ second download.
 
 | Command | Purpose |
 |---|---|
+| `inkwire scan [-timeout 15s]` | List the tags a scan can currently see |
 | `inkwire render [-o out.png] <scene.json>` | PNG preview |
 | `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] <scene.json>` | Render and write |
-| `inkwire scan [-timeout 15s]` | List tags |
-| `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 clock and mode |
-| `inkwire serve [-listen ADDR] [-device NAME] [-assets DIR]` | HTTP service |
-| `inkwire schema [-lang en\|zh]` | Print the Scene Schema reference |
-| `inkwire help` | This list; also `-h`, `--help` |
-| `inkwire version` | Release tag, or the commit a source build came from; also `-v`, `--version` |
+| `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 clock / calendar mode |
+| `inkwire serve [-listen ADDR] [-device NAME] [-assets DIR]` | Start the HTTP service |
+| `inkwire schema [-lang en\|zh]` | Print the JSON Schema reference |
+| `inkwire help` | `-h`, `--help` |
+| `inkwire version` | `-v`, `--version` |
 
-Everything that writes to a tag finds it first, and takes the panel from what
-it finds. A scene laid out for another size is laid out again for the panel
-that answered, and the difference is reported rather than refused.
+### scan
+
+Lists the tags a scan can currently see in the area. When the target is not
+known for certain, scan first and take the name or address `-device` wants.
+
+```bash
+inkwire scan -timeout 10s
+```
 
 ```
-$ inkwire scan
 ADDRESS                                NAME           RSSI  BATT  FAMILY   MODEL           SIZE      PALETTE
 FF:FF:92:94:38:61                      NEMR92943861    -50  3.0V  gicisky  EPD 2.9" BWR    296x128   BWR
 C1:57:DD:3F:C1:F8                      NRF_EPD_C1F8    -62     -  nrfepd   ask on connect            not advertised
 ```
 
+| Flag | Default | Meaning |
+|---|---|---|
+| `-timeout` | `15s` | How long the scan window lasts |
+
+A scan tells the two families apart: Gicisky by its `0x5053` manufacturer
+data, EPD-nRF5 by its service UUID or name prefix.
+
+Exits 1 when the scan comes back empty.
+
+### render
+
+Renders a scene to a PNG, to preview the result.
+
 ```bash
 inkwire render -o preview.png page.json
+```
+
+```
+wrote preview.png (296x128)
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `-o` | the scene's path with `.png` | PNG output path |
+
+A scene that states no `size` renders at 296x128. To preview another size,
+state one at the top of the scene:
+
+```json
+{
+  "version": 1,
+  "size": {"width": 400, "height": 300},
+  "root": {"type": "text", "runs": [{"text": "400x300", "font": "monaco", "size": 14}]}
+}
+```
+
+The page-level fields are documented in full under "Page" in
+[SCHEMA.md](SCHEMA.md).
+
+### push
+
+Renders a scene and writes it to a tag.
+
+```bash
 inkwire push -device NEMR92943861 page.json
 ```
 
-| Flag | Notes |
-|---|---|
-| `-device` | Advertised name (`NAME` column) or BLE address. Required by everything that writes: which tag is not something to work out |
-| `-family` | Rarely needed: the family comes from the advertisement. Given, it is obeyed and checked, and a target that turns out to be the other family is refused by name |
-| `-timeout` | One listening window; both families come out of it |
-| `-settle` | Connection held open after `REFRESH`. See [Refresh](#refresh) |
+```
+writing to NEMR92943861 (e2ada7d1-187a-caea-21e4-d895f8240b62, gicisky)
+pushing 9472 bytes (EPD 2.9" BWR 296x128)
+tag requested 244 byte messages -> 240 byte blocks
+upload complete, tag is refreshing
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `-device` | required | Advertised name (`NAME` column) or BLE address |
+| `-family` | `auto` | Given, it asserts the device belongs to that family instead of working it out |
+| `-settle` | `30s` | EPD-nRF5 only: how long to stay connected after `REFRESH`, see [Between writes](#between-writes) |
+
+A scene stating a size the panel does not have is not refused: it is laid out
+again for the panel and a `size-mismatch` warning is reported.
+
+Warnings from the render are printed with the write log, see [Warnings](#warnings).
+
+### mode
+
+Hands an EPD-nRF5 tag back to its own clock or calendar, and sets that clock on
+the way.
+
+```bash
+inkwire mode -device NRF_EPD_C1F8 -mode clock
+```
+
+```
+connecting to NRF_EPD_C1F8 (C1:57:DD:3F:C1:F8)
+firmware version 0x76
+panel is UC8176_420_BWR 400x300 BWR
+setting the clock to 2026-08-21 16:04:28 +0800 and the mode to clock
+staying connected 30s while the panel refreshes; disconnecting now would cancel it
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `-device` | required | Advertised name or BLE address |
+| `-mode` | `calendar` | `picture`, `calendar` or `clock` |
+| `-week-start` | the tag's own setting | First column of a calendar week: `sunday` or `monday` |
+| `-settle` | `30s` | How long to stay connected while the panel redraws |
+
+Only EPD-nRF5 has this. Pointed at a Gicisky tag it is refused by name:
+
+```
+NEMR92943861 (e2ada7d1-…, gicisky) is a gicisky tag, but the family asked for is nrfepd
+```
+
+`push` leaves a tag in picture mode, so this is the way back; see [Clock and
+calendar](#clock-and-calendar).
+
+### serve
+
+Starts the HTTP service, for the callers that are not a command line.
+
+```bash
+inkwire serve -listen 127.0.0.1:8080 -device NEMR92943861
+```
+
+```
+listening on http://127.0.0.1:8080
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `-listen` | `127.0.0.1:8080` | Listen address, loopback only |
+| `-device` | none | Default target for requests that name none |
+| `-assets` | `.` | Directory a relative image source may read from |
+
+There is no authentication and every request reaches hardware, so only a
+loopback address is accepted and anything else is refused. Routes and error
+codes are under [Running the HTTP service](#running-the-http-service).
+
+### schema
+
+Prints the JSON Schema reference. It ships inside the binary.
+
+```bash
+inkwire schema -lang zh > SCHEMA.zh-CN.md
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `-lang` | `en` | Which translation to print: `en` or `zh` |
+
+
 
 ## Gicisky
 
@@ -58,7 +184,6 @@ inkwire push -device NEMR92943861 page.json
 | Orientation | landscape uses the profile size; portrait swaps width and height |
 | Payload | model-specific planes, transforms and compression |
 | GATT | service `FEF0`, control `FEF1`, data `FEF2` |
-| Name | `PICKSMART` during boot only; `NEMR<mac8>` once settled |
 
 Manufacturer data, company `0x5053`:
 
@@ -70,9 +195,36 @@ byte   0        1        2   3        4
 Model id = `(data[4] << 8) | data[0]`, low 14 bits. Names carry no model, so
 writing a Gicisky tag requires seeing manufacturer data before rendering.
 
-11 models (212x104 … 960x640, BW/BWR/BWRY) from
-[hass-gicisky](https://github.com/eigger/hass-gicisky) (MIT, © 2025 eigger).
-`0x0033` verified; the rest print `unverified`. Unknown ids list but do not drive.
+### Models
+
+Read from the advertisement, with no connection needed.
+
+| ID | Name | Size | Inks | Transform and packing |
+|---|---|---|---|---|
+| `0x000B` | EPD 2.1" BWR | 212x104 | BWR | rotate 270°, mirror X |
+| `0x0028` | EPD 2.9" BW | 296x128 | BW | rotate 90° |
+| `0x002E` | EPD 2.9" BWRY | 296x128 | BWRY | rotate 90°, four colours two bits each |
+| **`0x0033`** | **EPD 2.9" BWR** | **296x128** | **BWR** | rotate 90° |
+| `0x004B` | EPD 4.2" BWR | 400x300 | BWR | |
+| `0x004E` | EPD 4.2" BWRY | 400x300 | BWRY | four colours two bits each |
+| `0x008B` | EPD 10.2" BWR | 960x640 | BWR | QuickLZ |
+| `0x00A0` | TFT 2.1" BW | 250x132 | BW | TFT, rotate 90°, mirror X |
+| `0x010B` | EPD 2.1" BWR | 250x128 | BWR | rotate 270°, mirror X |
+| `0x012B` | EPD 7.5" BWR | 800x480 | BWR | mirror Y, invert, QuickLZ |
+| `0x022B` | EPD 3.7" BWR | 240x416 | BWR | rotate 180°, mirror X, column compression |
+
+`0x012B` on firmware `0x8101` uses column compression instead.
+
+The table comes from [hass-gicisky](https://github.com/eigger/hass-gicisky)
+(MIT, © 2025 eigger). Only `0x0033` has been held up against hardware; the rest
+are marked `unverified` by `inkwire scan`:
+
+```
+FF:FF:92:94:38:61                      NEMR92943861    -50  3.0V  gicisky  EPD 4.2" BWR    400x300   BWR (unverified)
+```
+
+An id that is not in the table is still listed, marked `unrecognised model`, and
+is not driven.
 
 ## EPD-nRF5
 
@@ -83,17 +235,10 @@ writing a Gicisky tag requires seeing manufacturer data before rendering.
 | Planes | black + colour, row major, MSB first, set bit = white, colour inverted |
 | Compression | firmware RLE; blank 400x300 plane 15000 → 232 bytes |
 
-```bash
-inkwire push -device NRF_EPD_C1F8 examples/fridge/page.json
-```
 
 ### Models
 
-Read after `INIT`. Size mismatch is refused:
-
-```
-the page is 296x128 and the panel is UC8176_420_BWR 400x300 BWR; render it at the panel's size
-```
+Read after connecting with `INIT`. A size mismatch is not refused: the page is laid out again for the panel and a `size-mismatch` warning is reported.
 
 | ID | Name | Size | Inks | Packing |
 |---|---|---|---|---|
@@ -118,48 +263,6 @@ panel is UC8179_750_BWR 800x480 BWR (unverified), link carries 244 bytes and can
 
 Unimplemented packings are refused, not attempted.
 
-### Refresh
-
-```
-sending 40 frames compressed
-staying connected 30s while the panel refreshes; disconnecting now would cancel it
-```
-
-| | |
-|---|---|
-| `-settle` | 30 s default. Disconnecting early cancels the draw. 60 s for large or BWR panels |
-| Between writes | ≥45 s to one tag; 26 s fails — the tag refuses connections while refreshing |
-
-RSSI belongs to the whole link — the tag's transmitter, both antennas, the path
-and the receiver — so the distances below are one adapter's reach and not the
-tags' limit. Measured 2026-08-17 against a Realtek RTL8761BU dongle (USB
-`0bda:8771`, Bluetooth 5.1, integrated antenna, USB 2.0 full speed), tags
-standing upright with a clear line of sight:
-
-| Distance | Gicisky | EPD-nRF5 | Pushes |
-|---|---|---|---|
-| 1 m | −66 dBm | −68 dBm | 4/4 |
-| 2 m | −74 dBm | −78 dBm | 2/2 |
-| 3 m | −76 dBm | −80 dBm | 2/2 |
-| 5 m | −80 dBm | −86 dBm | 2/2 |
-
-A card with a better receiver and external antennas — an AX210, say — reads
-higher at the same distance and works at the same reading further away. Read the
-dBm column, not the metres.
-
-Transfer time does not follow RSSI: 18–29 s Gicisky and 40–48 s EPD-nRF5 across
-that whole 18 dB span, for 21-frame and 40-frame pages alike.
-
-Orientation is worth about 12 dB. One tag in one spot read −80 dBm lying flat
-and −68 dBm standing up, which is the difference between 1 m and 4 m. Stand
-tags up before moving them closer.
-
-An earlier session recorded 0/8 at −88 dBm. Nothing since reproduces a cliff
-there — −86 dBm is 2/2 — so it stands as an observation rather than a threshold.
-
-Failure looks like `le-connection-abort-by-local` at connect, a missing config
-reply, or `ATT error: 0x0e` at a random frame.
-
 ### Clock and calendar
 
 | Mode | Redraw |
@@ -176,27 +279,60 @@ inkwire mode -device NRF_EPD_C1F8 -mode clock
 
 `-week-start` unset leaves the tag's own value.
 
-## HTTP
+## The Bluetooth link
+
+
+### Signal and distance
+
+RSSI belongs to the whole link — the tag's transmitter, both antennas, the path
+and the receiver — so the table below is **one adapter's** situation.
+
+Sending end: a Realtek RTL8761BU dongle (OS: Debian, USB `0bda:8771`, Bluetooth
+5.1, integrated antenna, USB 2.0 full speed), tags standing upright with a clear
+line of sight:
+
+| Distance | Gicisky | EPD-nRF5 | Pushes |
+|---|---|---|---|
+| 1 m | −66 dBm | −68 dBm | 4/4 |
+| 2 m | −74 dBm | −78 dBm | 2/2 |
+| 3 m | −76 dBm | −80 dBm | 2/2 |
+| 5 m | −80 dBm | −86 dBm | 2/2 |
+
+
+### Between writes
+
+Leave ≥45 s between two writes to one tag. A tag refuses connections while it is
+refreshing; 26 s failed in practice.
+
+`-settle` controls how long the connection is held open after the write.
+Disconnecting early cancels that draw.
+
+### Connection failures
+
+| What it looks like | Where |
+|---|---|
+| `le-connection-abort-by-local` | Opening the connection |
+| The panel does not say what it is within 5 s | After `INIT`, EPD-nRF5 only |
+| `ATT error: 0x0e` | A random frame mid-transfer |
+
+A failure like these is retried: three attempts, two seconds apart. Only when
+all three fail does the command report an error and exit.
+
+A tag going quiet between advertising windows is normal. Not seeing one is not
+the same as it not being there, which is what the retries are for.
+
+## Running the HTTP service
 
 ```bash
 inkwire serve -listen 127.0.0.1:8080 -device NEMR92943861
 ```
 
-| Route | Response |
-|---|---|
-| `POST /v1/render` | JSON containing `width`, `height`, base64 `pngBase64`, and full `report` |
-| `POST /v1/display` | JSON result containing the device status and full `report` |
-| `GET /v1/devices` | Tags, each with `family` |
+| Route | What it does | Response |
+|---|---|---|
+| `POST /v1/render` | Renders locally, to preview the result | JSON containing `width`, `height`, base64 `pngBase64`, and full `report` |
+| `POST /v1/display` | Connects to a tag and renders on the hardware | JSON result containing the device status and full `report` |
+| `GET /v1/devices` | Scans for every supported tag around | The list of tags |
 
-`-listen` is loopback only. `/v1/display` takes `?device=` and
-`?family=auto|gicisky|nrfepd`. Budget: 45 s Gicisky, 60 s EPD-nRF5.
-Both rendering routes compile through the same scene path and return the same
-complete report structure once rendering has happened. `/v1/display` identifies
-a Gicisky profile before rendering, so identification failures return device
-status without a render report. If rendering completes and the push then fails,
-the error JSON still includes the report. The HTTP API intentionally does not
-expose a raw payload route; use `/v1/display` for direct device use or
-`/v1/render` for a preview.
 
 ```bash
 curl -H 'Content-Type: application/json' --data-binary @page.json \
@@ -206,9 +342,6 @@ curl -H 'Content-Type: application/json' --data-binary @page.json \
   'http://127.0.0.1:8080/v1/display?device=NRF_EPD_C1F8'
 ```
 
-The report is returned in the JSON body rather than split across custom
-headers. It contains bounds, missing runes, warnings, image decisions, and
-per-grid implicit track expansions.
 
 ### Warnings
 
@@ -216,10 +349,11 @@ Non-fatal.
 
 | `code` | Meaning |
 |---|---|
-| `text-clipped` | Text exceeds its box; characters or lines cut |
+| `text-clipped` | Text exceeds the box it is in; characters or lines cut |
 | `layout-overflow` | Children exceed the container on the main axis |
 | `empty-layout` | Padding or size leaves no drawable area |
 | `missing-runes` | Font lacks these glyphs |
+| `size-mismatch` | The scene states a size the panel does not have; laid out again for the panel, anything beyond it clipped |
 
 ### Errors
 
@@ -229,7 +363,7 @@ Non-fatal.
 | `invalid-request` | 400 | Malformed multipart, or unknown `family` |
 | `request-too-large` | 413 | Over the size limit |
 | `invalid-scene` | 422 | Will not decode or render |
-| `unprocessable-scene` | 422 | Renders, but cannot be packed for the panel that answered |
+| `unprocessable-scene` | 422 | Renders successfully, but cannot be packed for the selected Gicisky panel |
 | `render-failed` | 500 | PNG encoding failed |
 | `device-busy` | 409 | Adapter in use |
 | `device-identify-failed` | 502 | Gicisky target was not found, did not advertise a known model, or scan failed |

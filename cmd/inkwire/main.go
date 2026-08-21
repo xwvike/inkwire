@@ -194,7 +194,7 @@ func runSchema(args []string, stdout, stderr io.Writer) int {
 func runServe(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
 	flags := command("serve", "inkwire serve [-listen 127.0.0.1:8080] [-device MAC-or-name] [-assets directory]", stderr)
 	address := flags.String("listen", "127.0.0.1:8080", "HTTP listen address")
-	target := flags.String("device", "", "default BLE address or advertised name; unset means the one tag in range")
+	target := flags.String("device", "", "default BLE address or advertised name for requests that name none")
 	assets := flags.String("assets", ".", "directory available to relative image sources")
 	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
@@ -338,7 +338,7 @@ func runRender(args []string, stdout, stderr io.Writer) int {
 
 func runPushScene(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
 	flags := command("push", "inkwire push -device MAC-or-name [-family gicisky|nrfepd] [-settle 30s] <scene.json>", stderr)
-	target := flags.String("device", "", "BLE address or advertised name (required); `inkwire scan` lists them")
+	target := flags.String("device", "", "BLE address or advertised name, required; inkwire scan lists them")
 	family := flags.String("family", "auto", "tag family: auto, gicisky or nrfepd")
 	settle := flags.Duration("settle", nrfepd.DefaultSettle,
 		"nrfepd only: how long to stay connected while the panel refreshes; leaving early cancels it")
@@ -420,7 +420,7 @@ func pushGiciskyScene(ctx context.Context, found gicisky.FoundDevice, document c
 // away is a bad guest on somebody's hardware.
 func runMode(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
 	flags := command("mode", "inkwire mode -device MAC-or-name [-mode picture|calendar|clock] [-week-start sunday|monday] [-settle 30s]", stderr)
-	target := flags.String("device", "", "BLE address or advertised name (required); `inkwire scan` lists them")
+	target := flags.String("device", "", "BLE address or advertised name, required; inkwire scan lists them")
 	mode := flags.String("mode", "calendar", "what the tag draws for itself: picture, calendar or clock")
 	weekStart := flags.String("week-start", "", "first column of a calendar week: sunday or monday; unset leaves the tag's own setting alone")
 	settle := flags.Duration("settle", nrfepd.DefaultSettle, "how long to stay connected while the panel redraws")
