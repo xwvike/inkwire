@@ -604,7 +604,10 @@ func printReport(writer io.Writer, result scene.Result) {
 			expansion.Path, expansion.ImplicitColumns, expansion.ImplicitRows)
 	}
 	for _, decision := range result.Report.Images {
-		fmt.Fprintf(writer, "image %s: dither=%d fit=%d sampling=%d threshold=%d red-disabled=%t\n",
+		// Named rather than numbered. These printed as the integers behind the
+		// enums, so a line reading dither=2 said nothing anybody could look up
+		// and did not say which list to count along.
+		fmt.Fprintf(writer, "image %s: dither=%s fit=%s sampling=%s threshold=%d red-disabled=%t\n",
 			decision.Path, decision.Options.Dither, decision.Options.Fit, decision.Options.Sampling,
 			decision.Options.Threshold, decision.Options.DisableRed)
 	}

@@ -570,3 +570,48 @@ use `anchored.children[].layer` when they also need positioned boxes.
   }
 }
 ```
+
+## Report
+
+Every render answers with a report of what compilation measured. It changes
+nothing about the document; it says what the description turned out to mean.
+`inkwire render` prints it, and `/v1/render` and `/v1/push` return it as
+`report`.
+
+```json
+{
+  "bounds": {"x": 0, "y": 0, "width": 296, "height": 128},
+  "missingRunes": "翯𡃁",
+  "warnings": [
+    {"path": "root.children[2]", "code": "text-clipped", "message": "\"3260/3720G\" does not fit 40x15: 6 pixels of the line and 0 whole lines are cut off"}
+  ],
+  "gridExpansions": [
+    {"path": "root", "implicitColumns": 0, "implicitRows": 2}
+  ],
+  "images": [
+    {
+      "path": "root.children[0]",
+      "options": {"fit": "contain", "sampling": "bilinear", "dither": "floydSteinberg", "threshold": 128, "redThreshold": 170, "redMaxGreen": 170, "disableRed": false},
+      "profile": {"midToneFraction": 0.61, "threshold": 97, "redSeparation": 0, "lostToLuminance": 0.02, "photographic": true, "redIsMeaningful": false, "colourCarriesStructure": false},
+      "toneByColourDistance": false,
+      "contrastEnhanced": true
+    }
+  ]
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `bounds` | rect | What the page actually drew into, as an origin and a size |
+| `missingRunes` | string | The characters no bundled font could draw, as the characters themselves |
+| `warnings` | array | Non-fatal consequences of the description; the codes are listed in the README |
+| `gridExpansions` | array | Tracks auto-placement created beyond the ones a grid declared |
+| `images` | array | What automatic image processing decided, one entry per `"processing": "auto"` image |
+
+Only `bounds` is always present. The four arrays are omitted when there is
+nothing to say, so a clean render's report is its bounds and nothing else.
+
+`images[].options` uses the same spellings the `image` node accepts, so a
+decision reads back in the vocabulary it would be written in. `images[].profile`
+is what the image measured before those options were chosen, and exists so an
+automatic decision can be disagreed with: `overrides` on the node is how.

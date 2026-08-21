@@ -1410,40 +1410,27 @@ func parseCrossAlign(value string) (compose.CrossAlignment, error) {
 }
 
 func parseFit(value string) (display.ImageFit, error) {
-	switch value {
-	case "", "stretch":
-		return display.FitStretch, nil
-	case "contain":
-		return display.FitContain, nil
-	case "cover":
-		return display.FitCover, nil
-	default:
-		return 0, enumError(value, "stretch", "contain", "cover")
+	fit, known := display.ParseImageFit(value)
+	if !known {
+		return 0, enumError(value, display.ImageFitNames()...)
 	}
+	return fit, nil
 }
 
 func parseSampling(value string) (display.SamplingMode, error) {
-	switch value {
-	case "", "nearest":
-		return display.SampleNearest, nil
-	case "bilinear":
-		return display.SampleBilinear, nil
-	default:
-		return 0, enumError(value, "nearest", "bilinear")
+	sampling, known := display.ParseSamplingMode(value)
+	if !known {
+		return 0, enumError(value, display.SamplingModeNames()...)
 	}
+	return sampling, nil
 }
 
 func parseDither(value string) (display.DitherMode, error) {
-	switch value {
-	case "", "threshold":
-		return display.DitherThreshold, nil
-	case "floydSteinberg":
-		return display.DitherFloydSteinberg, nil
-	case "ordered":
-		return display.DitherOrdered, nil
-	default:
-		return 0, enumError(value, "threshold", "floydSteinberg", "ordered")
+	dither, known := display.ParseDitherMode(value)
+	if !known {
+		return 0, enumError(value, display.DitherModeNames()...)
 	}
+	return dither, nil
 }
 
 func enumError(value string, allowed ...string) error {

@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"encoding/json"
 	"fmt"
 	"image"
 	"reflect"
@@ -37,18 +38,18 @@ type Node interface {
 
 // Warning reports a non-fatal, deterministic consequence of the description.
 type Warning struct {
-	Path    string
-	Code    string
-	Message string
+	Path    string `json:"path"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 // ImageDecision makes every automatic image adaptation visible to the caller.
 type ImageDecision struct {
-	Path                 string
-	Profile              ImageProfile
-	Options              display.ImageOptions
-	ToneByColourDistance bool
-	ContrastEnhanced     bool
+	Path                 string               `json:"path"`
+	Profile              ImageProfile         `json:"profile"`
+	Options              display.ImageOptions `json:"options"`
+	ToneByColourDistance bool                 `json:"toneByColourDistance"`
+	ContrastEnhanced     bool                 `json:"contrastEnhanced"`
 }
 
 // GridExpansion reports tracks created by auto-placement beyond the grid's
@@ -56,17 +57,78 @@ type ImageDecision struct {
 // normal CSS grid behaviour, but they still need to be visible to a caller
 // rendering into a fixed-size panel.
 type GridExpansion struct {
-	Path                          string
-	ImplicitColumns, ImplicitRows int
+	Path            string `json:"path"`
+	ImplicitColumns int    `json:"implicitColumns"`
+	ImplicitRows    int    `json:"implicitRows"`
 }
 
 // Report describes what compilation measured without changing the document.
+//
+// The Go shape and the JSON shape are deliberately different, and MarshalJSON
+// is where they part. image.Rectangle marshals as a Min and a Max point, which
+// is a fine way to hold a rectangle and a poor way to send one; a []rune is a
+// list of code points, and a caller reading `[32751, 135361]` has been handed
+// arithmetic rather than the characters a font could not draw. Both went out
+// that way, inside an envelope whose own fields were camelCase, so one object
+// in the response spoke Go and the rest spoke JSON.
 type Report struct {
 	Bounds         image.Rectangle
 	MissingRunes   []rune
 	Warnings       []Warning
 	Images         []ImageDecision
 	GridExpansions []GridExpansion
+}
+
+// reportJSON is the shape a report has on the wire. It is a separate type
+// rather than tags on Report because two of the fields change shape and not
+// just name.
+type reportJSON struct {
+	Bounds         boxJSON         `json:"bounds"`
+	MissingRunes   string          `json:"missingRunes,omitempty"`
+	Warnings       []Warning       `json:"warnings,omitempty"`
+	Images         []ImageDecision `json:"images,omitempty"`
+	GridExpansions []GridExpansion `json:"gridExpansions,omitempty"`
+}
+
+// boxJSON is a rectangle as an origin and a size, which is how every other
+// rectangle in this schema is written.
+type boxJSON struct {
+	X      int `json:"x"`
+	Y      int `json:"y"`
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
+func (r Report) MarshalJSON() ([]byte, error) {
+	return json.Marshal(reportJSON{
+		Bounds: boxJSON{
+			X: r.Bounds.Min.X, Y: r.Bounds.Min.Y,
+			Width: r.Bounds.Dx(), Height: r.Bounds.Dy(),
+		},
+		// The runes are sent as the text they are. They arrive as a set of
+		// characters some font could not draw, and what a caller does with
+		// them is show them to somebody.
+		MissingRunes:   string(r.MissingRunes),
+		Warnings:       r.Warnings,
+		Images:         r.Images,
+		GridExpansions: r.GridExpansions,
+	})
+}
+
+func (r *Report) UnmarshalJSON(data []byte) error {
+	var wire reportJSON
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	*r = Report{
+		Bounds: image.Rect(wire.Bounds.X, wire.Bounds.Y,
+			wire.Bounds.X+wire.Bounds.Width, wire.Bounds.Y+wire.Bounds.Height),
+		MissingRunes:   []rune(wire.MissingRunes),
+		Warnings:       wire.Warnings,
+		Images:         wire.Images,
+		GridExpansions: wire.GridExpansions,
+	}
+	return nil
 }
 
 // CompiledDocument keeps the page properties beside the display list they

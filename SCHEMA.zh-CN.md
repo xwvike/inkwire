@@ -556,3 +556,46 @@ JSON，PNG 以 base64 `pngBase64` 与报告一起返回。
   }
 }
 ```
+
+## 报告
+
+每次渲染都会附带一份报告，说明编译过程测量到了什么。它不改变文档本身，只陈述
+这份描述最终意味着什么。`inkwire render` 会打印它，`/v1/render` 和 `/v1/push`
+以 `report` 字段返回它。
+
+```json
+{
+  "bounds": {"x": 0, "y": 0, "width": 296, "height": 128},
+  "missingRunes": "翯𡃁",
+  "warnings": [
+    {"path": "root.children[2]", "code": "text-clipped", "message": "\"3260/3720G\" does not fit 40x15: 6 pixels of the line and 0 whole lines are cut off"}
+  ],
+  "gridExpansions": [
+    {"path": "root", "implicitColumns": 0, "implicitRows": 2}
+  ],
+  "images": [
+    {
+      "path": "root.children[0]",
+      "options": {"fit": "contain", "sampling": "bilinear", "dither": "floydSteinberg", "threshold": 128, "redThreshold": 170, "redMaxGreen": 170, "disableRed": false},
+      "profile": {"midToneFraction": 0.61, "threshold": 97, "redSeparation": 0, "lostToLuminance": 0.02, "photographic": true, "redIsMeaningful": false, "colourCarriesStructure": false},
+      "toneByColourDistance": false,
+      "contrastEnhanced": true
+    }
+  ]
+}
+```
+
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `bounds` | rect | 这一页实际画到的范围，写成原点加尺寸 |
+| `missingRunes` | string | 没有任何内置字体能画的字符，就是那些字符本身 |
+| `warnings` | array | 描述带来的非致命后果；代码表见 README |
+| `gridExpansions` | array | 自动布置在 grid 声明之外新建的轨道 |
+| `images` | array | 自动图片处理做了什么决定，每个 `"processing": "auto"` 的图片一条 |
+
+只有 `bounds` 一定存在。四个数组在无话可说时整个省略，所以一次干净渲染的报告
+就只有它的 bounds。
+
+`images[].options` 用的是 `image` 节点接受的同一批拼写，所以一个决定读回来时
+用的是它本该被写下的词汇。`images[].profile` 是这些选项被选出来之前图片测量到
+的结果，它存在是为了让自动决定可以被推翻——节点上的 `overrides` 就是推翻的方式。

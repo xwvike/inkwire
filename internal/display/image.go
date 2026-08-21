@@ -1,6 +1,7 @@
 package display
 
 import (
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
@@ -30,6 +31,124 @@ const (
 	DitherOrdered
 )
 
+// The three enums name themselves with the words a scene uses to ask for them,
+// so a report reads back in the vocabulary it was written in. They used to
+// leave a report as bare integers: dither=2 told a caller nothing it could
+// look up, and nothing said which list to count along.
+
+func (f ImageFit) String() string {
+	switch f {
+	case FitStretch:
+		return "stretch"
+	case FitContain:
+		return "contain"
+	case FitCover:
+		return "cover"
+	}
+	return fmt.Sprintf("ImageFit(%d)", uint8(f))
+}
+
+func (f ImageFit) MarshalJSON() ([]byte, error) { return json.Marshal(f.String()) }
+
+func (s SamplingMode) String() string {
+	switch s {
+	case SampleNearest:
+		return "nearest"
+	case SampleBilinear:
+		return "bilinear"
+	}
+	return fmt.Sprintf("SamplingMode(%d)", uint8(s))
+}
+
+func (s SamplingMode) MarshalJSON() ([]byte, error) { return json.Marshal(s.String()) }
+
+func (d DitherMode) String() string {
+	switch d {
+	case DitherThreshold:
+		return "threshold"
+	case DitherFloydSteinberg:
+		return "floydSteinberg"
+	case DitherOrdered:
+		return "ordered"
+	}
+	return fmt.Sprintf("DitherMode(%d)", uint8(d))
+}
+
+func (d DitherMode) MarshalJSON() ([]byte, error) { return json.Marshal(d.String()) }
+
+// The parsers are here beside the names rather than in the decoder that first
+// needed them, so one list spells each word once. A report that sends "cover"
+// and a scene that asks for "cover" are now reading the same table.
+
+// ParseImageFit reads a fit by name. An empty name is the default rather than
+// an error, which is what a scene omitting the field means.
+func ParseImageFit(name string) (ImageFit, bool) {
+	switch name {
+	case "", "stretch":
+		return FitStretch, true
+	case "contain":
+		return FitContain, true
+	case "cover":
+		return FitCover, true
+	}
+	return 0, false
+}
+
+// ImageFitNames lists the spellings ParseImageFit accepts, for the errors that
+// have to say what was allowed.
+func ImageFitNames() []string { return []string{"stretch", "contain", "cover"} }
+
+func (f *ImageFit) UnmarshalJSON(data []byte) error { return unmarshalEnum(data, f, ParseImageFit) }
+
+// ParseSamplingMode reads a sampling mode by name.
+func ParseSamplingMode(name string) (SamplingMode, bool) {
+	switch name {
+	case "", "nearest":
+		return SampleNearest, true
+	case "bilinear":
+		return SampleBilinear, true
+	}
+	return 0, false
+}
+
+// SamplingModeNames lists the spellings ParseSamplingMode accepts.
+func SamplingModeNames() []string { return []string{"nearest", "bilinear"} }
+
+func (s *SamplingMode) UnmarshalJSON(data []byte) error {
+	return unmarshalEnum(data, s, ParseSamplingMode)
+}
+
+// ParseDitherMode reads a dither mode by name.
+func ParseDitherMode(name string) (DitherMode, bool) {
+	switch name {
+	case "", "threshold":
+		return DitherThreshold, true
+	case "floydSteinberg":
+		return DitherFloydSteinberg, true
+	case "ordered":
+		return DitherOrdered, true
+	}
+	return 0, false
+}
+
+// DitherModeNames lists the spellings ParseDitherMode accepts.
+func DitherModeNames() []string { return []string{"threshold", "floydSteinberg", "ordered"} }
+
+func (d *DitherMode) UnmarshalJSON(data []byte) error { return unmarshalEnum(data, d, ParseDitherMode) }
+
+func unmarshalEnum[T ~uint8](data []byte, into *T, parse func(string) (T, bool)) error {
+	var name string
+	if err := json.Unmarshal(data, &name); err != nil {
+		return err
+	}
+	value, known := parse(name)
+	if !known {
+		return fmt.Errorf("unknown value %q", name)
+	}
+	*into = value
+	return nil
+}
+
 // Defaults verified against the target panel.
 const (
 	defaultThreshold    = 128
@@ -54,13 +173,13 @@ func DefaultImageOptions() ImageOptions {
 // RedMaxGreen of zero is the natural way to say "no red", which is what
 // DisableRed exists for.
 type ImageOptions struct {
-	Fit          ImageFit
-	Sampling     SamplingMode
-	Dither       DitherMode
-	Threshold    int  // luminance above which a pixel is white; 0 means 128
-	RedThreshold int  // red channel above which a pixel may be red; 0 means 170
-	RedMaxGreen  int  // green channel below which a pixel may be red; 0 means 170
-	DisableRed   bool // keep the red plane empty whatever the source contains
+	Fit          ImageFit     `json:"fit"`
+	Sampling     SamplingMode `json:"sampling"`
+	Dither       DitherMode   `json:"dither"`
+	Threshold    int          `json:"threshold"`    // luminance above which a pixel is white; 0 means 128
+	RedThreshold int          `json:"redThreshold"` // red channel above which a pixel may be red; 0 means 170
+	RedMaxGreen  int          `json:"redMaxGreen"`  // green channel below which a pixel may be red; 0 means 170
+	DisableRed   bool         `json:"disableRed"`   // keep the red plane empty whatever the source contains
 }
 
 type imageWindow struct {

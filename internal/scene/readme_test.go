@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/xwvike/inkwire/internal/display"
 )
 
 // readmes are the schema reference in its two translations. They are kept as
@@ -187,6 +189,16 @@ func TestBothReadmesDocumentEveryAcceptedValue(t *testing.T) {
 		t.Fatal(err)
 	}
 	sets := acceptedValues(strings.Split(string(source), "\n"))
+	// Three of these sets left this file when the words moved next to the
+	// names they produce, so that a report saying "cover" and a scene asking
+	// for "cover" read the same list. They come from the functions that hold
+	// that list now, which is a better source than a regular expression over a
+	// switch — it is the list itself rather than a shape somebody wrote it in.
+	sets = append(sets,
+		valueSet{subject: "display.ImageFitNames()", values: display.ImageFitNames()},
+		valueSet{subject: "display.SamplingModeNames()", values: display.SamplingModeNames()},
+		valueSet{subject: "display.DitherModeNames()", values: display.DitherModeNames()},
+	)
 	total := 0
 	for _, set := range sets {
 		total += len(set.values)
@@ -209,8 +221,7 @@ func TestBothReadmesDocumentEveryAcceptedValue(t *testing.T) {
 					strings.Contains(string(doc), `"`+value+`"`) {
 					continue
 				}
-				t.Errorf("%s never documents %q, accepted by the switch on %s at decode.go:%d",
-					path, value, set.subject, set.line)
+				t.Errorf("%s never documents %q, accepted by %s", path, value, set.subject)
 			}
 		}
 	}
@@ -293,6 +304,15 @@ func TestBothReadmesDocumentEveryDefault(t *testing.T) {
 			zeroValue[match[1]] = fallback[1]
 		}
 	}
+	// The three image parsers delegate now, so what an omitted field means is
+	// no longer written in this file. It is asked of the function instead,
+	// which answers with the value rather than with the shape it was spelled in.
+	fit, _ := display.ParseImageFit("")
+	sampling, _ := display.ParseSamplingMode("")
+	dither, _ := display.ParseDitherMode("")
+	zeroValue["parseFit"] = fit.String()
+	zeroValue["parseSampling"] = sampling.String()
+	zeroValue["parseDither"] = dither.String()
 	tags := map[string]string{}
 	for _, match := range regexp.MustCompile("(?m)^\\s+(\\w+)\\s+[\\w\\[\\]*.]+\\s+`json:\"(\\w+)").FindAllStringSubmatch(text, -1) {
 		tags[match[1]] = match[2]

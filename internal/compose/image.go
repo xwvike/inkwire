@@ -22,10 +22,10 @@ import (
 type ImageProfile struct {
 	// MidToneFraction is the share of pixels that are neither near-black nor
 	// near-white. Continuous tone lives here; flat artwork barely registers.
-	MidToneFraction float64
+	MidToneFraction float64 `json:"midToneFraction"`
 	// Threshold is the cut Otsu's method finds in the image's own histogram.
 	// A fixed cut at 128 erases artwork that happens to sit entirely above it.
-	Threshold int
+	Threshold int `json:"threshold"`
 	// RedSeparation is how convincingly red the pixels are that would reach the
 	// red plane: the median distance between their red and green channels.
 	// The plane's test admits anything merely warm, so skin, pink hair and
@@ -33,20 +33,20 @@ type ImageProfile struct {
 	// Genuine red sits far from that: across the sample, images whose red
 	// carries meaning measured 122 and above while incidental warmth reached
 	// 72 at most. Zero when nothing would reach the plane at all.
-	RedSeparation int
+	RedSeparation int `json:"redSeparation"`
 	// LostToLuminance is the share of the image that is plainly not paper and
 	// yet lands on the paper side of Threshold, because its colour is light
 	// even though it is vivid. Artwork whose shapes differ in hue at one
 	// brightness disappears this way; ToneByColourDistance is the answer.
-	LostToLuminance float64
+	LostToLuminance float64 `json:"lostToLuminance"`
 	// Photographic reports whether the image reads as continuous tone.
-	Photographic bool
+	Photographic bool `json:"photographic"`
 	// RedIsMeaningful reports whether the red plane carries signal rather than
 	// a warm cast.
-	RedIsMeaningful bool
+	RedIsMeaningful bool `json:"redIsMeaningful"`
 	// ColourCarriesStructure reports that reducing this image by brightness
 	// would throw away much of what is in it.
-	ColourCarriesStructure bool
+	ColourCarriesStructure bool `json:"colourCarriesStructure"`
 }
 
 // photographicMidTone separates the two kinds. Measured across a sample of
