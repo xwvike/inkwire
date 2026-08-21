@@ -21,6 +21,8 @@ package panel
 import (
 	"fmt"
 	"image"
+	"strconv"
+	"strings"
 
 	"github.com/xwvike/inkwire/internal/compose"
 	"github.com/xwvike/inkwire/internal/display"
@@ -67,6 +69,85 @@ func All() []Panel {
 		panels = append(panels, OfNRFEPD(model))
 	}
 	return panels
+}
+
+// ByKey finds a panel named the way a person has to name one when there is no
+// tag in the room to ask.
+//
+// The family has to be stated. It is not a formality: the two catalogues are
+// numbered independently, so 0x33 means one panel to one firmware and another
+// to the other, and there is no shape to an id that says which it is.
+//
+// Gicisky panels can only be asked for by id, because their names do not
+// identify them — 0x000B and 0x010B are both called EPD 2.1" BWR and they are
+// different sizes. An EPD-nRF5 panel takes either the firmware's name for it
+// or its id, since those names are unique and are what the reference project
+// and its web tool put in front of somebody.
+func ByKey(key string) (Panel, error) {
+	family, rest, ok := strings.Cut(key, ":")
+	if !ok {
+		return Panel{}, fmt.Errorf("panel %q does not say which family: write %s:ID or %s:NAME", key, tag.Gicisky, tag.NRFEPD)
+	}
+	family = strings.ToLower(strings.TrimSpace(family))
+	rest = strings.TrimSpace(rest)
+	switch family {
+	case tag.Gicisky:
+		id, err := parseHex(rest, 16)
+		if err != nil {
+			return Panel{}, fmt.Errorf("panel %q: %w, and a Gicisky panel can only be asked for by id because its name does not identify it", key, err)
+		}
+		profile, known := gicisky.LookupProfile(uint16(id), 0)
+		if !known {
+			return Panel{}, fmt.Errorf("no Gicisky panel 0x%04X in this build", id)
+		}
+		return OfGicisky(profile), nil
+	case tag.NRFEPD:
+		if model, known := nrfepd.LookupModelName(rest); known {
+			return OfNRFEPD(model), nil
+		}
+		id, err := parseHex(rest, 8)
+		if err != nil {
+			return Panel{}, fmt.Errorf("no EPD-nRF5 panel named %q in this build, and it is not an id either", rest)
+		}
+		model, known := nrfepd.LookupModel(uint8(id))
+		if !known {
+			return Panel{}, fmt.Errorf("no EPD-nRF5 panel 0x%02x in this build", id)
+		}
+		return OfNRFEPD(model), nil
+	}
+	return Panel{}, fmt.Errorf("unknown family %q: use %s or %s", family, tag.Gicisky, tag.NRFEPD)
+}
+
+// ParseSize reads the WxH a page is laid out at when it is a size rather than
+// a panel being asked for.
+//
+// A bare size is not a Panel and deliberately does not become one: nothing
+// about 400x300 says which inks are available, so a page laid out at a size
+// gets no ink check and should not look as though it had one.
+func ParseSize(text string) (image.Point, error) {
+	width, height, ok := strings.Cut(strings.ToLower(strings.TrimSpace(text)), "x")
+	if !ok {
+		return image.Point{}, fmt.Errorf("size %q is not WxH, such as 400x300", text)
+	}
+	x, errX := strconv.Atoi(strings.TrimSpace(width))
+	y, errY := strconv.Atoi(strings.TrimSpace(height))
+	if errX != nil || errY != nil || x <= 0 || y <= 0 {
+		return image.Point{}, fmt.Errorf("size %q is not WxH with both sides positive, such as 400x300", text)
+	}
+	return image.Pt(x, y), nil
+}
+
+// parseHex reads an id with or without the 0x the tables are written with.
+func parseHex(text string, bits int) (uint64, error) {
+	digits := strings.TrimPrefix(strings.TrimPrefix(text, "0X"), "0x")
+	if digits == "" {
+		return 0, fmt.Errorf("%q is not an id", text)
+	}
+	value, err := strconv.ParseUint(digits, 16, bits)
+	if err != nil {
+		return 0, fmt.Errorf("%q is not a %d-bit hexadecimal id", text, bits)
+	}
+	return value, nil
 }
 
 // ID is the identifier this build writes for the panel.
@@ -186,6 +267,12 @@ func Render(document compose.Document, p Panel) (scene.Result, Page, error) {
 func (p Panel) Encode(frame *display.Frame, orientation display.Orientation) (Page, error) {
 	switch p.Family {
 	case tag.NRFEPD:
+		// Asked here rather than left to the driver: the driver only sees a
+		// page with a tag already on the other end, and this is reachable
+		// without one.
+		if err := p.NRFEPD.Packable(); err != nil {
+			return Page{}, err
+		}
 		// Orientation is not passed on: this family is written the way the
 		// page was drawn, and RenderForSize has already turned a portrait
 		// document into a frame of the panel's own shape.

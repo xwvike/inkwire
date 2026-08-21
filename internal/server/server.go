@@ -355,9 +355,38 @@ func (h *Handler) serveRender(writer http.ResponseWriter, request *http.Request)
 	if !ok {
 		return
 	}
-	result, err := scene.Render(document)
-	if err != nil {
-		writeError(writer, http.StatusUnprocessableEntity, "invalid-scene", err)
+	query := request.URL.Query()
+	size, key := query.Get("size"), query.Get("panel")
+	if size != "" && key != "" {
+		writeError(writer, http.StatusBadRequest, "invalid-request",
+			errors.New("give size or panel, not both: they are two ways of saying the same thing"))
+		return
+	}
+	// The three ways a page can be sized, each failing in its own vocabulary:
+	// a key or a size the caller mistyped is a bad request, while a scene that
+	// will not lay out is a bad scene.
+	var result scene.Result
+	var renderErr error
+	switch {
+	case key != "":
+		known, err := panel.ByKey(key)
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, "invalid-request", err)
+			return
+		}
+		result, _, renderErr = panel.Render(document, known)
+	case size != "":
+		bounds, err := panel.ParseSize(size)
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, "invalid-request", err)
+			return
+		}
+		result, renderErr = scene.RenderForSize(document, bounds)
+	default:
+		result, renderErr = scene.Render(document)
+	}
+	if result.Frame == nil {
+		writeError(writer, http.StatusUnprocessableEntity, "invalid-scene", renderErr)
 		return
 	}
 	var encoded bytes.Buffer
@@ -365,12 +394,23 @@ func (h *Handler) serveRender(writer http.ResponseWriter, request *http.Request)
 		writeErrorWithReport(writer, http.StatusInternalServerError, "render-failed", err, result.Report)
 		return
 	}
-	writeJSON(writer, http.StatusOK, map[string]any{
+	body := map[string]any{
 		"width":     result.Frame.Width(),
 		"height":    result.Frame.Height(),
 		"pngBase64": base64.StdEncoding.EncodeToString(encoded.Bytes()),
 		"report":    result.Report,
-	})
+	}
+	// The preview goes out with the refusal. A page named for a panel it
+	// cannot go on has still been drawn, and what it looks like is what says
+	// which part of it has to change; answering with the error alone would
+	// leave a caller to render it a second time without the panel to find out.
+	if renderErr != nil {
+		body["error"] = renderErr.Error()
+		body["code"] = "unprocessable-scene"
+		writeJSON(writer, http.StatusUnprocessableEntity, body)
+		return
+	}
+	writeJSON(writer, http.StatusOK, body)
 }
 
 func (h *Handler) servePush(writer http.ResponseWriter, request *http.Request) {

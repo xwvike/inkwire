@@ -297,8 +297,10 @@ func printDevices(writer io.Writer, devices []gicisky.FoundDevice, others []nrfe
 }
 
 func runRender(args []string, stdout, stderr io.Writer) int {
-	flags := command("render", "inkwire render [-o preview.png] <scene.json>", stderr)
+	flags := command("render", "inkwire render [-o preview.png] [-size WxH | -panel family:id] <scene.json>", stderr)
 	output := flags.String("o", "", "PNG output path")
+	size := flags.String("size", "", "lay the scene out at this size instead of the one it declares, as `WxH`")
+	target := flags.String("panel", "", "lay the scene out for a named panel and check its inks, as `gicisky:0x0033` or `nrfepd:UC8176_420_BWR`")
 	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
 	}
@@ -306,13 +308,28 @@ func runRender(args []string, stdout, stderr io.Writer) int {
 		flags.Usage()
 		return 2
 	}
+	// Both say what size to lay out for, and only one of them can be right.
+	// Taking the last one written would make which flag wins a thing to
+	// remember rather than a thing to read.
+	if *size != "" && *target != "" {
+		fmt.Fprintln(stderr, "render takes -size or -panel, not both: they are two ways of saying the same thing.")
+		return 2
+	}
 	source := flags.Arg(0)
 	if *output == "" {
 		*output = replaceExtension(source, ".png")
 	}
-	result, err := (scene.Decoder{}).RenderFile(source)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+	result, renderErr, usage := renderFile(source, *size, *target)
+	if usage != nil {
+		fmt.Fprintln(stderr, usage)
+		return 2
+	}
+	// A page refused by -panel still drew, and the preview of it is the thing
+	// that shows what has to change. Writing it and then failing says more
+	// than failing with nothing to look at: the ink the panel cannot show is
+	// somewhere on that picture.
+	if result.Frame == nil {
+		fmt.Fprintln(stderr, renderErr)
 		return 1
 	}
 	file, err := os.Create(*output)
@@ -332,6 +349,10 @@ func runRender(args []string, stdout, stderr io.Writer) int {
 	}
 	printReport(stdout, result)
 	fmt.Fprintf(stdout, "wrote %s (%dx%d)\n", *output, result.Frame.Width(), result.Frame.Height())
+	if renderErr != nil {
+		fmt.Fprintln(stderr, renderErr)
+		return 1
+	}
 	return 0
 }
 
@@ -525,6 +546,47 @@ func enableBluetooth(logger *log.Logger) bool {
 	return true
 }
 
+// renderFile lays a scene out at whichever size was asked for.
+//
+// Naming a panel does more than set the size: the page is packed for it too,
+// and the bytes thrown away. That is the only thing here that catches an ink
+// the panel cannot show, which a preview cannot — a PNG of a red heading looks
+// right whether or not the panel bound for it has a colour plane.
+//
+// The third return is for what the caller wrote rather than what the scene
+// contains. A misspelled panel or size is a usage error and exits 2, the same
+// as an unknown week start or an unknown family; a scene that will not lay out
+// exits 1.
+func renderFile(source, size, key string) (scene.Result, error, error) {
+	decoder := scene.Decoder{}
+	switch {
+	case key != "":
+		known, err := panel.ByKey(key)
+		if err != nil {
+			return scene.Result{}, nil, err
+		}
+		document, err := decoder.DecodeFile(source)
+		if err != nil {
+			return scene.Result{}, err, nil
+		}
+		result, _, err := panel.Render(document, known)
+		return result, err, nil
+	case size != "":
+		bounds, err := panel.ParseSize(size)
+		if err != nil {
+			return scene.Result{}, nil, err
+		}
+		document, err := decoder.DecodeFile(source)
+		if err != nil {
+			return scene.Result{}, err, nil
+		}
+		result, err := scene.RenderForSize(document, bounds)
+		return result, err, nil
+	}
+	result, err := decoder.RenderFile(source)
+	return result, err, nil
+}
+
 func printReport(writer io.Writer, result scene.Result) {
 	if len(result.Report.MissingRunes) != 0 {
 		fmt.Fprintf(writer, "missing runes: %q\n", string(result.Report.MissingRunes))
@@ -582,7 +644,7 @@ func replaceExtension(path, extension string) string {
 }
 
 func printUsage(writer io.Writer) {
-	fmt.Fprintln(writer, "usage: inkwire render [-o preview.png] <scene.json>")
+	fmt.Fprintln(writer, "usage: inkwire render [-o preview.png] [-size WxH | -panel family:id] <scene.json>")
 	fmt.Fprintln(writer, "       inkwire push -device MAC-or-name [-family gicisky|nrfepd] <scene.json>")
 	fmt.Fprintln(writer, "       inkwire scan [-timeout 15s]")
 	fmt.Fprintln(writer, "       inkwire mode -device MAC-or-name [-mode picture|calendar|clock] [-week-start sunday|monday]")

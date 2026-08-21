@@ -16,7 +16,7 @@ Json Schema驱动的电子纸标签渲染器。
 | 命令 | 用途 |
 |---|---|
 | `inkwire scan [-timeout 15s]` | 列出当前可被扫描出来的标签 |
-| `inkwire render [-o out.png] <scene.json>` | PNG 预览 |
+| `inkwire render [-o out.png] [-size WxH \| -panel FAMILY:ID] <scene.json>` | PNG 预览 |
 | `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] <scene.json>` | 渲染并写入 |
 | `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 时钟/日历 模式 |
 | `inkwire serve [-listen ADDR] [-assets DIR]` | 启动 HTTP 服务 |
@@ -62,16 +62,49 @@ wrote preview.png (296x128)
 | 参数 | 默认 | 说明 |
 |---|---|---|
 | `-o` | 场景同名的 `.png` | PNG 输出路径 |
+| `-size` | 场景自己的 `size` | 改按 `WxH` 排版 |
+| `-panel` | 未设置 | 按指定面板排版，并检查它的墨水 |
 
-场景没有声明 `size` 时按 296x128 渲染。要预览别的尺寸，在场景顶层写明：
+场景没有声明 `size` 时按 296x128 渲染。`-size` 覆盖它，不查任何面板表：
 
-```json
-{
-  "version": 1,
-  "size": {"width": 400, "height": 300},
-  "root": {"type": "text", "runs": [{"text": "400x300", "font": "monaco", "size": 14}]}
-}
+```bash
+inkwire render -size 400x300 page.json
 ```
+
+`-panel` 更进一步：尺寸取自面板，然后真的为它打包一遍，把字节丢掉。这是唯一
+能抓出面板显示不了的墨水的办法，而预览抓不到——一个红色标题的 PNG，无论目标
+面板有没有彩色平面，看上去都是对的。
+
+```bash
+inkwire render -panel gicisky:0x0033 page.json
+inkwire render -panel nrfepd:UC8176_420_BWR page.json
+```
+
+```
+wrote page.png (296x128)
+wrote page.png (400x300)
+```
+
+面板显示不了的一页会说出来，预览照样留下：
+
+```bash
+inkwire render -panel gicisky:0x0028 page.json
+```
+
+```
+wrote page.png (296x128)
+BW panel cannot show red ink at (10,10)
+```
+
+面板拒绝这一页时预览照样写出来，因为它长什么样才是「该改哪里」的答案；退出码
+才是「它上不了这块屏」的答案。面板或尺寸写错退出 2，跟家族写错一样；场景排不
+出来退出 1。
+
+家族必须写明，因为两家的编号各排各的；而 Gicisky 面板只能按 id 要：`0x000B`
+和 `0x010B` 都叫 `EPD 2.1" BWR`，尺寸却不同。EPD-nRF5 面板则可以用固件给的名
+字或 id。两家的 id 都列在 [Gicisky](#gicisky) 和 [EPD-nRF5](#epd-nrf5) 两节。
+
+`-size` 和 `-panel` 是同一件事的两种说法，同时给会被拒绝，而不是替你挑一个。
 
 页面级字段的完整说明见 [SCHEMA.zh-CN.md](SCHEMA.zh-CN.md) 的「页面」一节。
 
@@ -85,7 +118,7 @@ inkwire push -device NEMR92943861 page.json
 
 ```
 writing to NEMR92943861 (e2ada7d1-187a-caea-21e4-d895f8240b62, gicisky)
-pushing 9472 bytes (EPD 2.9" BWR 296x128)
+pushing 9472 bytes (EPD 2.9" BWR 296x128 BWR)
 tag requested 244 byte messages -> 240 byte blocks
 upload complete, tag is refreshing
 ```
@@ -325,6 +358,9 @@ curl -H 'Content-Type: application/json' --data-binary @page.json \
   http://127.0.0.1:8080/v1/render -o render.json
 
 curl -H 'Content-Type: application/json' --data-binary @page.json \
+  'http://127.0.0.1:8080/v1/render?panel=gicisky:0x0033' -o render.json
+
+curl -H 'Content-Type: application/json' --data-binary @page.json \
   'http://127.0.0.1:8080/v1/push?device=NRF_EPD_C1F8'
 
 curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
@@ -332,12 +368,16 @@ curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
 
 | 查询参数 | 用在 | 说明 |
 |---|---|---|
+| `size` | render | 改按 `WxH` 排版，而不是场景声明的尺寸 |
+| `panel` | render | 按指定面板排版，并检查它的墨水 |
 | `device` | push、mode | 广播名或 BLE 地址，必填 |
 | `family` | push | 指定则断言设备属于这个家族 |
 | `mode` | mode | `picture`、`calendar` 或 `clock`，默认 `calendar` |
 | `week-start` | mode | `sunday` 或 `monday`，不写则保留标签原值 |
 
 `/v1/render` 和 `/v1/push` 的响应含完整 `report`，`/v1/push` 和 `/v1/mode` 另含设备状态。
+`?panel=` 拒绝的那一页返回 `unprocessable-scene`，但 `pngBase64` 仍在响应体里：
+这一页画出来了，它长什么样才是「该改哪里」的答案。
 
 
 ### 警告

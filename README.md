@@ -19,7 +19,7 @@ second download.
 | Command | Purpose |
 |---|---|
 | `inkwire scan [-timeout 15s]` | List the tags a scan can currently see |
-| `inkwire render [-o out.png] <scene.json>` | PNG preview |
+| `inkwire render [-o out.png] [-size WxH \| -panel FAMILY:ID] <scene.json>` | PNG preview |
 | `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] <scene.json>` | Render and write |
 | `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 clock / calendar mode |
 | `inkwire serve [-listen ADDR] [-assets DIR]` | Start the HTTP service |
@@ -66,17 +66,55 @@ wrote preview.png (296x128)
 | Flag | Default | Meaning |
 |---|---|---|
 | `-o` | the scene's path with `.png` | PNG output path |
+| `-size` | the scene's own `size` | Lay the scene out at `WxH` instead |
+| `-panel` | unset | Lay the scene out for a named panel and check its inks |
 
-A scene that states no `size` renders at 296x128. To preview another size,
-state one at the top of the scene:
+A scene that states no `size` renders at 296x128. `-size` overrides that
+without consulting any panel table:
 
-```json
-{
-  "version": 1,
-  "size": {"width": 400, "height": 300},
-  "root": {"type": "text", "runs": [{"text": "400x300", "font": "monaco", "size": 14}]}
-}
+```bash
+inkwire render -size 400x300 page.json
 ```
+
+`-panel` goes further: it takes the size from the panel and then packs the
+page for it, throwing the bytes away. That is what catches an ink the panel
+cannot show, which a preview cannot — a PNG of a red heading looks right
+whether or not the panel it is bound for has a colour plane.
+
+```bash
+inkwire render -panel gicisky:0x0033 page.json
+inkwire render -panel nrfepd:UC8176_420_BWR page.json
+```
+
+```
+wrote page.png (296x128)
+wrote page.png (400x300)
+```
+
+A page the panel cannot show says so, and still leaves the preview:
+
+```bash
+inkwire render -panel gicisky:0x0028 page.json
+```
+
+```
+wrote page.png (296x128)
+BW panel cannot show red ink at (10,10)
+```
+
+The preview is written even when the panel refuses the page, because what it
+looks like is what says which part of it has to change; the exit code is what
+says it will not go on that panel. A misspelled panel or size exits 2, the way
+an unknown family does; a scene that will not lay out exits 1.
+
+The family has to be stated because the two catalogues are numbered
+independently, and Gicisky panels can only be asked for by id: `0x000B` and
+`0x010B` are both called `EPD 2.1" BWR` and they are different sizes. An
+EPD-nRF5 panel takes either the firmware's name or its id. Both families' ids
+are listed under [Gicisky](#gicisky) and [EPD-nRF5](#epd-nrf5).
+
+`-size` and `-panel` are two ways of saying the same thing, so giving both
+is refused rather than resolved.
 
 The page-level fields are documented in full under "Page" in
 [SCHEMA.md](SCHEMA.md).
@@ -91,7 +129,7 @@ inkwire push -device NEMR92943861 page.json
 
 ```
 writing to NEMR92943861 (e2ada7d1-187a-caea-21e4-d895f8240b62, gicisky)
-pushing 9472 bytes (EPD 2.9" BWR 296x128)
+pushing 9472 bytes (EPD 2.9" BWR 296x128 BWR)
 tag requested 244 byte messages -> 240 byte blocks
 upload complete, tag is refreshing
 ```
@@ -346,6 +384,9 @@ curl -H 'Content-Type: application/json' --data-binary @page.json \
   http://127.0.0.1:8080/v1/render -o render.json
 
 curl -H 'Content-Type: application/json' --data-binary @page.json \
+  'http://127.0.0.1:8080/v1/render?panel=gicisky:0x0033' -o render.json
+
+curl -H 'Content-Type: application/json' --data-binary @page.json \
   'http://127.0.0.1:8080/v1/push?device=NRF_EPD_C1F8'
 
 curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
@@ -353,13 +394,17 @@ curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
 
 | Query parameter | Used by | Meaning |
 |---|---|---|
+| `size` | render | Lay the scene out at `WxH` instead of the size it declares |
+| `panel` | render | Lay the scene out for a named panel and check its inks |
 | `device` | push, mode | Advertised name or BLE address, required |
 | `family` | push | Given, it asserts the device belongs to that family |
 | `mode` | mode | `picture`, `calendar` or `clock`; `calendar` by default |
 | `week-start` | mode | `sunday` or `monday`; unset leaves the tag's own setting |
 
 `/v1/render` and `/v1/push` answer with the full `report`; `/v1/push` and
-`/v1/mode` also carry the device status.
+`/v1/mode` also carry the device status. A page that `?panel=` refuses comes
+back as `unprocessable-scene` with `pngBase64` still in the body: the page
+drew, and what it looks like is what says which part of it has to change.
 
 
 ### Warnings

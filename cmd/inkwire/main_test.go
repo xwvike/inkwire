@@ -121,3 +121,80 @@ func TestRenderReportsInvalidSceneWithoutCreatingOutput(t *testing.T) {
 		t.Fatalf("invalid scene created output: %v", err)
 	}
 }
+
+// writeScene puts a document somewhere the render command can be pointed at.
+func writeScene(t *testing.T, body string) (directory, path string) {
+	t.Helper()
+	directory = t.TempDir()
+	path = filepath.Join(directory, "page.json")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return directory, path
+}
+
+const redPage = `{"version":1,"root":{"type":"absolute","children":[
+	{"bounds":{"x":0,"y":0,"width":30,"height":20},"node":{"type":"rectangle","fill":"red"}}
+]}}`
+
+// A preview is laid out for whatever was asked for, and a scene that states no
+// size no longer means one panel's size by default without saying so.
+func TestRenderLaysOutForTheSizeOrPanelAskedFor(t *testing.T) {
+	directory, scenePath := writeScene(t, redPage)
+	for _, given := range []struct {
+		flag, value, want string
+	}{
+		{"-size", "400x300", "(400x300)"},
+		{"-panel", "gicisky:0x0033", "(296x128)"},
+		{"-panel", "nrfepd:UC8176_420_BWR", "(400x300)"},
+	} {
+		var stdout, stderr bytes.Buffer
+		pngPath := filepath.Join(directory, "preview.png")
+		code := run([]string{"render", given.flag, given.value, "-o", pngPath, scenePath}, &stdout, &stderr)
+		if code != 0 {
+			t.Errorf("render %s %s = %d, stderr = %s", given.flag, given.value, code, stderr.String())
+			continue
+		}
+		if !strings.Contains(stdout.String(), given.want) {
+			t.Errorf("render %s %s said %q, want %s", given.flag, given.value, stdout.String(), given.want)
+		}
+	}
+}
+
+// The preview is written even when the panel refuses the ink, because what the
+// page looks like is what says which part of it has to change. The exit code
+// is what says it will not go on that panel.
+func TestAPanelThatRefusesTheInkStillLeavesAPreview(t *testing.T) {
+	directory, scenePath := writeScene(t, redPage)
+	pngPath := filepath.Join(directory, "preview.png")
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"render", "-panel", "gicisky:0x0028", "-o", pngPath, scenePath}, &stdout, &stderr); code != 1 {
+		t.Fatalf("render code = %d, want 1; stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "red") {
+		t.Errorf("stderr = %q, want it to name the ink the panel cannot show", stderr.String())
+	}
+	if info, err := os.Stat(pngPath); err != nil || info.Size() == 0 {
+		t.Fatalf("preview = %v, %v, want the page that was drawn", info, err)
+	}
+}
+
+// A misspelled flag value is a usage error and exits 2, the same as an unknown
+// family or an unknown week start. A scene that will not lay out exits 1, and
+// the difference is what says whether to fix the command or the document.
+func TestAMistypedPanelOrSizeExitsAsAUsageError(t *testing.T) {
+	_, scenePath := writeScene(t, redPage)
+	for _, args := range [][]string{
+		{"render", "-panel", "0x0033", scenePath},
+		{"render", "-panel", "gicisky:nope", scenePath},
+		{"render", "-panel", "chicory:0x0033", scenePath},
+		{"render", "-size", "400", scenePath},
+		{"render", "-size", "400x300", "-panel", "gicisky:0x0033", scenePath},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, &stdout, &stderr); code != 2 {
+			t.Errorf("%v = %d, want 2; stderr = %s", args[1:], code, stderr.String())
+		}
+	}
+}

@@ -139,8 +139,8 @@ type Plan struct {
 // a time and whether the firmware can decompress; a firmware that cannot gets
 // the planes as they are.
 func BuildPlan(model Model, black, colour []byte, link Link) (Plan, error) {
-	if model.Packing == PackingNibbles {
-		return Plan{}, fmt.Errorf("%s packs two pixels to a byte, which is not implemented yet", model.Name)
+	if err := model.Packable(); err != nil {
+		return Plan{}, err
 	}
 	if want := model.PlaneSize(); len(black) != want {
 		return Plan{}, fmt.Errorf("black plane is %d bytes, %s wants %d", len(black), model.Name, want)

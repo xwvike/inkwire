@@ -77,6 +77,22 @@ func (m Model) PlaneSize() int {
 	return (m.Width + 7) / 8 * m.Height
 }
 
+// Packable reports whether this build can turn a page into the bytes this
+// panel wants.
+//
+// It is asked in two places that see a panel at different moments: before a
+// page is encoded at all, and again when the planes are turned into writes. A
+// panel that cannot be packed has to be refused at the first of those, because
+// the second is only reached with a tag on the other end of a connection, and
+// a page rendered for one of these offline would otherwise come out looking
+// like a page.
+func (m Model) Packable() error {
+	if m.Packing == PackingNibbles {
+		return fmt.Errorf("%s packs two pixels to a byte, which is not implemented yet", m.Name)
+	}
+	return nil
+}
+
 // String names the panel and says whether its dimensions are known or merely
 // transcribed, because that qualifier belongs everywhere the panel is named:
 // the size is what an unverified entry would have wrong, and it is not

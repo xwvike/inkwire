@@ -215,3 +215,95 @@ func TestAnIDIsWrittenToItsOwnFamilysWidth(t *testing.T) {
 		t.Errorf("EPD-nRF5 ID = %q, want %q", got, want)
 	}
 }
+
+// The family has to be stated because the two catalogues are numbered
+// independently: 0x0B is a panel to both firmwares and a different one to each.
+// There is no shape to an id that says which family wrote it.
+func TestAPanelAskedForByHandHasToNameItsFamily(t *testing.T) {
+	if _, err := ByKey("0x0033"); err == nil {
+		t.Fatal("an id with no family was accepted")
+	}
+	gicisky, err := ByKey("gicisky:0x0033")
+	if err != nil {
+		t.Fatalf("gicisky:0x0033: %v", err)
+	}
+	if gicisky.Size() != image.Pt(296, 128) {
+		t.Errorf("gicisky:0x0033 = %v, want 296x128", gicisky.Size())
+	}
+	// The same digits, the other family, a different panel.
+	if _, err := ByKey("nrfepd:0x0033"); err == nil {
+		t.Error("0x0033 was accepted as an EPD-nRF5 id, which this build has no panel for")
+	}
+}
+
+// An EPD-nRF5 panel can be asked for by the firmware's name because those
+// names identify a panel. A Gicisky panel cannot, and this is why: two entries
+// share a name and are different sizes, so accepting it would mean picking one
+// of them for somebody without saying so.
+func TestOnlyOneFamilysNamesIdentifyAPanel(t *testing.T) {
+	byName, err := ByKey("nrfepd:UC8176_420_BWR")
+	if err != nil {
+		t.Fatalf("by name: %v", err)
+	}
+	byID, err := ByKey("nrfepd:" + fmt.Sprintf("0x%02x", byName.NRFEPD.ID))
+	if err != nil {
+		t.Fatalf("by id: %v", err)
+	}
+	if byName != byID {
+		t.Errorf("name gave %s and id gave %s", byName, byID)
+	}
+
+	names := map[string][]string{}
+	for _, known := range All() {
+		if known.Family == tag.Gicisky {
+			names[known.Name()] = append(names[known.Name()], known.ID())
+		}
+	}
+	var shared bool
+	for _, ids := range names {
+		if len(ids) > 1 {
+			shared = true
+		}
+	}
+	if !shared {
+		t.Skip("no Gicisky name is shared any more, so the id-only rule could be relaxed")
+	}
+	if _, err := ByKey(`gicisky:EPD 2.1" BWR`); err == nil {
+		t.Error("a Gicisky name that two panels share was accepted")
+	}
+}
+
+// A size is not a panel and must not quietly become one. Nothing about 400x300
+// says which inks are available, so a page laid out at a size gets no ink check
+// and should not look as though it had one.
+func TestASizeIsReadWithoutBecomingAPanel(t *testing.T) {
+	if got, err := ParseSize("400x300"); err != nil || got != image.Pt(400, 300) {
+		t.Fatalf("ParseSize(400x300) = %v, %v", got, err)
+	}
+	if got, err := ParseSize(" 296 X 128 "); err != nil || got != image.Pt(296, 128) {
+		t.Errorf("ParseSize with spaces and capitals = %v, %v", got, err)
+	}
+	for _, text := range []string{"", "400", "400x", "x300", "0x300", "400x-1", "four hundred"} {
+		if _, err := ParseSize(text); err == nil {
+			t.Errorf("ParseSize(%q) was accepted", text)
+		}
+	}
+}
+
+// The nibble-packed panels are refused before anything is drawn for them.
+// The driver refuses them too, but only ever with a tag on the other end of a
+// connection, and a page rendered for one offline would otherwise come out
+// looking like a page.
+func TestAPanelThisBuildCannotPackIsRefusedWithNoTagPresent(t *testing.T) {
+	known, err := ByKey("nrfepd:UC8159_750_LOW_BW")
+	if err != nil {
+		t.Fatalf("by name: %v", err)
+	}
+	_, _, err = Render(filled(display.InkBlack), known)
+	if err == nil {
+		t.Fatal("a nibble-packed panel was rendered for")
+	}
+	if !strings.Contains(err.Error(), "two pixels to a byte") {
+		t.Errorf("error = %v, want it to say why the panel cannot be packed", err)
+	}
+}

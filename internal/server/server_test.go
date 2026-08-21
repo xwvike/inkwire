@@ -1102,3 +1102,89 @@ func post(t *testing.T, handler *Handler, path string) *httptest.ResponseRecorde
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, nil))
 	return response
 }
+
+const redScene = `{"version":1,"root":{"type":"absolute","children":[{"bounds":{"x":0,"y":0,"width":20,"height":10},"node":{"type":"rectangle","fill":"red"}}]}}`
+
+// Rendering for a named panel is how a page is checked against a tag that is
+// not in the room. Both ways of stating the size have to reach the layout, and
+// naming a panel has to reach its encoder too.
+func TestRenderTakesASizeOrAPanel(t *testing.T) {
+	handler := New(Config{Logf: func(string, ...any) {}})
+
+	sized := request(t, handler, "/v1/render?size=400x300", testScene)
+	if sized.Code != http.StatusOK {
+		t.Fatalf("sized render = %d: %s", sized.Code, sized.Body.String())
+	}
+	if frame, _ := decodeRenderResponse(t, sized); frame.Bounds().Dx() != 400 || frame.Bounds().Dy() != 300 {
+		t.Errorf("sized render bounds = %v, want 400x300", frame.Bounds())
+	}
+
+	named := request(t, handler, "/v1/render?panel=nrfepd:UC8176_420_BWR", testScene)
+	if named.Code != http.StatusOK {
+		t.Fatalf("named render = %d: %s", named.Code, named.Body.String())
+	}
+	if frame, _ := decodeRenderResponse(t, named); frame.Bounds().Dx() != 400 || frame.Bounds().Dy() != 300 {
+		t.Errorf("named render bounds = %v, want the panel's 400x300", frame.Bounds())
+	}
+}
+
+// A page that draws and cannot go on the panel it was named for comes back
+// with the preview as well as the refusal. Answering with the error alone
+// would leave a caller to render it a second time, without the panel, to find
+// out what it was they drew.
+func TestAPanelThatRefusesTheInkStillAnswersWithThePreview(t *testing.T) {
+	handler := New(Config{Logf: func(string, ...any) {}})
+	response := request(t, handler, "/v1/render?panel=gicisky:0x0028", redScene)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("render = %d, want %d: %s", response.Code, http.StatusUnprocessableEntity, response.Body.String())
+	}
+	var body struct {
+		Code      string `json:"code"`
+		Error     string `json:"error"`
+		PNGBase64 string `json:"pngBase64"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Code != "unprocessable-scene" {
+		t.Errorf("code = %q, want unprocessable-scene", body.Code)
+	}
+	if !strings.Contains(body.Error, "red") {
+		t.Errorf("error = %q, want it to name the ink", body.Error)
+	}
+	if body.PNGBase64 == "" {
+		t.Error("the page drew and the preview was withheld")
+	}
+}
+
+// What the caller mistyped is a bad request, not a bad scene. The two share a
+// status code otherwise, and the difference is the only thing telling somebody
+// whether to fix the URL or the document.
+func TestAMistypedPanelOrSizeIsABadRequest(t *testing.T) {
+	handler := New(Config{Logf: func(string, ...any) {}})
+	for _, query := range []string{
+		"?panel=0x0033",
+		"?panel=gicisky:nope",
+		"?panel=gicisky:0x9999",
+		"?panel=chicory:0x0033",
+		"?size=400",
+		"?size=0x300",
+		"?size=400x300&panel=gicisky:0x0033",
+	} {
+		response := request(t, handler, "/v1/render"+query, testScene)
+		if response.Code != http.StatusBadRequest {
+			t.Errorf("%s = %d, want %d: %s", query, response.Code, http.StatusBadRequest, response.Body.String())
+			continue
+		}
+		var body struct {
+			Code string `json:"code"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+			t.Errorf("%s: decode: %v", query, err)
+			continue
+		}
+		if body.Code != "invalid-request" {
+			t.Errorf("%s: code = %q, want invalid-request", query, body.Code)
+		}
+	}
+}
