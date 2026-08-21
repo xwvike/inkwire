@@ -12,7 +12,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"image"
 	"io"
 	"log"
 	"net"
@@ -30,6 +29,7 @@ import (
 	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/gicisky"
 	"github.com/xwvike/inkwire/internal/nrfepd"
+	"github.com/xwvike/inkwire/internal/panel"
 	"github.com/xwvike/inkwire/internal/scene"
 	"github.com/xwvike/inkwire/internal/server"
 	"github.com/xwvike/inkwire/internal/tag"
@@ -389,21 +389,21 @@ func pushGiciskyScene(ctx context.Context, found gicisky.FoundDevice, document c
 		logger.Printf("%s advertised id 0x%04X, which this build does not know", found.Name, found.Advertised.ID)
 		return 1
 	}
-	profile := found.Profile
-	result, err := scene.RenderForSize(document, image.Pt(profile.Width, profile.Height))
+	p := panel.OfGicisky(found.Profile)
+	result, page, err := panel.Render(document, p)
+	// Reported whenever there was a page to report on, which includes the
+	// encode failing: a page that draws and will not pack is exactly the
+	// failure the report explains.
+	if result.Frame != nil {
+		printReport(logger.Writer(), result)
+	}
 	if err != nil {
 		logger.Print(err)
 		return 1
 	}
-	printReport(logger.Writer(), result)
-	payload, err := gicisky.EncodeOriented(result.Frame, result.Orientation, profile)
-	if err != nil {
-		logger.Print(err)
-		return 1
-	}
-	logger.Printf("pushing %d bytes (%s %dx%d)", len(payload), profile.Model, profile.Width, profile.Height)
+	logger.Printf("pushing %d bytes (%s)", page.Len(), p)
 	driver := gicisky.NewDriver(bluetooth.DefaultAdapter, found.Address.String(), logger.Printf)
-	if err := driver.PushWithRetry(ctx, found, payload, gicisky.UploadOptions{Compression2: profile.Compression2}); err != nil {
+	if err := driver.PushWithRetry(ctx, found, page.Bytes, found.Profile.Upload()); err != nil {
 		logger.Print(err)
 		return 1
 	}
@@ -503,12 +503,9 @@ func pushNRFEPD(ctx context.Context, found nrfepd.FoundDevice, document compose.
 	// size assertion and left the caller to guess the size it was asserting.
 	var rendered scene.Result
 	err := driver.PushWithRetry(ctx, found, func(model nrfepd.Model) ([]byte, []byte, error) {
-		result, err := scene.RenderForSize(document, image.Pt(model.Width, model.Height))
-		if err != nil {
-			return nil, nil, err
-		}
+		result, page, err := panel.Render(document, panel.OfNRFEPD(model))
 		rendered = result
-		return display.EncodeNRFEPD(result.Frame, model.Palette != nrfepd.PaletteBW)
+		return page.Black, page.Colour, err
 	})
 	if rendered.Frame != nil {
 		printReport(logger.Writer(), rendered)

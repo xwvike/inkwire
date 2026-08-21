@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"image"
 	"io"
 	"log"
 	"mime"
@@ -29,6 +28,7 @@ import (
 	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/gicisky"
 	"github.com/xwvike/inkwire/internal/nrfepd"
+	"github.com/xwvike/inkwire/internal/panel"
 	"github.com/xwvike/inkwire/internal/scene"
 	"github.com/xwvike/inkwire/internal/tag"
 	"tinygo.org/x/bluetooth"
@@ -563,22 +563,22 @@ func (h *Handler) writeGicisky(writer http.ResponseWriter, ctx context.Context,
 		writeStatus(writer, http.StatusBadGateway, "device-identify-failed", err, status)
 		return
 	}
-	profile := found.Profile
-	result, err := scene.RenderForSize(document, image.Pt(profile.Width, profile.Height))
+	result, page, err := panel.Render(document, panel.OfGicisky(found.Profile))
 	if err != nil {
 		status := h.release(target, 0, err)
-		writeStatus(writer, http.StatusUnprocessableEntity, "unprocessable-scene", err, status)
-		return
-	}
-	payload, err := gicisky.EncodeOriented(result.Frame, result.Orientation, profile)
-	if err != nil {
-		status := h.release(target, 0, err)
+		// A nil frame means the layout failed and there is no report to send.
+		// A frame beside the error means the page drew and would not pack for
+		// this panel, and the report is what says why.
+		if result.Frame == nil {
+			writeStatus(writer, http.StatusUnprocessableEntity, "unprocessable-scene", err, status)
+			return
+		}
 		writeStatusWithReport(writer, http.StatusUnprocessableEntity, "unprocessable-scene", err, status, result.Report)
 		return
 	}
 
-	pushErr := h.pushGiciskyPayload(ctx, target, found, payload, gicisky.UploadOptions{Compression2: profile.Compression2})
-	status := h.release(target, len(payload), pushErr)
+	pushErr := h.pushGiciskyPayload(ctx, target, found, page.Bytes, found.Profile.Upload())
+	status := h.release(target, page.Len(), pushErr)
 	if pushErr != nil {
 		code, httpStatus := "push-failed", http.StatusBadGateway
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -588,7 +588,7 @@ func (h *Handler) writeGicisky(writer http.ResponseWriter, ctx context.Context,
 		return
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{
-		"ok": true, "device": target, "family": tag.Gicisky, "bytes": len(payload),
+		"ok": true, "device": target, "family": tag.Gicisky, "bytes": page.Len(),
 		"status": status, "report": result.Report,
 	})
 }
@@ -671,14 +671,10 @@ func (h *Handler) pushPageTo(ctx context.Context, target string, found nrfepd.Fo
 	// The panel is only known here, inside the callback, which is why the
 	// document rather than a finished frame is carried this far down.
 	page := func(model nrfepd.Model) ([]byte, []byte, error) {
-		result, err := scene.RenderForSize(document, image.Pt(model.Width, model.Height))
-		if err != nil {
-			return nil, nil, err
-		}
+		result, packed, err := panel.Render(document, panel.OfNRFEPD(model))
 		rendered = result
-		black, colour, err := display.EncodeNRFEPD(result.Frame, model.Palette != nrfepd.PaletteBW)
-		written = len(black) + len(colour)
-		return black, colour, err
+		written = packed.Len()
+		return packed.Black, packed.Colour, err
 	}
 	if h.pushPage != nil {
 		// Called before the count is read: the page builds the planes, so

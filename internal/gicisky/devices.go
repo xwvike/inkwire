@@ -65,6 +65,24 @@ type Profile struct {
 
 func (p Profile) Pixels() int { return p.Width * p.Height }
 
+// String names the panel and says whether its dimensions are known or merely
+// transcribed, in the same shape nrfepd.Model uses. That qualifier belongs
+// wherever the panel is named: the size is what an unverified entry would have
+// wrong, and a page of the wrong size is not something the result shows you.
+func (p Profile) String() string {
+	text := fmt.Sprintf("%s %dx%d %s", p.Model, p.Width, p.Height, p.Palette)
+	if !p.Verified {
+		text += " (unverified)"
+	}
+	return text
+}
+
+// Upload is the packing this profile implies, which the uploader has to be
+// told separately because it works on a payload rather than on a panel.
+func (p Profile) Upload() UploadOptions {
+	return UploadOptions{Compression2: p.Compression2}
+}
+
 // profiles is keyed by the 14-bit id every tag advertises. Absence means this
 // build does not know the panel, not that the panel does not exist: the
 // upstream table lists many more ids than it implements entries for.
