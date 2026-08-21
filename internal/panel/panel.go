@@ -49,6 +49,39 @@ func OfNRFEPD(model nrfepd.Model) Panel {
 	return Panel{Family: tag.NRFEPD, NRFEPD: model}
 }
 
+// All lists every panel this build knows, whichever family describes it.
+//
+// Both families keep a catalogue and neither can see the other's, so counting
+// the panels this build knows meant walking two lists and joining them at
+// whichever place wanted the answer. nrfepd.Models was deleted once as a
+// function nothing called and added back the next day for exactly this reason:
+// its only caller was a documentation test, which had to write the join itself
+// because there was nowhere else for it to live.
+func All() []Panel {
+	profiles, models := gicisky.KnownProfiles(), nrfepd.Models()
+	panels := make([]Panel, 0, len(profiles)+len(models))
+	for _, profile := range profiles {
+		panels = append(panels, OfGicisky(profile))
+	}
+	for _, model := range models {
+		panels = append(panels, OfNRFEPD(model))
+	}
+	return panels
+}
+
+// ID is the identifier this build writes for the panel.
+//
+// The two are different widths because they are different things: a Gicisky
+// tag advertises a 14-bit id, and the EPD-nRF5 firmware stores a byte it will
+// not let anybody renumber. Writing each to its own width is what keeps one
+// family's 0x0033 from reading as the other's 0x33.
+func (p Panel) ID() string {
+	if p.Family == tag.NRFEPD {
+		return fmt.Sprintf("0x%02x", p.NRFEPD.ID)
+	}
+	return fmt.Sprintf("0x%04X", p.Gicisky.ID)
+}
+
 // Size is the panel's own width and height, which is the size a document has
 // to be laid out for and the size its encoder will insist on.
 func (p Panel) Size() image.Point {
@@ -74,6 +107,25 @@ func (p Panel) String() string {
 		return p.NRFEPD.String()
 	}
 	return p.Gicisky.String()
+}
+
+// Palette names the ink set the panel can show.
+func (p Panel) Palette() string {
+	if p.Family == tag.NRFEPD {
+		return p.NRFEPD.Palette.String()
+	}
+	return p.Gicisky.Palette.String()
+}
+
+// Verified reports whether this entry has been checked against the panel
+// itself rather than transcribed from another project. What an unverified
+// entry would have wrong is the size, and a page of the wrong size is not
+// something the result shows you.
+func (p Panel) Verified() bool {
+	if p.Family == tag.NRFEPD {
+		return p.NRFEPD.Verified
+	}
+	return p.Gicisky.Verified
 }
 
 // hasColour reports whether the panel has a plane for anything but black.
@@ -118,14 +170,20 @@ func Render(document compose.Document, p Panel) (scene.Result, Page, error) {
 	if err != nil {
 		return scene.Result{}, Page{}, err
 	}
-	page, err := p.encode(result.Frame, result.Orientation)
+	page, err := p.Encode(result.Frame, result.Orientation)
 	if err != nil {
 		return result, Page{}, err
 	}
 	return result, page, nil
 }
 
-func (p Panel) encode(frame *display.Frame, orientation display.Orientation) (Page, error) {
+// Encode packs a frame already drawn at this panel's size.
+//
+// It is separate from Render for the caller that has a frame rather than a
+// document: an example page checks that it still packs for the panel it was
+// drawn for, which is how a page that has quietly stopped fitting shows up
+// while it is still only a test failure.
+func (p Panel) Encode(frame *display.Frame, orientation display.Orientation) (Page, error) {
 	switch p.Family {
 	case tag.NRFEPD:
 		// Orientation is not passed on: this family is written the way the

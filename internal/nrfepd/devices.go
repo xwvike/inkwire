@@ -116,12 +116,12 @@ var models = []Model{
 	{ID: 0x11, Name: "UC8179_583_BW", Driver: "UC8179", Width: 648, Height: 480, Palette: PaletteBW, Packing: PackingPlanes},
 }
 
-// LookupModel finds a panel by the firmware's ID.
-// Models lists every panel in the table, in ID order. Nothing in the program
-// needs it; the READMEs do, and the test that holds their tables to this one
-// is what keeps a panel added here from going unwritten there.
+// Models lists every panel in the table, in ID order. It is how panel.All
+// reaches this family, which is what the READMEs' panel tables and the test
+// that holds them to this one are counted from.
 func Models() []Model { return append([]Model(nil), models...) }
 
+// LookupModel finds a panel by the firmware's ID.
 func LookupModel(id uint8) (Model, bool) {
 	for _, model := range models {
 		if model.ID == id {

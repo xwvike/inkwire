@@ -5,6 +5,7 @@ import (
 
 	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/gicisky"
+	"github.com/xwvike/inkwire/internal/panel"
 )
 
 // AssertEncodesFor checks that a page still packs for the panel it was drawn
@@ -19,13 +20,14 @@ import (
 // model rather than a byte count.
 func AssertEncodesFor(t *testing.T, id uint16, frame *display.Frame, orientation display.Orientation) []byte {
 	t.Helper()
-	profile, known := gicisky.LookupProfile(id, 0)
-	if !known {
+	profile, found := gicisky.LookupProfile(id, 0)
+	if !found {
 		t.Fatalf("no Gicisky profile 0x%04X", id)
 	}
-	payload, err := gicisky.EncodeOriented(frame, orientation, profile)
+	target := panel.OfGicisky(profile)
+	page, err := target.Encode(frame, orientation)
 	if err != nil {
-		t.Fatalf("encode for %s (0x%04X): %v", profile.Model, id, err)
+		t.Fatalf("encode for %s (%s): %v", target, target.ID(), err)
 	}
-	return payload
+	return page.Bytes
 }

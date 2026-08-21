@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"fmt"
 	"image"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/gicisky"
 	"github.com/xwvike/inkwire/internal/nrfepd"
+	"github.com/xwvike/inkwire/internal/tag"
 )
 
 func giciskyPanel(t *testing.T, id uint16) Panel {
@@ -170,5 +172,46 @@ func TestAnUnverifiedPanelSaysSoWhicheverFamilyItIs(t *testing.T) {
 		if got, want := target.String(), target.Name(); !strings.Contains(got, want) {
 			t.Errorf("String = %q, want it to contain the name %q", got, want)
 		}
+	}
+}
+
+// The join has to reach both catalogues, which is the thing that was written
+// out by hand at every place that wanted it and got one family or the other
+// wrong. Counting is enough to catch a family dropped from the loop.
+func TestTheCatalogueReachesBothFamilies(t *testing.T) {
+	profiles, models := gicisky.KnownProfiles(), nrfepd.Models()
+	if len(profiles) == 0 || len(models) == 0 {
+		t.Fatalf("a family has no panels at all: %d Gicisky, %d EPD-nRF5", len(profiles), len(models))
+	}
+	all := All()
+	if len(all) != len(profiles)+len(models) {
+		t.Fatalf("All lists %d panels, want %d + %d", len(all), len(profiles), len(models))
+	}
+	seen := map[string]int{}
+	for _, known := range all {
+		seen[known.Family]++
+		if known.Size().X <= 0 || known.Size().Y <= 0 {
+			t.Errorf("%s (%s) has size %v", known, known.ID(), known.Size())
+		}
+	}
+	if seen[tag.Gicisky] != len(profiles) || seen[tag.NRFEPD] != len(models) {
+		t.Errorf("All is %v, want %d Gicisky and %d EPD-nRF5", seen, len(profiles), len(models))
+	}
+}
+
+// Each family's id is written to its own width, because they are different
+// numbers from different places and a byte padded to four digits reads as the
+// other family's id. The READMEs' panel tables are matched against these
+// strings, so the widths are load-bearing rather than cosmetic.
+func TestAnIDIsWrittenToItsOwnFamilysWidth(t *testing.T) {
+	if got := giciskyPanel(t, 0x0033).ID(); got != "0x0033" {
+		t.Errorf("Gicisky ID = %q, want 0x0033", got)
+	}
+	model, known := nrfepd.LookupModelName("UC8176_420_BWR")
+	if !known {
+		t.Fatal("no EPD-nRF5 model UC8176_420_BWR")
+	}
+	if got, want := OfNRFEPD(model).ID(), fmt.Sprintf("0x%02x", model.ID); got != want {
+		t.Errorf("EPD-nRF5 ID = %q, want %q", got, want)
 	}
 }

@@ -2,8 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/xwvike/inkwire/internal/gicisky"
-	"github.com/xwvike/inkwire/internal/nrfepd"
+	"github.com/xwvike/inkwire/internal/panel"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -172,20 +171,13 @@ func TestBothReadmesDocumentEveryWarningCode(t *testing.T) {
 // one nobody remembers. The Gicisky list went unwritten entirely until it was
 // asked for; the warning codes drifted the same way a week earlier.
 func TestBothReadmesListEveryPanelModel(t *testing.T) {
-	type panel struct{ id, size, name string }
-	var panels []panel
-	for _, profile := range gicisky.KnownProfiles() {
-		panels = append(panels, panel{
-			id:   fmt.Sprintf("`0x%04X`", profile.ID),
-			size: fmt.Sprintf("%dx%d", profile.Width, profile.Height),
-			name: profile.Model,
-		})
-	}
-	for _, model := range nrfepd.Models() {
-		panels = append(panels, panel{
-			id:   fmt.Sprintf("`0x%02x`", model.ID),
-			size: fmt.Sprintf("%dx%d", model.Width, model.Height),
-			name: model.Name,
+	type row struct{ id, size, name string }
+	var panels []row
+	for _, known := range panel.All() {
+		panels = append(panels, row{
+			id:   fmt.Sprintf("`%s`", known.ID()),
+			size: fmt.Sprintf("%dx%d", known.Size().X, known.Size().Y),
+			name: known.Name(),
 		})
 	}
 	if len(panels) < 20 {
