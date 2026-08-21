@@ -101,9 +101,25 @@ jobs:
 
       # gh ships on the runner, so the release is cut without a third-party
       # action holding the token that can write to this repository.
+      #
+      # Creating and uploading are separate because a re-run has to be able to
+      # finish. `gh release create` refuses a tag that already has a release,
+      # so the last step of this workflow failed on every re-run even when
+      # everything before it had worked — and re-running is the first thing
+      # anybody does when a build is flaky. v0.3.0 was published that way and
+      # is still recorded as a failed release.
+      #
+      # The existence check is explicit rather than `|| true` on the create,
+      # because that would swallow a bad token or a broken tag as well and
+      # report a release that was never cut as a success.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          gh release create "$VERSION" artifacts/* --title "$VERSION" --generate-notes
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "$VERSION already has a release; replacing its files"
+            gh release upload "$VERSION" artifacts/* --clobber
+          else
+            gh release create "$VERSION" artifacts/* --title "$VERSION" --generate-notes
+          fi
