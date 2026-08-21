@@ -287,7 +287,7 @@ inkwire mode -device NRF_EPD_C1F8 -mode clock
 RSSI belongs to the whole link — the tag's transmitter, both antennas, the path
 and the receiver — so the table below is **one adapter's** situation.
 
-Sending end: a Realtek RTL8761BU dongle (OS: Debian, USB `0bda:8771`, Bluetooth
+Adapter under test: a Realtek RTL8761BU dongle (OS: Debian, USB `0bda:8771`, Bluetooth
 5.1, integrated antenna, USB 2.0 full speed), tags standing upright with a clear
 line of sight:
 

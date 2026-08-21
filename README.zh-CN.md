@@ -274,7 +274,7 @@ inkwire mode -device NRF_EPD_C1F8 -mode clock
 
 RSSI 属于整条链路——标签的发射、两端天线、路径与接收机——所以下表是**某一个适配器**的状况。
 
-发送端 Realtek RTL8761BU dongle（OS: Debian，USB `0bda:8771`，蓝牙 5.1，内置天线，USB 2.0 全速），标签立放且视距无遮挡：
+测试适配器 Realtek RTL8761BU dongle（OS: Debian，USB `0bda:8771`，蓝牙 5.1，内置天线，USB 2.0 全速），标签立放且视距无遮挡：
 
 | 距离 | Gicisky | EPD-nRF5 | 推送 |
 |---|---|---|---|
