@@ -22,7 +22,7 @@ second download.
 | `inkwire render [-o out.png] <scene.json>` | PNG preview |
 | `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] <scene.json>` | Render and write |
 | `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 clock / calendar mode |
-| `inkwire serve [-listen ADDR] [-device NAME] [-assets DIR]` | Start the HTTP service |
+| `inkwire serve [-listen ADDR] [-assets DIR]` | Start the HTTP service |
 | `inkwire schema [-lang en\|zh]` | Print the JSON Schema reference |
 | `inkwire help` | `-h`, `--help` |
 | `inkwire version` | `-v`, `--version` |
@@ -145,7 +145,7 @@ calendar](#clock-and-calendar).
 Starts the HTTP service, for the callers that are not a command line.
 
 ```bash
-inkwire serve -listen 127.0.0.1:8080 -device NEMR92943861
+inkwire serve -listen 127.0.0.1:8080
 ```
 
 ```
@@ -155,7 +155,6 @@ listening on http://127.0.0.1:8080
 | Flag | Default | Meaning |
 |---|---|---|
 | `-listen` | `127.0.0.1:8080` | Listen address, loopback only |
-| `-device` | none | Default target for requests that name none |
 | `-assets` | `.` | Directory a relative image source may read from |
 
 There is no authentication and every request reaches hardware, so only a
@@ -324,23 +323,43 @@ the same as it not being there, which is what the retries are for.
 ## Running the HTTP service
 
 ```bash
-inkwire serve -listen 127.0.0.1:8080 -device NEMR92943861
+inkwire serve -listen 127.0.0.1:8080
 ```
 
-| Route | What it does | Response |
-|---|---|---|
-| `POST /v1/render` | Renders locally, to preview the result | JSON containing `width`, `height`, base64 `pngBase64`, and full `report` |
-| `POST /v1/display` | Connects to a tag and renders on the hardware | JSON result containing the device status and full `report` |
-| `GET /v1/devices` | Scans for every supported tag around | The list of tags |
+Each route does what the subcommand of the same name does, and takes the same
+parameters under the same names.
 
+| Route | Command | What it does |
+|---|---|---|
+| `GET /v1/scan` | `inkwire scan` | Lists the tags a scan can currently see |
+| `POST /v1/render` | `inkwire render` | Renders locally and returns a PNG preview |
+| `POST /v1/push` | `inkwire push` | Renders a scene and writes it to a tag |
+| `POST /v1/mode` | `inkwire mode` | Hands an EPD-nRF5 tag back to its own clock or calendar |
+
+`?device=` is required by every route that writes, exactly as `-device` is on
+the command line. The service does not pick a tag for a request.
 
 ```bash
+curl http://127.0.0.1:8080/v1/scan
+
 curl -H 'Content-Type: application/json' --data-binary @page.json \
   http://127.0.0.1:8080/v1/render -o render.json
 
 curl -H 'Content-Type: application/json' --data-binary @page.json \
-  'http://127.0.0.1:8080/v1/display?device=NRF_EPD_C1F8'
+  'http://127.0.0.1:8080/v1/push?device=NRF_EPD_C1F8'
+
+curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
 ```
+
+| Query parameter | Used by | Meaning |
+|---|---|---|
+| `device` | push, mode | Advertised name or BLE address, required |
+| `family` | push | Given, it asserts the device belongs to that family |
+| `mode` | mode | `picture`, `calendar` or `clock`; `calendar` by default |
+| `week-start` | mode | `sunday` or `monday`; unset leaves the tag's own setting |
+
+`/v1/render` and `/v1/push` answer with the full `report`; `/v1/push` and
+`/v1/mode` also carry the device status.
 
 
 ### Warnings
@@ -360,13 +379,13 @@ Non-fatal.
 | `code` | Status | Meaning |
 |---|---|---|
 | `unsupported-media-type` | 415 | Not JSON or multipart |
-| `invalid-request` | 400 | Malformed multipart, or unknown `family` |
+| `invalid-request` | 400 | No `device` named, an unknown `family`, `mode` or `week-start`, or malformed multipart |
 | `request-too-large` | 413 | Over the size limit |
 | `invalid-scene` | 422 | Will not decode or render |
-| `unprocessable-scene` | 422 | Renders successfully, but cannot be packed for the selected Gicisky panel |
+| `unprocessable-scene` | 422 | Renders successfully, but cannot be packed for that panel |
 | `render-failed` | 500 | PNG encoding failed |
 | `device-busy` | 409 | Adapter in use |
-| `device-identify-failed` | 502 | Gicisky target was not found, did not advertise a known model, or scan failed |
+| `device-identify-failed` | 502 | The target is not in range, belongs to the other family, did not advertise a known model, or the scan failed |
 | `push-failed` | 502 | Tag error or connection failure |
 | `device-timeout` | 504 | The complete device operation exceeded its family budget |
 | `scan-failed` | 502 | Scan failed |

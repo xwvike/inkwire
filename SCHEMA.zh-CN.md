@@ -1,6 +1,6 @@
 # Inkwire Scene Schema
 
-`inkwire render`、`push` 与 `/v1/display` 所解码的文档。
+`inkwire render`、`push` 与 `/v1/push` 所解码的文档。
 运行 `inkwire schema` 可打印本文。[English](SCHEMA.md) · [README](README.zh-CN.md)
 
 ## Scene Schema
@@ -358,7 +358,7 @@ options 与 overrides 字段相同；overrides 按字段生效。
 | `redMaxGreen` | integer | 0–255 判红的绿色上限 | |
 | `disableRed` | boolean | 丢弃红色平面 | `false` |
 
-`auto` 依据图像选择阈值、抖动与红色提取。`/v1/render` 和 `/v1/display` 在
+`auto` 依据图像选择阈值、抖动与红色提取。`/v1/render` 和 `/v1/push` 在
 `report.Images` 中返回决策，CLI 命令也会打印。成功的 `/v1/render` 固定返回
 JSON，PNG 以 base64 `pngBase64` 与报告一起返回。
 

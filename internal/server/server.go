@@ -59,16 +59,15 @@ const (
 
 type Config struct {
 	Adapter *bluetooth.Adapter
-	Target  string
 	BaseDir string
-	// Attempts and PushTimeout bound one /v1/display request. Zero selects
+	// Attempts and PushTimeout bound one /v1/push request. Zero selects
 	// the defaults above. PushTimeout applies to a Gicisky write;
 	// NRFEPDPushTimeout to the other family, which needs longer for reasons
 	// that are the panel's rather than this server's.
 	Attempts          int
 	PushTimeout       time.Duration
 	NRFEPDPushTimeout time.Duration
-	// ScanTimeout bounds one /v1/devices request. Zero selects the driver's
+	// ScanTimeout bounds one /v1/scan request. Zero selects the driver's
 	// own default, which is sized to the tag's advertising interval.
 	ScanTimeout time.Duration
 	Logf        func(string, ...any)
@@ -80,19 +79,23 @@ type Config struct {
 	// be known before the write starts.
 	PushPage   func(context.Context, string, nrfepd.PageFor) error
 	ScanNRFEPD func(context.Context) ([]nrfepd.FoundDevice, error)
+	// SetMode stands in for the conversation that hands a tag back to its own
+	// clock. It is separate from PushPage because it is a different exchange,
+	// not a page written a different way.
+	SetMode func(context.Context, string, nrfepd.Mode, *time.Weekday) error
 }
 
 // suppliesItsOwnTransport reports whether the caller has taken the radio out
 // of this handler's hands.
 //
-// Supplying any one of the four hooks says so, and the ones left unset then do
+// Supplying any one of the five hooks says so, and the ones left unset then do
 // nothing rather than falling through to the adapter. Falling through is the
 // behaviour that looks harmless and is not: a caller who stubbed the Gicisky
 // scan to keep a test off the hardware would find the second family scanning
 // for real, fifteen seconds at a time, on whatever tags happen to be in the
 // room.
 func (c Config) suppliesItsOwnTransport() bool {
-	return c.Scan != nil || c.Push != nil || c.ScanNRFEPD != nil || c.PushPage != nil
+	return c.Scan != nil || c.Push != nil || c.ScanNRFEPD != nil || c.PushPage != nil || c.SetMode != nil
 }
 
 // scanHolder names the radio's holder while a scan is running. Scanning and
@@ -143,7 +146,6 @@ type DeviceStatus struct {
 
 type Handler struct {
 	adapter     *bluetooth.Adapter
-	target      string
 	baseDir     string
 	attempts    int
 	pushTimeout time.Duration
@@ -156,6 +158,7 @@ type Handler struct {
 	nrfepdPushTimeout time.Duration
 	pushPage          func(context.Context, string, nrfepd.PageFor) error
 	scanNRFEPD        func(context.Context) ([]nrfepd.FoundDevice, error)
+	setMode           func(context.Context, string, nrfepd.Mode, *time.Weekday) error
 	ownTransport      bool
 
 	// The adapter is enabled at most once for the life of the handler. The
@@ -200,7 +203,6 @@ func New(config Config) *Handler {
 	}
 	handler := &Handler{
 		adapter:     config.Adapter,
-		target:      config.Target,
 		baseDir:     config.BaseDir,
 		attempts:    config.Attempts,
 		pushTimeout: config.PushTimeout,
@@ -212,19 +214,25 @@ func New(config Config) *Handler {
 		nrfepdPushTimeout: config.NRFEPDPushTimeout,
 		pushPage:          config.PushPage,
 		scanNRFEPD:        config.ScanNRFEPD,
+		setMode:           config.SetMode,
 		ownTransport:      config.suppliesItsOwnTransport(),
 		mux:               http.NewServeMux(),
 		history:           make(map[string]DeviceStatus),
 	}
-	handler.mux.HandleFunc("POST /v1/render", handler.render)
-	handler.mux.HandleFunc("POST /v1/display", handler.display)
-	handler.mux.HandleFunc("GET /v1/devices", handler.devices)
+	// The routes are named after the subcommands that do the same thing. They
+	// used to be /v1/scan and /v1/push, which meant one program with two
+	// vocabularies — and the old set was not even consistent with itself, one
+	// resource noun among two verbs.
+	handler.mux.HandleFunc("GET /v1/scan", handler.serveScan)
+	handler.mux.HandleFunc("POST /v1/render", handler.serveRender)
+	handler.mux.HandleFunc("POST /v1/push", handler.servePush)
+	handler.mux.HandleFunc("POST /v1/mode", handler.serveMode)
 	return handler
 }
 
 // devices reports every tag advertising nearby and what panel each one has.
 // It takes the same claim a write does, because both need the radio.
-func (h *Handler) devices(writer http.ResponseWriter, request *http.Request) {
+func (h *Handler) serveScan(writer http.ResponseWriter, request *http.Request) {
 	busy, claimed := h.claim(scanHolder)
 	if !claimed {
 		writeStatus(writer, http.StatusConflict, "device-busy",
@@ -342,7 +350,7 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	h.mux.ServeHTTP(writer, request)
 }
 
-func (h *Handler) render(writer http.ResponseWriter, request *http.Request) {
+func (h *Handler) serveRender(writer http.ResponseWriter, request *http.Request) {
 	document, ok := h.decodeRequest(writer, request)
 	if !ok {
 		return
@@ -365,15 +373,12 @@ func (h *Handler) render(writer http.ResponseWriter, request *http.Request) {
 	})
 }
 
-func (h *Handler) display(writer http.ResponseWriter, request *http.Request) {
+func (h *Handler) servePush(writer http.ResponseWriter, request *http.Request) {
 	document, ok := h.decodeRequest(writer, request)
 	if !ok {
 		return
 	}
 	target := request.URL.Query().Get("device")
-	if target == "" {
-		target = h.target
-	}
 	// Checked before anything is claimed or listened for: a misspelled family
 	// and an unnamed device are bad requests, not device failures.
 	asserted := request.URL.Query().Get("family")
@@ -383,7 +388,7 @@ func (h *Handler) display(writer http.ResponseWriter, request *http.Request) {
 	}
 	if target == "" {
 		writeError(writer, http.StatusBadRequest, "invalid-request",
-			errors.New("no device: name one with ?device= or start the service with -device"))
+			errors.New("no device: name one with ?device=, and GET /v1/scan lists what is in range"))
 		return
 	}
 
@@ -449,6 +454,95 @@ func (h *Handler) display(writer http.ResponseWriter, request *http.Request) {
 		"ok": true, "device": target, "family": tag.NRFEPD, "bytes": written,
 		"status": status, "report": rendered.Report,
 	})
+}
+
+// serveMode hands an EPD-nRF5 tag back to its own clock or calendar, which is
+// what `inkwire mode` does and what this service could not.
+//
+// A tag left in picture mode by a write stays there. Anybody driving this over
+// HTTP rather than a command line had no way back, which made the service a
+// thing that could only take a capability away.
+func (h *Handler) serveMode(writer http.ResponseWriter, request *http.Request) {
+	query := request.URL.Query()
+	target := query.Get("device")
+	if target == "" {
+		writeError(writer, http.StatusBadRequest, "invalid-request",
+			errors.New("no device: name one with ?device=, and GET /v1/scan lists what is in range"))
+		return
+	}
+	name := query.Get("mode")
+	if name == "" {
+		name = "calendar"
+	}
+	chosen, err := nrfepd.ParseMode(name)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid-request", err)
+		return
+	}
+	day, err := nrfepd.ParseWeekStart(query.Get("week-start"))
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid-request", err)
+		return
+	}
+
+	busy, claimed := h.claim(target)
+	if !claimed {
+		writeStatus(writer, http.StatusConflict, "device-busy",
+			fmt.Errorf("device %s is being written", busy.Device), busy)
+		return
+	}
+
+	// nrfepd is asserted rather than discovered. A Gicisky tag has no mode to
+	// set — the whole route is a property of the other firmware — so being told
+	// that is more use than being told no EPD-nRF5 tag answered.
+	locateCtx, done := context.WithTimeout(request.Context(), h.scanTimeout+5*time.Second)
+	found, err := h.locate(locateCtx, target, tag.NRFEPD)
+	locateFailed := locateCtx.Err()
+	done()
+	if err != nil {
+		status := h.release(target, 0, err)
+		code, httpStatus := "device-identify-failed", http.StatusBadGateway
+		if errors.Is(locateFailed, context.DeadlineExceeded) {
+			code, httpStatus = "device-timeout", http.StatusGatewayTimeout
+		}
+		writeStatus(writer, httpStatus, code, err, status)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(request.Context(), h.nrfepdPushTimeout)
+	defer cancel()
+	err = h.setModeOn(ctx, target, found.NRFEPD, chosen, day)
+	status := h.release(target, 0, err)
+	if err != nil {
+		code, httpStatus := "push-failed", http.StatusBadGateway
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			code, httpStatus = "device-timeout", http.StatusGatewayTimeout
+		}
+		writeStatus(writer, httpStatus, code, err, status)
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{
+		"ok": true, "device": target, "family": tag.NRFEPD, "mode": chosen.String(),
+		"status": status,
+	})
+}
+
+func (h *Handler) setModeOn(ctx context.Context, target string, found nrfepd.FoundDevice,
+	mode nrfepd.Mode, weekStart *time.Weekday) error {
+	if h.setMode != nil {
+		return h.setMode(ctx, target, mode, weekStart)
+	}
+	if h.ownTransport {
+		return errors.New("this handler was given its own transport and no SetMode hook, so it cannot reach an EPD-nRF5 tag")
+	}
+	if err := h.enableAdapter(); err != nil {
+		return err
+	}
+	driver := nrfepd.NewDriver(h.adapter, found.Address.String(), h.logf)
+	driver.Attempts = h.attempts
+	// The clock is read per attempt so a retry does not set the tag to the
+	// time the first attempt was made.
+	return driver.SetModeWithRetry(ctx, found, time.Now, mode, weekStart)
 }
 
 // locate works out which tag a request means, from one pass of the radio or

@@ -85,7 +85,7 @@ func TestHTTPAssetRootRejectsTraversalAndAbsolutePaths(t *testing.T) {
 	}
 }
 
-func TestDisplayUsesSameSceneAndSelectedDevice(t *testing.T) {
+func TestPushUsesSameSceneAndSelectedDevice(t *testing.T) {
 	var target string
 	var payload []byte
 	handler := New(Config{
@@ -97,7 +97,7 @@ func TestDisplayUsesSameSceneAndSelectedDevice(t *testing.T) {
 			return nil
 		},
 	})
-	response := request(t, handler, "/v1/display?device=PICKSMART", testScene)
+	response := request(t, handler, "/v1/push?device=PICKSMART", testScene)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}
@@ -106,7 +106,7 @@ func TestDisplayUsesSameSceneAndSelectedDevice(t *testing.T) {
 	}
 }
 
-func TestDisplayRendersGiciskySceneForTheIdentifiedPanel(t *testing.T) {
+func TestPushRendersGiciskySceneForTheIdentifiedPanel(t *testing.T) {
 	var payload []byte
 	handler := New(Config{
 		Logf: func(string, ...any) {},
@@ -116,7 +116,7 @@ func TestDisplayRendersGiciskySceneForTheIdentifiedPanel(t *testing.T) {
 			return nil
 		},
 	})
-	response := request(t, handler, "/v1/display?device=PICKSMART", testScene)
+	response := request(t, handler, "/v1/push?device=PICKSMART", testScene)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}
@@ -128,7 +128,7 @@ func TestDisplayRendersGiciskySceneForTheIdentifiedPanel(t *testing.T) {
 // One adapter drives one conversation, so a second write must be refused
 // while the first is still uploading rather than corrupting it or queueing
 // invisibly behind a ten-second transfer.
-func TestConcurrentDisplayIsRefusedWithTheHolderStatus(t *testing.T) {
+func TestConcurrentPushIsRefusedWithTheHolderStatus(t *testing.T) {
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	// Only the first write holds the adapter open; later ones complete at
@@ -152,10 +152,10 @@ func TestConcurrentDisplayIsRefusedWithTheHolderStatus(t *testing.T) {
 	})
 
 	first := make(chan *httptest.ResponseRecorder, 1)
-	go func() { first <- request(t, handler, "/v1/display?device=first", testScene) }()
+	go func() { first <- request(t, handler, "/v1/push?device=first", testScene) }()
 	<-entered
 
-	second := request(t, handler, "/v1/display?device=second", testScene)
+	second := request(t, handler, "/v1/push?device=second", testScene)
 	if second.Code != http.StatusConflict {
 		t.Fatalf("second write status = %d, want %d: %s", second.Code, http.StatusConflict, second.Body.String())
 	}
@@ -184,7 +184,7 @@ func TestConcurrentDisplayIsRefusedWithTheHolderStatus(t *testing.T) {
 	}
 
 	// Once released the adapter is free again and the outcome is recorded.
-	third := request(t, handler, "/v1/display?device=first", testScene)
+	third := request(t, handler, "/v1/push?device=first", testScene)
 	if third.Code != http.StatusOK {
 		t.Fatalf("write after release status = %d: %s", third.Code, third.Body.String())
 	}
@@ -211,7 +211,7 @@ func TestPushDeadlineReportsTheBluetoothLink(t *testing.T) {
 			<-ctx.Done()
 			return ctx.Err()
 		}})
-	response := request(t, handler, "/v1/display?device=NEMR92943861", testScene)
+	response := request(t, handler, "/v1/push?device=NEMR92943861", testScene)
 	if response.Code != http.StatusGatewayTimeout {
 		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusGatewayTimeout, response.Body.String())
 	}
@@ -249,7 +249,7 @@ func TestFailedPushIsReportedSeparatelyFromATimeout(t *testing.T) {
 			return errors.New("tag reported error 0503")
 		},
 	})
-	response := request(t, handler, "/v1/display?device=NEMR92943861", testScene)
+	response := request(t, handler, "/v1/push?device=NEMR92943861", testScene)
 	if response.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusBadGateway, response.Body.String())
 	}
@@ -407,7 +407,7 @@ func TestRenderReportsImplicitGridTracksInBody(t *testing.T) {
 	}
 }
 
-func TestMultipartDisplayPushesUploadedImage(t *testing.T) {
+func TestMultipartPushSendsUploadedImage(t *testing.T) {
 	scene := `{"version":1,"root":{"type":"image","source":"photo.png","size":{"width":8,"height":8}}}`
 	var payload []byte
 	handler := New(Config{
@@ -418,7 +418,7 @@ func TestMultipartDisplayPushesUploadedImage(t *testing.T) {
 			return nil
 		},
 	})
-	response := multipartRequest(t, handler, "/v1/display?device=NEMR92943861", scene, map[string][]byte{"photo.png": solidPNG(t, color.NRGBA{A: 0xff})})
+	response := multipartRequest(t, handler, "/v1/push?device=NEMR92943861", scene, map[string][]byte{"photo.png": solidPNG(t, color.NRGBA{A: 0xff})})
 	if response.Code != http.StatusOK || len(payload) != display.GiciskyPayloadSize {
 		t.Fatalf("status=%d payload=%d: %s", response.Code, len(payload), response.Body.String())
 	}
@@ -635,7 +635,7 @@ func TestDevicesReportsWhatEachTagIs(t *testing.T) {
 			scanResult(t, 0x02, -70, 0x3FFE, ""),
 		}, nil
 	}})
-	request := httptest.NewRequest(http.MethodGet, "/v1/devices", nil)
+	request := httptest.NewRequest(http.MethodGet, "/v1/scan", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -695,11 +695,11 @@ func TestScanIsRefusedWhileTheAdapterIsWriting(t *testing.T) {
 		}})
 
 	done := make(chan *httptest.ResponseRecorder, 1)
-	go func() { done <- request(t, handler, "/v1/display?device=writing", testScene) }()
+	go func() { done <- request(t, handler, "/v1/push?device=writing", testScene) }()
 	<-entered
 
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/devices", nil))
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/scan", nil))
 	if response.Code != http.StatusConflict {
 		t.Fatalf("scan during a write = %d, want %d: %s", response.Code, http.StatusConflict, response.Body.String())
 	}
@@ -720,7 +720,7 @@ func TestScanIsRefusedWhileTheAdapterIsWriting(t *testing.T) {
 	// The scan must succeed once the write is done, and must not have left a
 	// history entry of its own behind.
 	after := httptest.NewRecorder()
-	handler.ServeHTTP(after, httptest.NewRequest(http.MethodGet, "/v1/devices", nil))
+	handler.ServeHTTP(after, httptest.NewRequest(http.MethodGet, "/v1/scan", nil))
 	if after.Code != http.StatusOK {
 		t.Fatalf("scan after the write = %d: %s", after.Code, after.Body.String())
 	}
@@ -737,7 +737,7 @@ func TestScanFailureIsReportedWithACode(t *testing.T) {
 		return nil, errors.New("enable Bluetooth: adapter is off")
 	}})
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/devices", nil))
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/scan", nil))
 	if response.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadGateway)
 	}
@@ -761,7 +761,7 @@ func TestScanFailureIsReportedWithACode(t *testing.T) {
 // panel has not said what it is yet. So this route hands over a page rather
 // than a payload, and the size check happens at the one moment both the page
 // and the panel are known.
-func TestDisplayBuildsAnNRFEPDPageForThePanelItFinds(t *testing.T) {
+func TestPushBuildsAnNRFEPDPageForThePanelItFinds(t *testing.T) {
 	var gotTarget string
 	var black, colour []byte
 	handler := New(Config{Logf: func(string, ...any) {},
@@ -781,7 +781,7 @@ func TestDisplayBuildsAnNRFEPDPageForThePanelItFinds(t *testing.T) {
 		}})
 
 	scene := `{"version":1,"size":{"width":400,"height":300},"root":{"type":"absolute","children":[]}}`
-	response := request(t, handler, "/v1/display?device=NRF_EPD_C1F8", scene)
+	response := request(t, handler, "/v1/push?device=NRF_EPD_C1F8", scene)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}
@@ -811,7 +811,7 @@ func TestDisplayBuildsAnNRFEPDPageForThePanelItFinds(t *testing.T) {
 //
 // Now the page is laid out for whatever panel answered, and a scene that
 // stated a different one is told so rather than turned away.
-func TestDisplayLaysAnNRFEPDPageOutForThePanelThatAnswered(t *testing.T) {
+func TestPushLaysAnNRFEPDPageOutForThePanelThatAnswered(t *testing.T) {
 	const statesTwoNineInch = `{"version":1,"size":{"width":296,"height":128},` +
 		`"root":{"type":"absolute","children":[{"bounds":{"x":0,"y":0,"width":20,"height":10},` +
 		`"node":{"type":"rectangle","fill":"red"}}]}}`
@@ -825,7 +825,7 @@ func TestDisplayLaysAnNRFEPDPageOutForThePanelThatAnswered(t *testing.T) {
 			_, _, err := page(model)
 			return err
 		}})
-	response := request(t, handler, "/v1/display?device=NRF_EPD_C1F8", statesTwoNineInch)
+	response := request(t, handler, "/v1/push?device=NRF_EPD_C1F8", statesTwoNineInch)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", response.Code, response.Body.String())
 	}
@@ -865,7 +865,7 @@ func TestDisplayLaysAnNRFEPDPageOutForThePanelThatAnswered(t *testing.T) {
 //
 // ?family= is obeyed and then checked against that answer, because writing one
 // family's bytes to the other is not a polite failure.
-func TestDisplayTakesTheFamilyFromTheScanAndChecksWhatWasAsserted(t *testing.T) {
+func TestPushTakesTheFamilyFromTheScanAndChecksWhatWasAsserted(t *testing.T) {
 	tests := []struct {
 		name, query string
 		wantGicisky bool
@@ -902,7 +902,7 @@ func TestDisplayTakesTheFamilyFromTheScanAndChecksWhatWasAsserted(t *testing.T) 
 				PushPage: func(context.Context, string, nrfepd.PageFor) error { nrf = true; return nil }})
 
 			// A 296x128 scene so the Gicisky route can encode it.
-			response := request(t, handler, "/v1/display"+test.query, testScene)
+			response := request(t, handler, "/v1/push"+test.query, testScene)
 			if test.refused != "" {
 				if usedGicisky || nrf {
 					t.Fatalf("a refused request still wrote: gicisky=%v nrfepd=%v", usedGicisky, nrf)
@@ -919,9 +919,9 @@ func TestDisplayTakesTheFamilyFromTheScanAndChecksWhatWasAsserted(t *testing.T) 
 	}
 }
 
-func TestDisplayRefusesAnUnknownFamily(t *testing.T) {
+func TestPushRefusesAnUnknownFamily(t *testing.T) {
 	handler := New(Config{Logf: func(string, ...any) {}})
-	response := request(t, handler, "/v1/display?family=nrf", testScene)
+	response := request(t, handler, "/v1/push?family=nrf", testScene)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
 	}
@@ -939,7 +939,7 @@ func TestDevicesListsBothFamilies(t *testing.T) {
 			return []nrfepd.FoundDevice{{Name: "NRF_EPD_C1F8", RSSI: -59}}, nil
 		}})
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/devices", nil))
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/scan", nil))
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}
@@ -981,7 +981,7 @@ func TestAStubbedHandlerNeverReachesForTheRadio(t *testing.T) {
 		}})
 	start := time.Now()
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/devices", nil))
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/scan", nil))
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}
@@ -1002,7 +1002,7 @@ func TestAStubbedHandlerNeverReachesForTheRadio(t *testing.T) {
 	// for a radio it was told it does not have. It is told about one Gicisky
 	// tag, so a request for the other family is answered out of that: nothing
 	// here matches, and here is what does.
-	write := request(t, handler, "/v1/display?device=NRF_EPD_C1F8", testScene)
+	write := request(t, handler, "/v1/push?device=NRF_EPD_C1F8", testScene)
 	if write.Code != http.StatusBadGateway {
 		t.Fatalf("write status = %d, want %d: %s", write.Code, http.StatusBadGateway, write.Body.String())
 	}
@@ -1011,4 +1011,94 @@ func TestAStubbedHandlerNeverReachesForTheRadio(t *testing.T) {
 			t.Errorf("the refusal does not say %q: %s", want, write.Body.String())
 		}
 	}
+}
+
+// The service could write to a tag and never hand it back. A push leaves an
+// EPD-nRF5 tag in picture mode, and without this route anybody driving over
+// HTTP had no way to return it to its own clock.
+func TestModeSetsTheClockOnTheTagThatAnswered(t *testing.T) {
+	var gotTarget string
+	var gotMode nrfepd.Mode
+	var gotWeekStart *time.Weekday
+	handler := New(Config{Logf: func(string, ...any) {},
+		ScanNRFEPD: func(context.Context) ([]nrfepd.FoundDevice, error) {
+			return []nrfepd.FoundDevice{nrfResult(t, 0x11, -60, "NRF_EPD_C1F8")}, nil
+		},
+		SetMode: func(_ context.Context, target string, mode nrfepd.Mode, weekStart *time.Weekday) error {
+			gotTarget, gotMode, gotWeekStart = target, mode, weekStart
+			return nil
+		}})
+
+	response := post(t, handler, "/v1/mode?device=NRF_EPD_C1F8&mode=clock&week-start=monday")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	if gotTarget != "NRF_EPD_C1F8" || gotMode != nrfepd.ModeClock {
+		t.Errorf("driver got target %q mode %v", gotTarget, gotMode)
+	}
+	if gotWeekStart == nil || *gotWeekStart != time.Monday {
+		t.Errorf("week start = %v, want Monday", gotWeekStart)
+	}
+	var body struct {
+		OK     bool   `json:"ok"`
+		Mode   string `json:"mode"`
+		Family string `json:"family"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK || body.Mode != "clock" || body.Family != tag.NRFEPD {
+		t.Errorf("body = %+v", body)
+	}
+}
+
+// Everything this route refuses, it refuses before touching a radio.
+func TestModeRefusesWhatItCannotDo(t *testing.T) {
+	tests := []struct {
+		name, query string
+		status      int
+		says        string
+	}{
+		{name: "no device", query: "?mode=clock", status: http.StatusBadRequest, says: "no device"},
+		{name: "an unknown mode", query: "?device=NRF_EPD_C1F8&mode=sleep", status: http.StatusBadRequest, says: "unknown mode"},
+		{name: "an unknown week start", query: "?device=NRF_EPD_C1F8&week-start=friday", status: http.StatusBadRequest, says: "unknown week start"},
+		{
+			// A Gicisky tag has no mode. Saying which family it belongs to is
+			// more use than reporting no EPD-nRF5 tag was found.
+			name: "a tag of the other family", query: "?device=NEMR92943861",
+			status: http.StatusBadGateway, says: "is a gicisky tag",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reached := false
+			handler := New(Config{Logf: func(string, ...any) {},
+				Scan: scanFor(t, "NEMR92943861", 0x0033),
+				ScanNRFEPD: func(context.Context) ([]nrfepd.FoundDevice, error) {
+					return []nrfepd.FoundDevice{nrfResult(t, 0x11, -60, "NRF_EPD_C1F8")}, nil
+				},
+				SetMode: func(context.Context, string, nrfepd.Mode, *time.Weekday) error {
+					reached = true
+					return nil
+				}})
+			response := post(t, handler, "/v1/mode"+test.query)
+			if response.Code != test.status {
+				t.Fatalf("status = %d, want %d: %s", response.Code, test.status, response.Body.String())
+			}
+			if reached {
+				t.Error("a refused request still reached the tag")
+			}
+			if !strings.Contains(response.Body.String(), test.says) {
+				t.Errorf("body does not say %q: %s", test.says, response.Body.String())
+			}
+		})
+	}
+}
+
+// post is for the routes that carry everything in the query string.
+func post(t *testing.T, handler *Handler, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, nil))
+	return response
 }

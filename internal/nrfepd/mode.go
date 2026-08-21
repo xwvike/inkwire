@@ -36,6 +36,23 @@ func (m Mode) String() string {
 	return fmt.Sprintf("Mode(%d)", uint8(m))
 }
 
+// ParseWeekStart reads the day a calendar week starts on. An empty name is not
+// an error: it means leave whatever the tag already has, which is the only way
+// to change the mode without also imposing a week start.
+func ParseWeekStart(name string) (*time.Weekday, error) {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "":
+		return nil, nil
+	case "sunday":
+		day := time.Sunday
+		return &day, nil
+	case "monday":
+		day := time.Monday
+		return &day, nil
+	}
+	return nil, fmt.Errorf("unknown week start %q: use sunday or monday", name)
+}
+
 // ParseMode reads a mode by name.
 func ParseMode(name string) (Mode, error) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
@@ -113,6 +130,10 @@ func ModeSession(ctx context.Context, link transport, when time.Time, mode Mode,
 	}
 
 	if weekStart != nil {
+		// Said out loud because it is a change to the tag that outlives the
+		// command and shows up nowhere else: the calendar simply starts on a
+		// different day afterwards.
+		logf("first day of the week set to %s", *weekStart)
 		if err := link.Write(WeekStartFrame(*weekStart)); err != nil {
 			return fmt.Errorf("set the first day of the week: %w", err)
 		}

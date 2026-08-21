@@ -192,9 +192,8 @@ func runSchema(args []string, stdout, stderr io.Writer) int {
 }
 
 func runServe(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
-	flags := command("serve", "inkwire serve [-listen 127.0.0.1:8080] [-device MAC-or-name] [-assets directory]", stderr)
+	flags := command("serve", "inkwire serve [-listen 127.0.0.1:8080] [-assets directory]", stderr)
 	address := flags.String("listen", "127.0.0.1:8080", "HTTP listen address")
-	target := flags.String("device", "", "default BLE address or advertised name for requests that name none")
 	assets := flags.String("assets", ".", "directory available to relative image sources")
 	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
@@ -207,7 +206,7 @@ func runServe(ctx context.Context, args []string, logger *log.Logger, stdout, st
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	handler := server.New(server.Config{Adapter: bluetooth.DefaultAdapter, Target: *target, BaseDir: *assets, Logf: logger.Printf})
+	handler := server.New(server.Config{Adapter: bluetooth.DefaultAdapter, BaseDir: *assets, Logf: logger.Printf})
 	httpServer := newHTTPServer(*address, handler)
 	go func() {
 		<-ctx.Done()
@@ -441,7 +440,7 @@ func runMode(ctx context.Context, args []string, logger *log.Logger, stdout, std
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	day, err := parseWeekStart(*weekStart)
+	day, err := nrfepd.ParseWeekStart(*weekStart)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -467,22 +466,6 @@ func runMode(ctx context.Context, args []string, logger *log.Logger, stdout, std
 		return 1
 	}
 	return 0
-}
-
-// parseWeekStart reads the day a calendar week starts on. An empty value is
-// not a default: it means say nothing, and leave whatever the tag already has.
-func parseWeekStart(name string) (*time.Weekday, error) {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "":
-		return nil, nil
-	case "sunday":
-		day := time.Sunday
-		return &day, nil
-	case "monday":
-		day := time.Monday
-		return &day, nil
-	}
-	return nil, fmt.Errorf("unknown week start %q: use sunday or monday", name)
 }
 
 // resolveFamily decides which driver a target wants.
@@ -606,7 +589,7 @@ func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "       inkwire push -device MAC-or-name [-family gicisky|nrfepd] <scene.json>")
 	fmt.Fprintln(writer, "       inkwire scan [-timeout 15s]")
 	fmt.Fprintln(writer, "       inkwire mode -device MAC-or-name [-mode picture|calendar|clock] [-week-start sunday|monday]")
-	fmt.Fprintln(writer, "       inkwire serve [-listen address] [-device MAC-or-name] [-assets directory]")
+	fmt.Fprintln(writer, "       inkwire serve [-listen address] [-assets directory]")
 	fmt.Fprintln(writer, "       inkwire schema [-lang en|zh]")
 	fmt.Fprintln(writer, "       inkwire version")
 }

@@ -1,6 +1,6 @@
 # Inkwire Scene Schema
 
-The document `inkwire render`, `push` and `/v1/display` decode.
+The document `inkwire render`, `push` and `/v1/push` decode.
 Run `inkwire schema` to print this. [中文](SCHEMA.zh-CN.md) · [README](README.md)
 
 ## Scene Schema
@@ -367,7 +367,7 @@ Image options and overrides carry the same fields; overrides are per-field.
 | `disableRed` | boolean | drop the red plane | `false` |
 
 `auto` picks threshold, dithering and red extraction from the image.
-`/v1/render` and `/v1/display` return the decisions in `report.Images`, and CLI
+`/v1/render` and `/v1/push` return the decisions in `report.Images`, and CLI
 commands print them. A successful `/v1/render` response is always JSON and
 carries its PNG in base64 `pngBase64` beside the report.
 

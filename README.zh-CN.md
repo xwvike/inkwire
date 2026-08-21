@@ -19,7 +19,7 @@ Json Schema驱动的电子纸标签渲染器。
 | `inkwire render [-o out.png] <scene.json>` | PNG 预览 |
 | `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] <scene.json>` | 渲染并写入 |
 | `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 时钟/日历 模式 |
-| `inkwire serve [-listen ADDR] [-device NAME] [-assets DIR]` | 启动 HTTP 服务 |
+| `inkwire serve [-listen ADDR] [-assets DIR]` | 启动 HTTP 服务 |
 | `inkwire schema [-lang en\|zh]` | 打印 Json Schema 参考 |
 | `inkwire help` | `-h`、`--help` |
 | `inkwire version` | `-v`、`--version` |
@@ -136,7 +136,7 @@ NEMR92943861 (e2ada7d1-…, gicisky) is a gicisky tag, but the family asked for 
 启动 HTTP 服务，供不是命令行的调用方使用。
 
 ```bash
-inkwire serve -listen 127.0.0.1:8080 -device NEMR92943861
+inkwire serve -listen 127.0.0.1:8080
 ```
 
 ```
@@ -146,7 +146,6 @@ listening on http://127.0.0.1:8080
 | 参数 | 默认 | 说明 |
 |---|---|---|
 | `-listen` | `127.0.0.1:8080` | 监听地址，仅限回环 |
-| `-device` | 无 | 请求未指名设备时使用的默认目标 |
 | `-assets` | `.` | 相对图片路径可以读取的目录 |
 
 没有任何鉴权，每个请求都会写硬件，所以只允许绑定回环地址，绑别的会被拒绝。
@@ -305,23 +304,40 @@ RSSI 属于整条链路——标签的发射、两端天线、路径与接收机
 ## 创建HTTP服务
 
 ```bash
-inkwire serve -listen 127.0.0.1:8080 -device NEMR92943861
+inkwire serve -listen 127.0.0.1:8080
 ```
 
-| 路由 | 功能 | 响应 |
-|---|---|---|
-| `POST /v1/render` | 本地渲染，预览生成效果 | JSON，包含 `width`、`height`、base64 `pngBase64` 和完整 `report` |
-| `POST /v1/display` | 连接标签进行实机渲染 | JSON 结果，包含设备状态和完整 `report` |
-| `GET /v1/devices` | 扫描环境中所有支持的标签 | 标签列表 |
+路由与同名子命令做同一件事，参数也同名。
 
+| 路由 | 对应命令 | 功能 |
+|---|---|---|
+| `GET /v1/scan` | `inkwire scan` | 列出当前能扫描到的标签 |
+| `POST /v1/render` | `inkwire render` | 本地渲染，返回 PNG 预览 |
+| `POST /v1/push` | `inkwire push` | 渲染并写入标签 |
+| `POST /v1/mode` | `inkwire mode` | 把 EPD-nRF5 标签交还给它自己的时钟或日历 |
+
+`?device=` 所有写入路由必填，和 CLI 的 `-device` 一样，服务端不会替请求猜设备。
 
 ```bash
+curl http://127.0.0.1:8080/v1/scan
+
 curl -H 'Content-Type: application/json' --data-binary @page.json \
   http://127.0.0.1:8080/v1/render -o render.json
 
 curl -H 'Content-Type: application/json' --data-binary @page.json \
-  'http://127.0.0.1:8080/v1/display?device=NRF_EPD_C1F8'
+  'http://127.0.0.1:8080/v1/push?device=NRF_EPD_C1F8'
+
+curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
 ```
+
+| 查询参数 | 用在 | 说明 |
+|---|---|---|
+| `device` | push、mode | 广播名或 BLE 地址，必填 |
+| `family` | push | 指定则断言设备属于这个家族 |
+| `mode` | mode | `picture`、`calendar` 或 `clock`，默认 `calendar` |
+| `week-start` | mode | `sunday` 或 `monday`，不写则保留标签原值 |
+
+`/v1/render` 和 `/v1/push` 的响应含完整 `report`，`/v1/push` 和 `/v1/mode` 另含设备状态。
 
 
 ### 警告
@@ -341,13 +357,13 @@ curl -H 'Content-Type: application/json' --data-binary @page.json \
 | `code` | 状态码 | 含义 |
 |---|---|---|
 | `unsupported-media-type` | 415 | 非 JSON 或 multipart |
-| `invalid-request` | 400 | multipart 结构错误，或 `family` 未知 |
+| `invalid-request` | 400 | 未指名 `device`，或 `family`、`mode`、`week-start` 取值未知，或 multipart 结构错误 |
 | `request-too-large` | 413 | 超出体积上限 |
 | `invalid-scene` | 422 | 无法解码或渲染 |
-| `unprocessable-scene` | 422 | 渲染成功，但无法为选定的 Gicisky 面板编码 |
+| `unprocessable-scene` | 422 | 渲染成功，但无法为该面板打包 |
 | `render-failed` | 500 | PNG 编码失败 |
 | `device-busy` | 409 | 适配器占用中 |
-| `device-identify-failed` | 502 | 未找到 Gicisky 目标、目标未广播已知型号，或扫描失败 |
+| `device-identify-failed` | 502 | 目标不在范围内、属于另一个家族、未广播已知型号，或扫描失败 |
 | `push-failed` | 502 | 标签报错或连接失败 |
 | `device-timeout` | 504 | 完整设备操作超过该家族的总时限 |
 | `scan-failed` | 502 | 扫描失败 |
