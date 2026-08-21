@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/xwvike/inkwire/internal/compose"
-	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/gicisky"
 	"github.com/xwvike/inkwire/internal/nrfepd"
 	"github.com/xwvike/inkwire/internal/tag"
@@ -38,7 +37,7 @@ func TestRenderReturnsJSONReport(t *testing.T) {
 		t.Fatalf("render = %d %q: %s", render.Code, render.Header().Get("Content-Type"), render.Body.String())
 	}
 	frame, report := decodeRenderResponse(t, render)
-	if frame.Bounds().Dx() != display.GiciskyWidth || frame.Bounds().Dy() != display.GiciskyHeight {
+	if frame.Bounds().Dx() != 296 || frame.Bounds().Dy() != 128 {
 		t.Fatalf("render bounds = %v", frame.Bounds())
 	}
 	if report.Bounds.Empty() {
@@ -101,7 +100,7 @@ func TestPushUsesSameSceneAndSelectedDevice(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}
-	if target != "PICKSMART" || len(payload) != display.GiciskyPayloadSize {
+	if target != "PICKSMART" || len(payload) != testPanelPayloadSize(t) {
 		t.Fatalf("push target=%q payload=%d", target, len(payload))
 	}
 }
@@ -197,8 +196,8 @@ func TestConcurrentPushIsRefusedWithTheHolderStatus(t *testing.T) {
 	if success.Status.State != "idle" || success.Status.LastResult != "ok" {
 		t.Errorf("status after a successful write = %+v", success.Status)
 	}
-	if success.Status.LastBytes != display.GiciskyPayloadSize {
-		t.Errorf("recorded %d bytes, want %d", success.Status.LastBytes, display.GiciskyPayloadSize)
+	if success.Status.LastBytes != testPanelPayloadSize(t) {
+		t.Errorf("recorded %d bytes, want %d", success.Status.LastBytes, testPanelPayloadSize(t))
 	}
 }
 
@@ -419,7 +418,7 @@ func TestMultipartPushSendsUploadedImage(t *testing.T) {
 		},
 	})
 	response := multipartRequest(t, handler, "/v1/push?device=NEMR92943861", scene, map[string][]byte{"photo.png": solidPNG(t, color.NRGBA{A: 0xff})})
-	if response.Code != http.StatusOK || len(payload) != display.GiciskyPayloadSize {
+	if response.Code != http.StatusOK || len(payload) != testPanelPayloadSize(t) {
 		t.Fatalf("status=%d payload=%d: %s", response.Code, len(payload), response.Body.String())
 	}
 }
@@ -461,6 +460,18 @@ func TestMultipartValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// testPanelPayloadSize is what the 2.9" BWR panel's two planes come to. It is
+// derived from the profile rather than named as a constant, because the size
+// belongs to the panel and this build already has a table of those.
+func testPanelPayloadSize(t *testing.T) int {
+	t.Helper()
+	profile, known := gicisky.LookupProfile(0x0033, 0)
+	if !known {
+		t.Fatal("no Gicisky profile 0x0033")
+	}
+	return profile.Pixels() / 8 * 2
 }
 
 func request(t *testing.T, handler http.Handler, path, body string) *httptest.ResponseRecorder {

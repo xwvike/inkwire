@@ -1,22 +1,31 @@
-package display
+package nrfepd
 
 import (
 	"strings"
 	"testing"
+
+	"github.com/xwvike/inkwire/internal/display"
+)
+
+// The two panels these tests encode for. Encode takes a model rather than a
+// flag now, so the ink set comes from the table the firmware also reads.
+var (
+	colourPanel = Model{Name: "test-bwr", Width: 8, Height: 1, Palette: PaletteBWR, Packing: PackingPlanes}
+	monoPanel   = Model{Name: "test-bw", Width: 8, Height: 1, Palette: PaletteBW, Packing: PackingPlanes}
 )
 
 // The packing is stated here as pictures rather than as byte constants, because
 // the thing that goes wrong with a plane format is never the arithmetic. It is
 // which way the bits run and which value means ink, and a row written out as
 // eight pixels says that where 0x7f does not.
-func TestNRFEPDPacksRowsLeftToRightWithASetBitForWhite(t *testing.T) {
-	frame, err := NewFrame(8, 1, InkWhite)
+func TestEncodePacksRowsLeftToRightWithASetBitForWhite(t *testing.T) {
+	frame, err := display.NewFrame(8, 1, display.InkWhite)
 	if err != nil {
 		t.Fatal(err)
 	}
-	frame.Set(0, 0, InkBlack)
+	frame.Set(0, 0, display.InkBlack)
 
-	black, colour, err := EncodeNRFEPD(frame, true)
+	black, colour, err := Encode(frame, colourPanel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,14 +43,14 @@ func TestNRFEPDPacksRowsLeftToRightWithASetBitForWhite(t *testing.T) {
 // Red is the one value that is not simply itself in one plane: it reads as ink
 // in the black plane as well, so that a panel combining the two either way
 // shows something rather than paper.
-func TestNRFEPDWritesRedIntoBothPlanes(t *testing.T) {
-	frame, err := NewFrame(8, 1, InkWhite)
+func TestEncodeWritesRedIntoBothPlanes(t *testing.T) {
+	frame, err := display.NewFrame(8, 1, display.InkWhite)
 	if err != nil {
 		t.Fatal(err)
 	}
-	frame.Set(1, 0, InkRed)
+	frame.Set(1, 0, display.InkRed)
 
-	black, colour, err := EncodeNRFEPD(frame, true)
+	black, colour, err := Encode(frame, colourPanel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,12 +66,12 @@ func TestNRFEPDWritesRedIntoBothPlanes(t *testing.T) {
 // the end of each row that no pixel owns. They have to be white: a clear bit is
 // ink, and a strip of black down the right edge of every row is exactly the
 // kind of thing that looks like a hardware fault rather than a packing bug.
-func TestNRFEPDPadsAPartialRowWithWhite(t *testing.T) {
-	frame, err := NewFrame(12, 2, InkWhite)
+func TestEncodePadsAPartialRowWithWhite(t *testing.T) {
+	frame, err := display.NewFrame(12, 2, display.InkWhite)
 	if err != nil {
 		t.Fatal(err)
 	}
-	black, _, err := EncodeNRFEPD(frame, true)
+	black, _, err := Encode(frame, colourPanel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,14 +89,14 @@ func TestNRFEPDPadsAPartialRowWithWhite(t *testing.T) {
 // flattened to black looks like a page that was drawn in black. So it is
 // refused, and the refusal names where, because on a 400x300 page "there is red
 // somewhere" is not a thing anybody can act on.
-func TestNRFEPDRefusesRedOnABlackAndWhitePanel(t *testing.T) {
-	frame, err := NewFrame(8, 4, InkWhite)
+func TestEncodeRefusesRedOnABlackAndWhitePanel(t *testing.T) {
+	frame, err := display.NewFrame(8, 4, display.InkWhite)
 	if err != nil {
 		t.Fatal(err)
 	}
-	frame.Set(3, 2, InkRed)
+	frame.Set(3, 2, display.InkRed)
 
-	_, _, err = EncodeNRFEPD(frame, false)
+	_, _, err = Encode(frame, monoPanel)
 	if err == nil {
 		t.Fatal("red was accepted onto a black and white panel")
 	}
@@ -97,10 +106,10 @@ func TestNRFEPDRefusesRedOnABlackAndWhitePanel(t *testing.T) {
 
 	// The same frame on a colour panel is fine, and no colour plane is built
 	// for a panel that has none.
-	if _, colour, err := EncodeNRFEPD(frame, true); err != nil || colour == nil {
+	if _, colour, err := Encode(frame, colourPanel); err != nil || colour == nil {
 		t.Errorf("colour panel: colour = %v, err = %v", colour != nil, err)
 	}
-	black, colour, err := EncodeNRFEPD(mustFrame(t, 8, 1), false)
+	black, colour, err := Encode(mustFrame(t, 8, 1), monoPanel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,9 +121,9 @@ func TestNRFEPDRefusesRedOnABlackAndWhitePanel(t *testing.T) {
 	}
 }
 
-func mustFrame(t *testing.T, width, height int) *Frame {
+func mustFrame(t *testing.T, width, height int) *display.Frame {
 	t.Helper()
-	frame, err := NewFrame(width, height, InkWhite)
+	frame, err := display.NewFrame(width, height, display.InkWhite)
 	if err != nil {
 		t.Fatal(err)
 	}

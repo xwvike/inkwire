@@ -190,33 +190,6 @@ func (p Panel) String() string {
 	return p.Gicisky.String()
 }
 
-// Palette names the ink set the panel can show.
-func (p Panel) Palette() string {
-	if p.Family == tag.NRFEPD {
-		return p.NRFEPD.Palette.String()
-	}
-	return p.Gicisky.Palette.String()
-}
-
-// Verified reports whether this entry has been checked against the panel
-// itself rather than transcribed from another project. What an unverified
-// entry would have wrong is the size, and a page of the wrong size is not
-// something the result shows you.
-func (p Panel) Verified() bool {
-	if p.Family == tag.NRFEPD {
-		return p.NRFEPD.Verified
-	}
-	return p.Gicisky.Verified
-}
-
-// hasColour reports whether the panel has a plane for anything but black.
-func (p Panel) hasColour() bool {
-	if p.Family == tag.NRFEPD {
-		return p.NRFEPD.Palette != nrfepd.PaletteBW
-	}
-	return p.Gicisky.Palette != gicisky.PaletteBW
-}
-
 // Page is one scene packed for one panel.
 //
 // The two families disagree about the shape of the answer as well as its
@@ -267,16 +240,10 @@ func Render(document compose.Document, p Panel) (scene.Result, Page, error) {
 func (p Panel) Encode(frame *display.Frame, orientation display.Orientation) (Page, error) {
 	switch p.Family {
 	case tag.NRFEPD:
-		// Asked here rather than left to the driver: the driver only sees a
-		// page with a tag already on the other end, and this is reachable
-		// without one.
-		if err := p.NRFEPD.Packable(); err != nil {
-			return Page{}, err
-		}
 		// Orientation is not passed on: this family is written the way the
 		// page was drawn, and RenderForSize has already turned a portrait
 		// document into a frame of the panel's own shape.
-		black, colour, err := display.EncodeNRFEPD(frame, p.hasColour())
+		black, colour, err := nrfepd.Encode(frame, p.NRFEPD)
 		if err != nil {
 			return Page{}, err
 		}

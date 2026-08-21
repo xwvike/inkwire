@@ -28,10 +28,7 @@ func TestEncodeVerifiedProfileMatchesLegacyEncoder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := display.EncodeGicisky(frame)
-	if err != nil {
-		t.Fatal(err)
-	}
+	want := encodeVerified29(frame)
 	if !bytes.Equal(got, want) {
 		t.Fatal("profile encoder no longer matches the verified 2.9 inch encoder")
 	}

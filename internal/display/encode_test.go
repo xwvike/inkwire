@@ -6,34 +6,6 @@ import (
 	"testing"
 )
 
-func TestEncodeGiciskyPlanesAndRotation(t *testing.T) {
-	frame, err := NewFrame(GiciskyWidth, GiciskyHeight, InkWhite)
-	if err != nil {
-		t.Fatal(err)
-	}
-	frame.Set(295, 0, InkBlack)
-	frame.Set(294, 1, InkRed)
-
-	payload, err := EncodeGicisky(frame)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := len(payload), GiciskyPayloadSize; got != want {
-		t.Fatalf("payload length = %d, want %d", got, want)
-	}
-	bw := payload[:GiciskyPlaneSize]
-	red := payload[GiciskyPlaneSize:]
-	if got, want := bw[0], byte(0x7f); got != want {
-		t.Fatalf("first BW byte = %02x, want %02x", got, want)
-	}
-	if got, want := bw[16], byte(0xbf); got != want {
-		t.Fatalf("rotated red BW byte = %02x, want %02x", got, want)
-	}
-	if got, want := red[16], byte(0x40); got != want {
-		t.Fatalf("rotated red byte = %02x, want %02x", got, want)
-	}
-}
-
 func TestWritePNGRoundTripPreservesSemanticColors(t *testing.T) {
 	frame, err := NewFrame(3, 1, InkWhite)
 	if err != nil {
