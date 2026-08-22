@@ -72,7 +72,7 @@ func validatePalette(frame *display.Frame, profile Profile) error {
 			switch profile.Palette {
 			case PaletteBW:
 				if ink == display.InkRed || ink == display.InkYellow {
-					return fmt.Errorf("%s panel cannot show %s ink at (%d,%d)", profile.Palette, inkName(ink), x, y)
+					return fmt.Errorf("%s panel cannot show %s ink at (%d,%d)", profile.Palette, ink, x, y)
 				}
 			case PaletteBWR:
 				if ink == display.InkYellow {
@@ -85,21 +85,6 @@ func validatePalette(frame *display.Frame, profile Profile) error {
 		}
 	}
 	return nil
-}
-
-func inkName(ink display.Ink) string {
-	switch ink {
-	case display.InkBlack:
-		return "black"
-	case display.InkWhite:
-		return "white"
-	case display.InkRed:
-		return "red"
-	case display.InkYellow:
-		return "yellow"
-	default:
-		return fmt.Sprintf("ink(%d)", ink)
-	}
 }
 
 func landscapeFrame(frame *display.Frame, orientation display.Orientation, width, height int) (*display.Frame, error) {

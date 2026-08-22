@@ -162,22 +162,24 @@ func TestRenderLaysOutForTheSizeOrPanelAskedFor(t *testing.T) {
 	}
 }
 
-// The preview is written even when the panel refuses the ink, because what the
-// page looks like is what says which part of it has to change. The exit code
-// is what says it will not go on that panel.
-func TestAPanelThatRefusesTheInkStillLeavesAPreview(t *testing.T) {
+// An ink the panel has no plane for does not stop the page. It is drawn black,
+// the report says which ink and why, and the run succeeds — the same answer
+// size-mismatch already gave. The refusal this replaced left somebody with a
+// failed command and no picture to look at.
+func TestAnInkThePanelLacksIsReportedRatherThanRefused(t *testing.T) {
 	directory, scenePath := writeScene(t, redPage)
 	pngPath := filepath.Join(directory, "preview.png")
 
 	var stdout, stderr bytes.Buffer
-	if code := run([]string{"render", "-panel", "gicisky:0x0028", "-o", pngPath, scenePath}, &stdout, &stderr); code != 1 {
-		t.Fatalf("render code = %d, want 1; stderr = %s", code, stderr.String())
+	if code := run([]string{"render", "-panel", "gicisky:0x0028", "-o", pngPath, scenePath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("render code = %d, want 0; stderr = %s", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "red") {
-		t.Errorf("stderr = %q, want it to name the ink the panel cannot show", stderr.String())
+	printed := stdout.String() + stderr.String()
+	if !strings.Contains(printed, "unsupported-ink") || !strings.Contains(printed, "red") {
+		t.Errorf("output = %q, want an unsupported-ink warning naming red", printed)
 	}
 	if info, err := os.Stat(pngPath); err != nil || info.Size() == 0 {
-		t.Fatalf("preview = %v, %v, want the page that was drawn", info, err)
+		t.Fatalf("preview = %v, %v", info, err)
 	}
 }
 

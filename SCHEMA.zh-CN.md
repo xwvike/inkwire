@@ -589,7 +589,7 @@ JSON，PNG 以 base64 `pngBase64` 与报告一起返回。
 |---|---|---|
 | `bounds` | rect | 这一页实际画到的范围，写成原点加尺寸 |
 | `missingRunes` | string | 没有任何内置字体能画的字符，就是那些字符本身 |
-| `warnings` | array | 描述带来的非致命后果；代码表见 README |
+| `warnings` | array | 描述带来的非致命后果；代码表见 README。`unsupported-ink` 只在指定了面板时才可能出现，不指定面板就不知道有哪些墨水 |
 | `gridExpansions` | array | 自动布置在 grid 声明之外新建的轨道 |
 | `images` | array | 自动图片处理做了什么决定，每个 `"processing": "auto"` 的图片一条 |
 

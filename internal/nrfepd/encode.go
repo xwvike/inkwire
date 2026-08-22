@@ -56,8 +56,15 @@ func Encode(frame *display.Frame, model Model) (black, colour []byte, err error)
 			ink, _ := frame.InkAt(x, y)
 			switch {
 			case ink == display.InkWhite:
-			case ink == display.InkRed && !red:
-				return nil, nil, fmt.Errorf("frame has red at (%d,%d) and this panel is black and white", x, y)
+			// An ink this panel has no plane for is refused rather than drawn
+			// as something else. Yellow used to fall through to black here,
+			// which made the two families disagree about the same mistake:
+			// gicisky refused it and this one silently changed the picture.
+			// Callers who would rather have the page than the refusal go
+			// through panel.Render, which flattens and says so in the report.
+			case ink == display.InkRed && !red, ink == display.InkYellow:
+				return nil, nil, fmt.Errorf("%s panel cannot show %s ink at (%d,%d)",
+					model.Palette, ink, x, y)
 			case ink == display.InkRed:
 				colour[index] &^= mask
 				black[index] &^= mask

@@ -190,6 +190,102 @@ func (p Panel) String() string {
 	return p.Gicisky.String()
 }
 
+// palette names the ink set this panel can show. The two families spell the
+// same three sets the same way, which is the only reason one switch can read
+// both.
+func (p Panel) palette() string {
+	if p.Family == tag.NRFEPD {
+		return p.NRFEPD.Palette.String()
+	}
+	return p.Gicisky.Palette.String()
+}
+
+// shows reports whether the panel has somewhere to put an ink.
+func (p Panel) shows(ink display.Ink) bool {
+	switch ink {
+	case display.InkBlack, display.InkWhite:
+		return true
+	case display.InkRed:
+		return p.palette() != "BW"
+	case display.InkYellow:
+		return p.palette() == "BWRY"
+	}
+	return false
+}
+
+// flatten redraws the inks this panel cannot show as black, and reports which
+// ones it had to, in the order display declares them.
+//
+// The page is drawn rather than refused. Refusing was the older answer and it
+// came with a reason — losing a colour is not something the picture shows you
+// afterwards — but that reason is about it happening silently. Said out loud in
+// the report it stops being silent, and the caller gets both the page and the
+// knowledge instead of neither. It is the same choice size-mismatch already
+// made: whoever asked for this has a tag in front of them and a page they want
+// on it.
+//
+// Black rather than white, because an ink that was put there was meant to be
+// seen. The frame is copied rather than edited, since the caller may still want
+// what it drew.
+func (p Panel) flatten(frame *display.Frame) (*display.Frame, []display.Ink) {
+	if frame == nil {
+		return frame, nil
+	}
+	var missing []display.Ink
+	for _, ink := range []display.Ink{display.InkBlack, display.InkWhite, display.InkRed, display.InkYellow} {
+		if p.shows(ink) {
+			continue
+		}
+		if frameHas(frame, ink) {
+			missing = append(missing, ink)
+		}
+	}
+	if len(missing) == 0 {
+		return frame, nil
+	}
+	out, err := display.NewFrame(frame.Width(), frame.Height(), display.InkWhite)
+	if err != nil {
+		// The size came from a frame that already exists, so this cannot fail;
+		// if it somehow does, the original is still a correct answer to give
+		// the encoder, which will refuse it.
+		return frame, missing
+	}
+	for y := 0; y < frame.Height(); y++ {
+		for x := 0; x < frame.Width(); x++ {
+			ink, _ := frame.InkAt(x, y)
+			if !p.shows(ink) {
+				ink = display.InkBlack
+			}
+			out.Set(x, y, ink)
+		}
+	}
+	return out, missing
+}
+
+func frameHas(frame *display.Frame, want display.Ink) bool {
+	for y := 0; y < frame.Height(); y++ {
+		for x := 0; x < frame.Width(); x++ {
+			if ink, _ := frame.InkAt(x, y); ink == want {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// unsupportedInk is the warning a flattened ink leaves behind. It is built here
+// rather than in the compiler because the panel is not known until this far
+// down, and a report that does not mention it would be a page that changed
+// colour on the way out with nothing saying so.
+func unsupportedInk(p Panel, ink display.Ink) compose.Warning {
+	return compose.Warning{
+		Path: "document",
+		Code: "unsupported-ink",
+		Message: fmt.Sprintf("%s has no %s, so every %s pixel was drawn black instead",
+			p, ink, ink),
+	}
+}
+
 // Page is one scene packed for one panel.
 //
 // The two families disagree about the shape of the answer as well as its
@@ -200,6 +296,10 @@ func (p Panel) String() string {
 type Page struct {
 	Bytes         []byte
 	Black, Colour []byte
+	// Flattened lists the inks the panel could not show, which were drawn
+	// black to make this page. Empty when the page asked for nothing the panel
+	// does not have.
+	Flattened []display.Ink
 }
 
 // Len is how many bytes the page takes on the wire, whichever shape it is in.
@@ -224,7 +324,15 @@ func Render(document compose.Document, p Panel) (scene.Result, Page, error) {
 	if err != nil {
 		return scene.Result{}, Page{}, err
 	}
-	page, err := p.Encode(result.Frame, result.Orientation)
+	// The flattened frame replaces the one that was drawn, so the preview shows
+	// what the panel will show rather than what the scene asked for.
+	frame, flattened := p.flatten(result.Frame)
+	result.Frame = frame
+	for _, ink := range flattened {
+		result.Report.Warnings = append(result.Report.Warnings, unsupportedInk(p, ink))
+	}
+	page, err := p.pack(frame, result.Orientation)
+	page.Flattened = flattened
 	if err != nil {
 		return result, Page{}, err
 	}
@@ -238,6 +346,15 @@ func Render(document compose.Document, p Panel) (scene.Result, Page, error) {
 // drawn for, which is how a page that has quietly stopped fitting shows up
 // while it is still only a test failure.
 func (p Panel) Encode(frame *display.Frame, orientation display.Orientation) (Page, error) {
+	frame, flattened := p.flatten(frame)
+	page, err := p.pack(frame, orientation)
+	page.Flattened = flattened
+	return page, err
+}
+
+// pack is Encode without the flattening, for the one caller that has already
+// done it and needs the frame it flattened to.
+func (p Panel) pack(frame *display.Frame, orientation display.Orientation) (Page, error) {
 	switch p.Family {
 	case tag.NRFEPD:
 		// Orientation is not passed on: this family is written the way the

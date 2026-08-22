@@ -150,7 +150,11 @@ upload complete, tag is refreshing
 | `-settle` | `30s` | EPD-nRF5 only: how long to stay connected after `REFRESH`, see [Between writes](#between-writes) |
 
 A scene stating a size the panel does not have is not refused: it is laid out
-again for the panel and a `size-mismatch` warning is reported.
+again for the panel and a `size-mismatch` warning is reported. An ink the panel
+has no plane for is not refused either: it is drawn black and an
+`unsupported-ink` warning is reported, one per ink. Both families answer the
+same way, and the preview shows what the panel will show rather than what the
+scene asked for.
 
 Warnings from the render are printed with the write log, see [Warnings](#warnings).
 
@@ -284,7 +288,7 @@ is not driven.
 
 ### Models
 
-Read after connecting with `INIT`. A size mismatch is not refused: the page is laid out again for the panel and a `size-mismatch` warning is reported.
+Read after connecting with `INIT`. A size mismatch is not refused: the page is laid out again for the panel and a `size-mismatch` warning is reported. Nor is an ink the panel has no plane for — yellow on a BWR panel, red on a BW one — which is drawn black with an `unsupported-ink` warning, exactly as it is for Gicisky.
 
 | ID | Name | Size | Inks | Packing |
 |---|---|---|---|---|
@@ -427,6 +431,7 @@ Non-fatal.
 | `empty-layout` | Padding or size leaves no drawable area |
 | `missing-runes` | Font lacks these glyphs |
 | `size-mismatch` | The scene states a size the panel does not have; laid out again for the panel, anything beyond it clipped |
+| `unsupported-ink` | The scene uses an ink the panel has no plane for; drawn black instead, one warning per ink |
 
 ### Errors
 

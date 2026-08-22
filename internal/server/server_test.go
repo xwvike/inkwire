@@ -1139,32 +1139,34 @@ func TestRenderTakesASizeOrAPanel(t *testing.T) {
 	}
 }
 
-// A page that draws and cannot go on the panel it was named for comes back
-// with the preview as well as the refusal. Answering with the error alone
-// would leave a caller to render it a second time, without the panel, to find
-// out what it was they drew.
-func TestAPanelThatRefusesTheInkStillAnswersWithThePreview(t *testing.T) {
+// An ink the panel has no plane for is a warning in the report, not a refusal.
+// The page is drawn black where the ink was and answered with 200, because a
+// warning is what stops the change being silent, and refusing would leave the
+// caller with neither the page nor a way to see what was wrong with it.
+func TestAnInkThePanelLacksIsReportedInTheRender(t *testing.T) {
 	handler := New(Config{Logf: func(string, ...any) {}})
 	response := request(t, handler, "/v1/render?panel=gicisky:0x0028", redScene)
-	if response.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("render = %d, want %d: %s", response.Code, http.StatusUnprocessableEntity, response.Body.String())
+	if response.Code != http.StatusOK {
+		t.Fatalf("render = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
 	}
 	var body struct {
-		Code      string `json:"code"`
-		Error     string `json:"error"`
-		PNGBase64 string `json:"pngBase64"`
+		PNGBase64 string         `json:"pngBase64"`
+		Report    compose.Report `json:"report"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if body.Code != "unprocessable-scene" {
-		t.Errorf("code = %q, want unprocessable-scene", body.Code)
-	}
-	if !strings.Contains(body.Error, "red") {
-		t.Errorf("error = %q, want it to name the ink", body.Error)
-	}
 	if body.PNGBase64 == "" {
 		t.Error("the page drew and the preview was withheld")
+	}
+	var warned bool
+	for _, warning := range body.Report.Warnings {
+		if warning.Code == "unsupported-ink" && strings.Contains(warning.Message, "red") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("warnings = %v, want one naming red", body.Report.Warnings)
 	}
 }
 

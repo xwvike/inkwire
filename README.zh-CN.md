@@ -138,7 +138,9 @@ upload complete, tag is refreshing
 | `-family` | `auto` | 指定则断言设备属于这个家族，不再内部判断 |
 | `-settle` | `30s` | 仅 EPD-nRF5：`REFRESH` 后保持连接的时长，见[写入间隔](#写入间隔) |
 
-场景声明的尺寸与面板不符不会拒绝，按面板重排并给出 `size-mismatch` 警告。
+场景声明的尺寸与面板不符不会拒绝，按面板重排并给出 `size-mismatch` 警告。面板没有
+对应色层的墨水同样不会拒绝：改画成黑色，每种墨水给一条 `unsupported-ink` 警告。
+两个家族的处理方式一致，预览图显示的是面板将要显示的样子，而不是场景写的样子。
 
 渲染报告中的警告打印在写入日志里，见[警告](#警告)。
 
@@ -267,7 +269,7 @@ FF:FF:92:94:38:61                      NEMR92943861    -50  3.0V  gicisky  EPD 4
 
 ### 型号
 
-`INIT` 连接后读出。尺寸不符不会拒绝，按实际面板重新排版并给出 `size-mismatch` 警告。
+`INIT` 连接后读出。尺寸不符不会拒绝，按实际面板重新排版并给出 `size-mismatch` 警告。面板没有对应色层的墨水也不拒绝——BWR 面板上的黄、BW 面板上的红——改画成黑色并给出 `unsupported-ink` 警告，与 Gicisky 完全一致。
 
 | ID | 名称 | 尺寸 | 颜色 | 打包 |
 |---|---|---|---|---|
@@ -400,6 +402,7 @@ curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
 | `empty-layout` | 内边距或尺寸使可绘制区域为零 |
 | `missing-runes` | 字库缺少这些字形 |
 | `size-mismatch` | 场景声明的尺寸与面板不符，已按面板重排，超出部分被裁 |
+| `unsupported-ink` | 场景用了面板没有对应色层的墨水，已改画成黑色，每种墨水一条 |
 
 ### 错误
 

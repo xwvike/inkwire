@@ -115,8 +115,11 @@ func readDoc(t *testing.T, path string) string {
 // tables are exactly the kind of list that stops being complete the moment the
 // code that fills them moves on.
 func TestBothReadmesDocumentEveryWarningCode(t *testing.T) {
+	// panel joined the list when it started warning: the ink a page asked for
+	// and the panel it is bound for are only both known there, so that is
+	// where the warning about the two disagreeing has to be built.
 	sources := []string{
-		"../../internal/compose", "../../internal/scene",
+		"../../internal/compose", "../../internal/scene", "../../internal/panel",
 	}
 	emitted := map[string]string{}
 	// ctx.warn(path, "code", …) and the Warning literals a package builds by

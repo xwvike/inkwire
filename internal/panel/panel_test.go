@@ -76,27 +76,97 @@ func TestEachFamilyPacksIntoItsOwnShape(t *testing.T) {
 	}
 }
 
-// A black and white panel has no plane to put red in, and both families say so
-// rather than dropping the colour. What matters here is not the refusal but
-// what comes back with it: the page drew, so the report exists, and the caller
-// needs it to explain a failure that the picture cannot show.
-func TestAPageThatDrawsAndWillNotPackKeepsItsReport(t *testing.T) {
+// A panel without the ink a page asked for draws it black and says so. The
+// refusal this replaced had a reason — losing a colour is not something the
+// picture shows you afterwards — but that reason is about it happening
+// silently, and a warning is what stops it being silent. The caller gets the
+// page and the knowledge instead of neither.
+//
+// Both families answer the same way. They did not: gicisky refused yellow on a
+// BWR panel and EPD-nRF5 quietly drew it black, so the same mistake was an
+// error on one tag and invisible on the other.
+func TestAnInkThePanelHasNoPlaceForIsDrawnBlackAndReported(t *testing.T) {
 	for _, target := range []Panel{
-		giciskyPanel(t, 0x0028),
-		nrfepdPanel(t, "UC8176_420_BW"),
+		giciskyPanel(t, 0x0028),          // BW
+		nrfepdPanel(t, "UC8176_420_BW"),  // BW
+		giciskyPanel(t, 0x004B),          // BWR, no yellow
+		nrfepdPanel(t, "UC8176_420_BWR"), // BWR, no yellow
 	} {
-		result, page, err := Render(filled(display.InkRed), target)
-		if err == nil {
-			t.Fatalf("%s accepted red ink", target)
+		ink := display.InkYellow
+		if target.palette() == "BW" {
+			ink = display.InkRed
 		}
-		if result.Frame == nil {
-			t.Errorf("%s: the page drew and the frame was dropped, so there is no report to send", target)
+		result, page, err := Render(filled(ink), target)
+		if err != nil {
+			t.Errorf("%s: %v", target, err)
+			continue
 		}
-		if result.Report.Bounds.Empty() {
-			t.Errorf("%s: report has no bounds", target)
+		if len(page.Flattened) == 0 {
+			t.Errorf("%s: %s went through unreported", target, ink)
 		}
-		if page.Len() != 0 {
-			t.Errorf("%s: returned %d bytes beside the error", target, page.Len())
+		var warned bool
+		for _, warning := range result.Report.Warnings {
+			if warning.Code == "unsupported-ink" && strings.Contains(warning.Message, ink.String()) {
+				warned = true
+			}
+		}
+		if !warned {
+			t.Errorf("%s: warnings = %v, want one naming %s", target, result.Report.Warnings, ink)
+		}
+		// The preview has to show what the panel will show, not what the scene
+		// asked for, or the picture and the tag disagree about the same page.
+		if got, _ := result.Frame.InkAt(1, 1); got != display.InkBlack {
+			t.Errorf("%s: preview pixel = %s, want black", target, got)
+		}
+	}
+}
+
+// A panel that has the ink is left alone, which is the half that says the
+// flattening is looking at the palette rather than at every coloured pixel.
+func TestAPanelThatHasTheInkIsLeftAlone(t *testing.T) {
+	for _, target := range []Panel{
+		giciskyPanel(t, 0x002E),          // BWRY
+		nrfepdPanel(t, "UC8176_420_BWR"), // BWR
+	} {
+		ink := display.InkYellow
+		if target.palette() == "BWR" {
+			ink = display.InkRed
+		}
+		result, page, err := Render(filled(ink), target)
+		if err != nil {
+			t.Fatalf("%s: %v", target, err)
+		}
+		if len(page.Flattened) != 0 {
+			t.Errorf("%s: flattened %v, and it can show %s", target, page.Flattened, ink)
+		}
+		if len(result.Report.Warnings) != 0 {
+			t.Errorf("%s: warnings = %v, want none", target, result.Report.Warnings)
+		}
+		if got, _ := result.Frame.InkAt(1, 1); got != ink {
+			t.Errorf("%s: preview pixel = %s, want %s", target, got, ink)
+		}
+	}
+}
+
+// Below the seam the two encoders still refuse, and refuse alike. panel is what
+// decides that a page is worth having anyway; an encoder handed an ink the
+// panel has no plane for has been given something nobody checked, and drawing
+// it as some other colour is the one thing it must not do quietly.
+func TestBothEncodersRefuseAnInkTheyWereHandedDirectly(t *testing.T) {
+	for _, target := range []Panel{
+		giciskyPanel(t, 0x004B),
+		nrfepdPanel(t, "UC8176_420_BWR"),
+	} {
+		size := target.Size()
+		frame, err := display.NewFrame(size.X, size.Y, display.InkWhite)
+		if err != nil {
+			t.Fatal(err)
+		}
+		frame.Set(2, 2, display.InkYellow)
+		if _, err := target.pack(frame, display.OrientationLandscape); err == nil {
+			t.Errorf("%s: the encoder accepted yellow", target)
+		} else if !strings.Contains(err.Error(), "yellow") {
+			t.Errorf("%s: error = %v, want it to name the ink", target, err)
 		}
 	}
 }

@@ -604,7 +604,7 @@ nothing about the document; it says what the description turned out to mean.
 |---|---|---|
 | `bounds` | rect | What the page actually drew into, as an origin and a size |
 | `missingRunes` | string | The characters no bundled font could draw, as the characters themselves |
-| `warnings` | array | Non-fatal consequences of the description; the codes are listed in the README |
+| `warnings` | array | Non-fatal consequences of the description; the codes are listed in the README. `unsupported-ink` appears only when a panel was named, since the ink set is not known without one |
 | `gridExpansions` | array | Tracks auto-placement created beyond the ones a grid declared |
 | `images` | array | What automatic image processing decided, one entry per `"processing": "auto"` image |
 

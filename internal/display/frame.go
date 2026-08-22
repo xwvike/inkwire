@@ -25,6 +25,23 @@ func (i Ink) valid() bool {
 	return i <= InkYellow
 }
 
+// String names the ink. Anything that has to tell somebody an ink could not be
+// shown has to be able to say which one, and every caller that needed that was
+// writing the same four-case switch.
+func (i Ink) String() string {
+	switch i {
+	case InkBlack:
+		return "black"
+	case InkWhite:
+		return "white"
+	case InkRed:
+		return "red"
+	case InkYellow:
+		return "yellow"
+	}
+	return fmt.Sprintf("Ink(%d)", uint8(i))
+}
+
 func (i Ink) RGBA() color.NRGBA {
 	switch i {
 	case InkBlack:
