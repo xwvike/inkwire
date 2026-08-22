@@ -355,7 +355,20 @@ Leave ≥45 s between two writes to one tag. A tag refuses connections while it 
 refreshing; 26 s failed in practice.
 
 `-settle` controls how long the connection is held open after the write.
-Disconnecting early cancels that draw.
+Disconnecting early cancels that draw, and a cancelled draw does not look like
+a failure: the page arrives faint or partly drawn, the command exits 0, and
+nothing anywhere says the drawing did not finish. The write succeeded. The
+panel was put to sleep in the middle of drawing it.
+
+**The 30 s default is not enough for every panel.** A 4.2" 400x300 BWR tag
+needed 90 s; at 30 s it came out faint every time. How much of the page is
+coloured does not appear to matter — the same page with no red at all was no
+clearer at the same setting — so this is the panel's own refresh time rather
+than anything about what is on it. The figure has not been bracketed: 30 s
+fails and 90 s works on that tag, and nothing in between has been tried.
+
+`-settle` matters to `mode` for the same reason. Setting the clock redraws the
+panel whatever the mode, so a short settle cancels that draw too.
 
 ### Connection failures
 
