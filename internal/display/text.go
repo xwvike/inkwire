@@ -204,20 +204,18 @@ func (l *TextLayout) MissingFonts() []string {
 	return slices.Clone(l.missingIn)
 }
 
-// Clipped reports whether drawing will actually lose content, which is not the
-// same as overflowing the box.
+// Clipped reports what the box cut off: pixels of overrun along the line, whole
+// lines that did not start, and rows of ink lost off the top or bottom.
 //
-// Measured across the scenes in this repository, fifty-six of fifty-nine
-// overflows were one to four pixels on the vertical axis: the line's descent
-// and gap reaching past a box sized to the glyphs, with every glyph still
-// drawn. Warning about those would bury the three that mattered. So the test
-// is whether a whole line goes missing, or whether the line is wider than the
-// box and characters fall off the end.
-//
-// Losing characters is the case worth catching. Prose cut short is visibly cut
-// short; a figure of 3260 clipped to 260 is still a number, still plausible,
-// and gives no sign that it is wrong.
-func (l *TextLayout) Clipped() (columns, lines int) {
+// The third is measured from the glyph bitmaps rather than from the line
+// height, and the difference is the whole point. Sixty-six labels across the
+// examples lay out a line taller than the box holding it, which is how a label
+// is written on a panel this size — the box is sized to the letters, not to the
+// descender and line gap under them. Comparing heights calls all sixty-six
+// clipped. Asking which rows actually carry ink called one, and that one had
+// been losing the bottom row of every character in it since it was written,
+// with the render clean and the tests green.
+func (l *TextLayout) Clipped() (columns, lines, rows int) {
 	available := l.box.Bounds.Size()
 	if l.width > available.X {
 		columns = l.width - available.X
@@ -225,23 +223,61 @@ func (l *TextLayout) Clipped() (columns, lines int) {
 	// A line counts as lost only when its ascent will not fit, because the
 	// ascent is where the glyph bodies are. Measuring against the full line
 	// height instead reports a loss whenever a box is sized to the letters
-	// rather than to the descent and line gap below them, which is most
-	// single-line labels in this repository and none of them is clipped.
-	//
-	// Half-leading is deliberately not added here, though it is what moves the
-	// bodies down. This is a loose measure of a whole line being lost, taken
-	// from the top of the block and modelling neither verticalAlign nor where
-	// the leading puts the glyphs; adding one of the three and not the others
-	// made it report a clock in claude_status that measurement showed keeping
-	// every pixel it had.
+	// rather than to the descent and line gap below them.
 	used := 0
 	for index, line := range l.lines {
 		if used+line.ascent > available.Y {
-			return columns, len(l.lines) - index
+			lines = len(l.lines) - index
+			break
 		}
 		used += line.height
 	}
-	return columns, 0
+
+	// Only glyphs hanging outside the box are opened up. Inside it there is
+	// nothing to lose, and reading every bitmap on every render to find that
+	// out would be paid for by every page.
+	box := l.box.Bounds
+	above, below := 0, 0
+	l.eachGlyph(func(at image.Rectangle, p glyphPlacement) {
+		if at.Min.Y >= box.Min.Y && at.Max.Y <= box.Max.Y {
+			return
+		}
+		top, bottom := p.inkRows()
+		if top < 0 {
+			return
+		}
+		if lost := box.Min.Y - (at.Min.Y + top); lost > above {
+			above = lost
+		}
+		if lost := (at.Min.Y + bottom) - (box.Max.Y - 1); lost > below {
+			below = lost
+		}
+	})
+	rows = max(0, above) + max(0, below)
+	return columns, lines, rows
+}
+
+// inkRows is the first and last row of the glyph that has any ink in it, or
+// -1 for a glyph that is blank. A space is not clipped by being outside the
+// box, and neither is the empty band a font leaves above its capitals.
+func (p glyphPlacement) inkRows() (top, bottom int) {
+	top, bottom = -1, -1
+	if p.missing {
+		// The placeholder is a drawn box, so all of it is ink.
+		return 0, p.glyph.Height - 1
+	}
+	for y := 0; y < p.glyph.Height; y++ {
+		for x := 0; x < p.glyph.Width; x++ {
+			if p.glyph.On(x, y) {
+				if top < 0 {
+					top = y
+				}
+				bottom = y
+				break
+			}
+		}
+	}
+	return top, bottom
 }
 
 // inkedHeight is the height of the letters rather than of the box holding them:
@@ -266,11 +302,14 @@ func (l *TextLayout) inkedHeight() int {
 	return l.height - (last.height - last.ascent - last.descent)
 }
 
-func (l *TextLayout) Draw(canvas *Canvas) {
-	if canvas == nil || len(l.lines) == 0 {
-		return
-	}
-	clipped := canvas.Clip(l.box.Bounds)
+// eachGlyph walks the laid-out glyphs where they will be drawn.
+//
+// Drawing and measuring what was lost have to agree about where every glyph
+// went, and they did not: one placed the glyphs and the other compared heights,
+// so a label whose last row fell outside its box was drawn short and reported
+// as fitting. Both go through here now, and a position can only be wrong in one
+// place.
+func (l *TextLayout) eachGlyph(visit func(at image.Rectangle, p glyphPlacement)) {
 	y := l.box.Bounds.Min.Y
 	switch l.box.VerticalAlign {
 	case AlignMiddle:
@@ -290,15 +329,25 @@ func (l *TextLayout) Draw(canvas *Canvas) {
 		baseline := y + line.ascent
 		for _, placement := range line.glyphs {
 			top := baseline - placement.metrics.Ascent
-			if placement.missing {
-				drawMissingGlyph(clipped, image.Rect(x, top, x+placement.glyph.Width, top+placement.glyph.Height), placement.ink)
-			} else {
-				drawGlyph(clipped, image.Pt(x, top), placement.glyph, placement.ink)
-			}
+			visit(image.Rect(x, top, x+placement.glyph.Width, top+placement.glyph.Height), placement)
 			x += placement.glyph.Advance
 		}
 		y += line.height
 	}
+}
+
+func (l *TextLayout) Draw(canvas *Canvas) {
+	if canvas == nil || len(l.lines) == 0 {
+		return
+	}
+	clipped := canvas.Clip(l.box.Bounds)
+	l.eachGlyph(func(at image.Rectangle, placement glyphPlacement) {
+		if placement.missing {
+			drawMissingGlyph(clipped, at, placement.ink)
+		} else {
+			drawGlyph(clipped, at.Min, placement.glyph, placement.ink)
+		}
+	})
 }
 
 func (c *Canvas) DrawTextBox(registry *FontRegistry, box TextBox) (*TextLayout, error) {

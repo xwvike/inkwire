@@ -427,7 +427,7 @@ Non-fatal.
 
 | `code` | Meaning |
 |---|---|
-| `text-clipped` | Text exceeds the box it is in; characters or lines cut |
+| `text-clipped` | Text exceeds the box it is in: characters along the line, whole lines, or rows of ink off the top or bottom |
 | `layout-overflow` | Children exceed the container on the main axis |
 | `empty-layout` | Padding or size leaves no drawable area |
 | `missing-runes` | Font lacks these glyphs |

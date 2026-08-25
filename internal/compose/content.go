@@ -4,6 +4,7 @@ import (
 	"fmt"
 	stdimage "image"
 	"math"
+	"strings"
 
 	"github.com/xwvike/inkwire/internal/display"
 )
@@ -59,12 +60,35 @@ func (t Text) paint(ctx *compileContext, list *display.DisplayList, bounds stdim
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	ctx.addMissing(path, layout.MissingRunes(), layout.MissingFonts())
-	if columns, lines := layout.Clipped(); columns > 0 || lines > 0 {
-		ctx.warn(path, "text-clipped", fmt.Sprintf(
-			"%q does not fit %dx%d: %d pixels of the line and %d whole lines are cut off",
-			runText(t.Runs), bounds.Dx(), bounds.Dy(), columns, lines))
+	if columns, lines, rows := layout.Clipped(); columns > 0 || lines > 0 || rows > 0 {
+		ctx.warn(path, "text-clipped", fmt.Sprintf("%q does not fit %dx%d: %s cut off",
+			runText(t.Runs), bounds.Dx(), bounds.Dy(), lostText(columns, lines, rows)))
 	}
 	return nil
+}
+
+// lostText names what the box took, listing only the kinds that were actually
+// lost. A warning that says nought pixels and nought lines before the one
+// number that matters reads as though it is unsure which it means.
+func lostText(columns, lines, rows int) string {
+	var parts []string
+	if columns > 0 {
+		parts = append(parts, fmt.Sprintf("%d pixels along the line", columns))
+	}
+	if lines > 0 {
+		parts = append(parts, fmt.Sprintf("%s", plural(lines, "whole line", "whole lines")))
+	}
+	if rows > 0 {
+		parts = append(parts, fmt.Sprintf("%s of ink", plural(rows, "row", "rows")))
+	}
+	return strings.Join(parts, " and ")
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, one)
+	}
+	return fmt.Sprintf("%d %s", n, many)
 }
 
 // runText joins the runs so a warning can name the text that was cut rather

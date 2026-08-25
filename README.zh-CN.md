@@ -398,7 +398,7 @@ curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
 
 | `code` | 含义 |
 |---|---|
-| `text-clipped` | 文字超出所在框，字符或整行被裁 |
+| `text-clipped` | 文字超出所在框：行内字符、整行，或上下被切掉的墨迹行 |
 | `layout-overflow` | 子节点主轴超出容器 |
 | `empty-layout` | 内边距或尺寸使可绘制区域为零 |
 | `missing-runes` | 字库缺少这些字形 |
