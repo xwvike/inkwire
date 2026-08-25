@@ -11,7 +11,9 @@ import (
 // rather than off the panel, so it is quick or it is not coming.
 const DefaultResponseTimeout = 5 * time.Second
 
-// DefaultSettle is how long to stay connected after asking for a refresh.
+// DefaultSettle is how long to stay connected after asking for a refresh. It
+// is the value NewDriver installs, not a fallback a zero field falls back to:
+// a caller that says nothing gets this, and a caller that says zero gets zero.
 //
 // The refresh is the one command that does not finish when it is acknowledged.
 // The soft device answers a write itself and hands the request to the firmware
@@ -27,6 +29,10 @@ const DefaultSettle = 30 * time.Second
 
 // Timings are the two waits a conversation needs: one for the panel to say what
 // it is, and one for it to finish drawing.
+//
+// Settle is taken at face value, zero included. Build one of these through
+// NewDriver to get the defaults; construct it by hand and a zero Settle means
+// no wait at all, which on this family cancels the draw.
 type Timings struct {
 	Response time.Duration
 	Settle   time.Duration
@@ -39,12 +45,13 @@ func (t Timings) response() time.Duration {
 	return t.Response
 }
 
+// settle is the wait as it was asked for. A stated zero stays zero: turning it
+// into DefaultSettle meant `-settle 0` waited thirty seconds, which is the one
+// answer nobody typing it wanted. Negative is clamped rather than honoured as a
+// second way of writing zero — there is only one way to say no wait.
 func (t Timings) settle() time.Duration {
 	if t.Settle < 0 {
 		return 0
-	}
-	if t.Settle == 0 {
-		return DefaultSettle
 	}
 	return t.Settle
 }

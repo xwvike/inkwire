@@ -68,7 +68,7 @@ func TestASessionLearnsThePanelAndSendsAPageBuiltForIt(t *testing.T) {
 		return bytes.Repeat([]byte{0xff}, model.PlaneSize()),
 			bytes.Repeat([]byte{0xff}, model.PlaneSize()), nil
 	}
-	if err := Session(context.Background(), panel, page, Timings{Response: time.Second, Settle: -1}, nil); err != nil {
+	if err := Session(context.Background(), panel, page, Timings{Response: time.Second, Settle: 0}, nil); err != nil {
 		t.Fatal(err)
 	}
 	// The page was asked for after the panel said what it was, and asked for at
@@ -102,7 +102,7 @@ func TestAPanelThatNeverDescribesItsLinkStillGetsThePage(t *testing.T) {
 		return bytes.Repeat([]byte{0xff}, model.PlaneSize()),
 			bytes.Repeat([]byte{0xff}, model.PlaneSize()), nil
 	}
-	if err := Session(context.Background(), panel, page, Timings{Response: time.Second, Settle: -1}, nil); err != nil {
+	if err := Session(context.Background(), panel, page, Timings{Response: time.Second, Settle: 0}, nil); err != nil {
 		t.Fatal(err)
 	}
 	for index, frame := range panel.written {
@@ -128,7 +128,7 @@ func TestAnUnknownPanelIsRefusedRatherThanGuessedAt(t *testing.T) {
 		asked = true
 		return nil, nil, nil
 	}
-	err = Session(context.Background(), panel, page, Timings{Response: time.Second, Settle: -1}, nil)
+	err = Session(context.Background(), panel, page, Timings{Response: time.Second, Settle: 0}, nil)
 	if err == nil {
 		t.Fatal("an unknown panel was driven anyway")
 	}
@@ -144,7 +144,7 @@ func TestAnUnknownPanelIsRefusedRatherThanGuessedAt(t *testing.T) {
 // command someone is waiting on.
 func TestAPanelThatNeverAnswersTimesOut(t *testing.T) {
 	panel := newPanelStub(t)
-	err := Session(context.Background(), panel, nil, Timings{Response: 50 * time.Millisecond, Settle: -1}, nil)
+	err := Session(context.Background(), panel, nil, Timings{Response: 50 * time.Millisecond, Settle: 0}, nil)
 	if err == nil {
 		t.Fatal("a silent panel was waited on forever")
 	}
@@ -165,7 +165,7 @@ func TestAFailedWriteNamesWhereItStopped(t *testing.T) {
 		return bytes.Repeat([]byte{0xff}, model.PlaneSize()),
 			bytes.Repeat([]byte{0xff}, model.PlaneSize()), nil
 	}
-	err := Session(context.Background(), panel, page, Timings{Response: time.Second, Settle: -1}, nil)
+	err := Session(context.Background(), panel, page, Timings{Response: time.Second, Settle: 0}, nil)
 	if err == nil {
 		t.Fatal("a failed write was reported as success")
 	}
@@ -221,5 +221,31 @@ func TestTheRefreshWaitIsInterruptible(t *testing.T) {
 	}
 	if waited := time.Since(start); waited > 5*time.Second {
 		t.Errorf("the wait ignored the cancellation for %s", waited)
+	}
+}
+
+// A settle is the number that was asked for, zero included.
+//
+// Zero used to mean DefaultSettle, on the reasoning that an unset field wants
+// the default. That reasoning is right about a struct and wrong about a flag:
+// `-settle 0` is somebody stating a number, and thirty seconds is the one
+// answer they cannot have meant. The default now lives in NewDriver, which is
+// the only thing that should be deciding defaults.
+func TestSettleIsTheNumberAsked(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		set  time.Duration
+		want time.Duration
+	}{
+		{"a stated zero stays zero", 0, 0},
+		{"a stated wait is kept", 5 * time.Second, 5 * time.Second},
+		{"the default is a number like any other", DefaultSettle, DefaultSettle},
+		{"negative cannot be waited for", -time.Second, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := (Timings{Settle: test.set}).settle(); got != test.want {
+				t.Fatalf("Timings{Settle: %s}.settle() = %s, want %s", test.set, got, test.want)
+			}
+		})
 	}
 }

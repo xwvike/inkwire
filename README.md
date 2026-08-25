@@ -147,7 +147,7 @@ upload complete, tag is refreshing
 |---|---|---|
 | `-device` | required | Advertised name (`NAME` column) or BLE address |
 | `-family` | `auto` | Given, it asserts the device belongs to that family instead of working it out |
-| `-settle` | `30s` | EPD-nRF5 only: how long to stay connected after `REFRESH`, see [Between writes](#between-writes) |
+| `-settle` | `30s` | EPD-nRF5 only: how long to stay connected after `REFRESH`; `0` leaves at once, see [Between writes](#between-writes) |
 
 A scene stating a size the panel does not have is not refused: it is laid out
 again for the panel and a `size-mismatch` warning is reported. An ink the panel
@@ -180,7 +180,7 @@ staying connected 30s while the panel refreshes; disconnecting now would cancel 
 | `-device` | required | Advertised name or BLE address |
 | `-mode` | `calendar` | `picture`, `calendar` or `clock` |
 | `-week-start` | the tag's own setting | First column of a calendar week: `sunday` or `monday` |
-| `-settle` | `30s` | How long to stay connected while the panel redraws |
+| `-settle` | `30s` | How long to stay connected while the panel redraws; `0` leaves at once |
 
 Only EPD-nRF5 has this. Pointed at a Gicisky tag it is refused by name:
 
@@ -369,6 +369,10 @@ fails and 90 s works on that tag, and nothing in between has been tried.
 
 `-settle` matters to `mode` for the same reason. Setting the clock redraws the
 panel whatever the mode, so a short settle cancels that draw too.
+
+**`-settle 0` means zero.** It disconnects as soon as the write lands, which
+cancels the draw with it. Leave the flag out to get the 30 s default. A
+negative duration is refused.
 
 ### Connection failures
 

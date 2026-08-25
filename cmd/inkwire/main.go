@@ -361,9 +361,12 @@ func runPushScene(ctx context.Context, args []string, logger *log.Logger, stdout
 	target := flags.String("device", "", "BLE address or advertised name, required; inkwire scan lists them")
 	family := flags.String("family", "auto", "tag family: auto, gicisky or nrfepd")
 	settle := flags.Duration("settle", nrfepd.DefaultSettle,
-		"nrfepd only: how long to stay connected while the panel refreshes; leaving early cancels it")
+		"nrfepd only: how long to stay connected while the panel refreshes; leaving early cancels it, and 0 leaves immediately")
 	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
+	}
+	if !settleIsUsable(*settle, stderr) {
+		return 2
 	}
 	if flags.NArg() != 1 {
 		flags.Usage()
@@ -443,9 +446,12 @@ func runMode(ctx context.Context, args []string, logger *log.Logger, stdout, std
 	target := flags.String("device", "", "BLE address or advertised name, required; inkwire scan lists them")
 	mode := flags.String("mode", "calendar", "what the tag draws for itself: picture, calendar or clock")
 	weekStart := flags.String("week-start", "", "first column of a calendar week: sunday or monday; unset leaves the tag's own setting alone")
-	settle := flags.Duration("settle", nrfepd.DefaultSettle, "how long to stay connected while the panel redraws")
+	settle := flags.Duration("settle", nrfepd.DefaultSettle, "how long to stay connected while the panel redraws; 0 leaves immediately")
 	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
+	}
+	if !settleIsUsable(*settle, stderr) {
+		return 2
 	}
 	if *target == "" {
 		fmt.Fprintln(stderr, "mode needs -device: it will not pick a tag for you.")
@@ -487,6 +493,22 @@ func runMode(ctx context.Context, args []string, logger *log.Logger, stdout, std
 		return 1
 	}
 	return 0
+}
+
+// settleIsUsable refuses a negative settle rather than reading it as zero.
+//
+// Waiting for a negative length of time is not something somebody means, so it
+// is a typo — most likely a duration that lost its unit and picked up a sign.
+// Reading it as "do not wait" would carry the typo all the way to a page that
+// sends perfectly and never appears, which is the failure this flag exists to
+// prevent. Zero is spelled zero.
+func settleIsUsable(settle time.Duration, stderr io.Writer) bool {
+	if settle < 0 {
+		fmt.Fprintf(stderr, "-settle cannot be negative: %s.\n", settle)
+		fmt.Fprintln(stderr, "Leave it out for the default, or write -settle 0 to disconnect as soon as the write lands.")
+		return false
+	}
+	return true
 }
 
 // resolveFamily decides which driver a target wants.

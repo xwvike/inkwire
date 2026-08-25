@@ -228,3 +228,26 @@ func TestASceneWithNoSizeIsRefusedAndSaysHowToFixIt(t *testing.T) {
 		}
 	}
 }
+
+// A negative settle is refused before anything looks for a tag.
+//
+// It cannot be honoured and must not be quietly read as zero: waiting for less
+// than no time is a typo, and the typo it usually is — a duration that lost its
+// unit and kept a sign — would otherwise turn into a page that sends perfectly
+// and never appears. The check runs ahead of the device lookup, so this never
+// reaches the radio.
+func TestANegativeSettleIsAUsageError(t *testing.T) {
+	_, scenePath := writeScene(t, redPage)
+	for _, args := range [][]string{
+		{"push", "-device", "NRFEPD_AABBCCDD", "-settle", "-5s", scenePath},
+		{"mode", "-device", "NRFEPD_AABBCCDD", "-settle", "-1ns"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, &stdout, &stderr); code != 2 {
+			t.Errorf("%v = %d, want 2; stderr = %s", args, code, stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "-settle 0") {
+			t.Errorf("%v stderr = %q, want it to say how to ask for no wait", args, stderr.String())
+		}
+	}
+}

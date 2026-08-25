@@ -136,7 +136,7 @@ upload complete, tag is refreshing
 |---|---|---|
 | `-device` | 必填 | 广播名（`NAME` 列）或 BLE 地址 |
 | `-family` | `auto` | 指定则断言设备属于这个家族，不再内部判断 |
-| `-settle` | `30s` | 仅 EPD-nRF5：`REFRESH` 后保持连接的时长，见[写入间隔](#写入间隔) |
+| `-settle` | `30s` | 仅 EPD-nRF5：`REFRESH` 后保持连接的时长，`0` 表示立即断开，见[写入间隔](#写入间隔) |
 
 场景声明的尺寸与面板不符不会拒绝，按面板重排并给出 `size-mismatch` 警告。面板没有
 对应色层的墨水同样不会拒绝：改画成黑色，每种墨水给一条 `unsupported-ink` 警告。
@@ -165,7 +165,7 @@ staying connected 30s while the panel refreshes; disconnecting now would cancel 
 | `-device` | 必填 | 广播名或 BLE 地址 |
 | `-mode` | `calendar` | `picture`、`calendar` 或 `clock` |
 | `-week-start` | 保留标签原值 | 日历每周第一列：`sunday` 或 `monday` |
-| `-settle` | `30s` | 重绘期间保持连接的时长 |
+| `-settle` | `30s` | 重绘期间保持连接的时长，`0` 表示立即断开 |
 
 只有 EPD-nRF5 有这个功能。指向 Gicisky 标签会指名拒绝：
 
@@ -342,6 +342,9 @@ RSSI 属于整条链路——标签的发射、两端天线、路径与接收机
 
 `-settle` 对 `mode` 同样重要：设置时间无论哪种模式都会重绘面板，settle 太短一样会
 把这次重绘取消掉。
+
+**`-settle 0` 就是 0。** 写入落地即断开，这次绘制也随之取消——想给写入计时而不是想
+看结果时才用得上。想要 30 秒默认值，**不写这个参数**即可。负数会被拒绝。
 
 ### 连接失败
 

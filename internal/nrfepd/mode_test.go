@@ -73,7 +73,7 @@ func TestHandingTheTagBackToItsOwnClock(t *testing.T) {
 	when := time.Date(2026, 8, 14, 21, 30, 0, 0, time.FixedZone("CST", 8*3600))
 
 	if err := ModeSession(context.Background(), panel, when, ModeCalendar, &monday,
-		Timings{Response: time.Second, Settle: -1}, nil); err != nil {
+		Timings{Response: time.Second, Settle: 0}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(panel.written) != 3 {
@@ -95,7 +95,7 @@ func TestHandingTheTagBackToItsOwnClock(t *testing.T) {
 func TestTheFirstDayOfTheWeekIsLeftAloneUnlessGiven(t *testing.T) {
 	panel := newPanelStub(t, observedReplies(t)...)
 	if err := ModeSession(context.Background(), panel, time.Now(), ModeClock, nil,
-		Timings{Response: time.Second, Settle: -1}, nil); err != nil {
+		Timings{Response: time.Second, Settle: 0}, nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, frame := range panel.written {
@@ -129,7 +129,7 @@ func TestAnUnknownPanelStillGetsItsClockSet(t *testing.T) {
 
 	var logged strings.Builder
 	err := ModeSession(context.Background(), panel, time.Now(), ModeClock, nil,
-		Timings{Response: time.Second, Settle: -1},
+		Timings{Response: time.Second, Settle: 0},
 		func(format string, args ...any) { fmt.Fprintf(&logged, format+"\n", args...) })
 	if err != nil {
 		t.Fatalf("an unfamiliar panel was refused its own clock: %v", err)
