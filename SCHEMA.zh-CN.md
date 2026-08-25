@@ -51,8 +51,6 @@
 }
 ```
 
-![quickstart](examples/schema_quickstart/schema_quickstart.png)
-
 ### 页面
 
 | 字段 | 类型 | 取值 | 默认 |
@@ -66,6 +64,14 @@
 渲染页面和解码后的源图片最多为 16,777,216 像素。
 
 ### 基本值
+
+本文其余部分按名称引用的三种复合值。
+
+| 值 | 字段 | 类型 | 取值 |
+|---|---|---|---|
+| size | `width`、`height` | 整数 | ≥ `0` |
+| point | `x`、`y` | 整数 | 可为负 |
+| rect | `x`、`y`、`width`、`height` | 整数 | `x`、`y` 可为负 |
 
 ```json
 {
@@ -86,11 +92,11 @@
 }
 ```
 
-| 字段 | 类型 | | 默认 |
+| 字段 | 类型 | 取值 | 默认 |
 |---|---|---|---|
-| `ink` | ink | | `black` |
+| `ink` | ink | `black`、`white`、`red`、`yellow` | `black` |
 | `width` | integer | > `0` | 必填 |
-| `dash` | integer[] | 实线/空白长度，每项 > `0` | 实线 |
+| `dash` | integer 数组 | 实线/空白长度，每项 > `0` | 实线 |
 | `dashOffset` | integer | | `0` |
 
 所有节点需要 `type`。`size` 是流式布局的首选尺寸，在 `absolute.children[].bounds` 内被忽略。
@@ -393,20 +399,24 @@ JSON，PNG 以 base64 `pngBase64` 与报告一起返回。
 
 区域来自 `absolute` 的 bounds 或共享的 `stack`。
 
-| `type` | 字段 | 可选 |
-|---|---|---|
-| `pixel` | `at`、`ink` | `size` |
-| `rectangle` | `fill` 或 `stroke` | `size`、`radius` |
-| `line` | `from`、`to`、`stroke` | `size` |
-| `polyline` | `points` ≥2、`stroke` | `size` |
-| `polygon` | `points` ≥3、`fill` 或 `stroke` | `size` |
-| `circle` | `center`、`radius`、`fill` 或 `stroke` | `size` |
-| `ellipse` | `fill` 或 `stroke` | `size` |
-| `arc` | `start`、`sweep`、`stroke` | `size` |
-| `pie` | `start`、`sweep`、`ink` | `size` |
-| `chord` | `start`、`sweep`、`ink` | `size` |
+| 字段 | 类型 | 取值 | 默认 |
+|---|---|---|---|
+| `type` | 字符串 | `pixel`、`rectangle`、`line`、`polyline`、`polygon`、`circle`、`ellipse`、`arc`、`pie`、`chord` | 必填 |
+| `size` | size | 绘制区域 | 容器的 |
+| `fill` | ink | 仅 `rectangle`、`polygon`、`circle`、`ellipse` | 不填充 |
+| `stroke` | stroke | 除 `pixel`、`pie`、`chord` 外的所有类型 | 不描边 |
+| `ink` | ink | 仅 `pixel`、`pie`、`chord` | `black` |
+| `at` | point | 仅 `pixel`：像素位置 | `pixel` 必填 |
+| `radius` | length | `rectangle` 的圆角，或 `circle` 的半径 | `0` |
+| `from` | point | 仅 `line`：一端 | `line` 必填 |
+| `to` | point | 仅 `line`：另一端 | `line` 必填 |
+| `points` | point 数组 | `polyline` ≥2，`polygon` ≥3 | 两者必填 |
+| `center` | point | 仅 `circle`：圆心 | 区域中心 |
+| `start` | 数值 | 仅 `arc`、`pie`、`chord`：起始角度（度） | 这三者必填 |
+| `sweep` | 数值 | 仅 `arc`、`pie`、`chord`：扫过角度（度） | 这三者必填 |
 
-角度为度。`ellipse` `arc` `pie` `chord` 使用整个矩形。
+图元需要 `fill` 或 `stroke` 才会画出东西；`pixel`、`pie`、`chord` 用 `ink`。
+`ellipse`、`arc`、`pie`、`chord` 使用整个矩形，而不是中心加半径。
 
 ```json
 {
@@ -483,6 +493,15 @@ JSON，PNG 以 base64 `pngBase64` 与报告一起返回。
 
 ## Pattern
 
+| 字段 | 类型 | 取值 | 默认 |
+|---|---|---|---|
+| `type` | 字符串 | `pattern` | 必填 |
+| `size` | size | 平铺区域 | 容器的 |
+| `rows` | 字符串数组 | 每行一个字符串，各行等长 | 必填 |
+| `inks` | 对象 | 单字符键映射到 `black`、`white`、`red`、`yellow` | 必填 |
+
+`inks` 中没有对应项的字符不修改画面。各行在区域内平铺。
+
 ```json
 {
   "type": "pattern",
@@ -499,25 +518,35 @@ JSON，PNG 以 base64 `pngBase64` 与报告一起返回。
 }
 ```
 
-各行等长。`inks` 键为单字符；未映射字符不修改画面。在区域内平铺。
-
 ## 裁剪
 
-| 节点 | 裁到 |
-|---|---|
-| `clip` | 子节点自身的框 |
-| `clipRect` | 一个矩形 |
-| `clipShape` | `inset`、`circle`、`ellipse`、`polygon` |
-| `clipPath` | 一条路径 |
+四个节点各带一个子节点，区别只在裁到什么。
 
-| 节点 | 字段 |
-|---|---|
-| `clip` | `size`、`child` |
-| `clipRect` | `size`、`rect`、`child` |
-| `clipShape` | `size`、`shape`、`child` |
-| `clipPath` | `size`、`path`、`child`（命令位于 `path.commands`） |
+| 字段 | 类型 | 取值 | 默认 |
+|---|---|---|---|
+| `type` | 字符串 | `clip`、`clipRect`、`clipShape`、`clipPath` | 必填 |
+| `size` | size | 裁剪所在区域 | 容器的 |
+| `child` | node | 被裁剪的节点 | 必填 |
+| `rect` | rect | 仅 `clipRect`：保留的矩形 | `clipRect` 必填 |
+| `shape` | shape | 仅 `clipShape`：见下 | `clipShape` 必填 |
+| `path` | path | 仅 `clipPath`：命令位于 `path.commands` | `clipPath` 必填 |
 
-`shape.kind` 为 `inset`、`circle`、`ellipse` 或 `polygon`，按需带 `insets`、`corner`、`radius`、`radiusX`、`radiusY`、`center`、`points`。裁剪节点自身不决定绘制顺序：每个节点只有一个子节点，嵌套裁剪取交集。有重叠的同级裁剪可放入 `stack`（后面的子节点在上层）；若还需要定位框，使用 `anchored.children[].layer`。
+`clip` 不接受后三者：它裁到子节点自身的框。
+
+### shape
+
+| 字段 | 类型 | 取值 | 默认 |
+|---|---|---|---|
+| `kind` | 字符串 | `inset`、`circle`、`ellipse`、`polygon` | 必填 |
+| `insets` | 4 个 length | 仅 `inset`：上、右、下、左 | `inset` 必填 |
+| `corner` | length | 仅 `inset`：圆角半径 | `0` |
+| `radius` | length | 仅 `circle` | `circle` 必填 |
+| `radiusX` | length | 仅 `ellipse` | `ellipse` 必填 |
+| `radiusY` | length | 仅 `ellipse` | `ellipse` 必填 |
+| `center` | length 组成的 point | 仅 `circle` 与 `ellipse`，其余类型给了会被拒绝 | 区域中心 |
+| `points` | length 组成的 point 数组 | 仅 `polygon`，至少三个 | `polygon` 必填 |
+
+裁剪节点自身不决定绘制顺序：每个节点只有一个子节点，嵌套裁剪取交集。有重叠的同级裁剪可放入 `stack`（后面的子节点在上层）；若还需要定位框，使用 `anchored.children[].layer`。
 
 ```json
 {"type": "clip", "child": {"type": "text", "runs": [{"text": "很长的一行"}]}}

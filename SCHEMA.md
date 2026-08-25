@@ -51,8 +51,6 @@ Integer pixels throughout.
 }
 ```
 
-![quickstart](examples/schema_quickstart/schema_quickstart.png)
-
 ### Page
 
 | Field | Type | Values | Default |
@@ -66,6 +64,14 @@ Integer pixels throughout.
 Rendered pages and decoded source images are limited to 16,777,216 pixels.
 
 ### Values
+
+The three compound values the rest of this document refers to by name.
+
+| Value | Fields | Type | Values |
+|---|---|---|---|
+| size | `width`, `height` | integer | ≥ `0` |
+| point | `x`, `y` | integer | may be negative |
+| rect | `x`, `y`, `width`, `height` | integer | `x` and `y` may be negative |
 
 ```json
 {
@@ -86,11 +92,11 @@ Rendered pages and decoded source images are limited to 16,777,216 pixels.
 }
 ```
 
-| Field | Type | | Default |
+| Field | Type | Values | Default |
 |---|---|---|---|
-| `ink` | ink | | `black` |
+| `ink` | ink | `black`, `white`, `red`, `yellow` | `black` |
 | `width` | integer | > `0` | required |
-| `dash` | integer[] | on/off lengths, each > `0` | solid |
+| `dash` | array of integer | on/off lengths, each > `0` | solid |
 | `dashOffset` | integer | | `0` |
 
 Every node needs `type`. `size` is a preferred size in flow, ignored inside
@@ -402,20 +408,25 @@ carries its PNG in base64 `pngBase64` beside the report.
 
 Area comes from `absolute` bounds or a shared `stack`.
 
-| `type` | Fields | Optional |
-|---|---|---|
-| `pixel` | `at`, `ink` | `size` |
-| `rectangle` | `fill` or `stroke` | `size`, `radius` |
-| `line` | `from`, `to`, `stroke` | `size` |
-| `polyline` | `points` ≥2, `stroke` | `size` |
-| `polygon` | `points` ≥3, `fill` or `stroke` | `size` |
-| `circle` | `center`, `radius`, `fill` or `stroke` | `size` |
-| `ellipse` | `fill` or `stroke` | `size` |
-| `arc` | `start`, `sweep`, `stroke` | `size` |
-| `pie` | `start`, `sweep`, `ink` | `size` |
-| `chord` | `start`, `sweep`, `ink` | `size` |
+| Field | Type | Values | Default |
+|---|---|---|---|
+| `type` | string | `pixel`, `rectangle`, `line`, `polyline`, `polygon`, `circle`, `ellipse`, `arc`, `pie`, `chord` | required |
+| `size` | size | the area to draw in | the container's |
+| `fill` | ink | `rectangle`, `polygon`, `circle`, `ellipse` | unfilled |
+| `stroke` | stroke | every type except `pixel`, `pie` and `chord` | unstroked |
+| `ink` | ink | `pixel`, `pie` and `chord` only | `black` |
+| `at` | point | `pixel` only: where it goes | required on `pixel` |
+| `radius` | length | `rectangle` corner radius, or the `circle` radius | `0` |
+| `from` | point | `line` only: the first end | required on `line` |
+| `to` | point | `line` only: the other end | required on `line` |
+| `points` | array of points | `polyline` at least 2, `polygon` at least 3 | required on both |
+| `center` | point | `circle` only: the centre | the area's centre |
+| `start` | number | `arc`, `pie`, `chord` only: first angle in degrees | required on those three |
+| `sweep` | number | `arc`, `pie`, `chord` only: angle swept in degrees | required on those three |
 
-Angles in degrees. `ellipse` `arc` `pie` `chord` use the whole rectangle.
+A shape needs a `fill` or a `stroke` to draw anything, except `pixel`, `pie`
+and `chord`, which take an `ink`. `ellipse`, `arc`, `pie` and `chord` use the
+whole rectangle rather than a centre and radius.
 
 ```json
 {
@@ -492,6 +503,16 @@ Angles in degrees. `ellipse` `arc` `pie` `chord` use the whole rectangle.
 
 ## Pattern
 
+| Field | Type | Values | Default |
+|---|---|---|---|
+| `type` | string | `pattern` | required |
+| `size` | size | the area to tile | the container's |
+| `rows` | array of string | one string per row, all the same length | required |
+| `inks` | object | single-character key to `black`, `white`, `red`, `yellow` | required |
+
+A character with no entry in `inks` leaves the surface untouched. The rows tile
+across the area.
+
 ```json
 {
   "type": "pattern",
@@ -508,27 +529,34 @@ Angles in degrees. `ellipse` `arc` `pie` `chord` use the whole rectangle.
 }
 ```
 
-Equal-length rows. `inks` keys are single characters; unmapped characters leave
-the surface untouched. Tiles across the area.
-
 ## Clipping
 
-| Node | Clips to |
-|---|---|
-| `clip` | the child's own box |
-| `clipRect` | a rectangle |
-| `clipShape` | `inset`, `circle`, `ellipse`, `polygon` |
-| `clipPath` | a path |
+Four nodes, one child each, differing only in what they clip to.
 
-| Node | Fields |
-|---|---|
-| `clip` | `size`, `child` |
-| `clipRect` | `size`, `rect`, `child` |
-| `clipShape` | `size`, `shape`, `child` |
-| `clipPath` | `size`, `path`, `child` (`path.commands` holds the commands) |
+| Field | Type | Values | Default |
+|---|---|---|---|
+| `type` | string | `clip`, `clipRect`, `clipShape`, `clipPath` | required |
+| `size` | size | the area to clip within | the container's |
+| `child` | node | the node being clipped | required |
+| `rect` | rect | `clipRect` only: the rectangle to keep | required on `clipRect` |
+| `shape` | shape | `clipShape` only: see below | required on `clipShape` |
+| `path` | path | `clipPath` only: `path.commands` holds the commands | required on `clipPath` |
 
-`shape.kind` is `inset`, `circle`, `ellipse` or `polygon`, with `insets`,
-`corner`, `radius`, `radiusX`, `radiusY`, `center`, `points` as the kind needs.
+`clip` takes none of the last three: it clips to the child's own box.
+
+### shape
+
+| Field | Type | Values | Default |
+|---|---|---|---|
+| `kind` | string | `inset`, `circle`, `ellipse`, `polygon` | required |
+| `insets` | array of 4 lengths | `inset` only: top, right, bottom, left | required on `inset` |
+| `corner` | length | `inset` only: corner radius | `0` |
+| `radius` | length | `circle` only | required on `circle` |
+| `radiusX` | length | `ellipse` only | required on `ellipse` |
+| `radiusY` | length | `ellipse` only | required on `ellipse` |
+| `center` | point of lengths | `circle` and `ellipse` only; refused on the others | the area's centre |
+| `points` | array of points of lengths | `polygon` only, at least three | required on `polygon` |
+
 Clips do not own painting order: each has one child and nested clips intersect.
 For overlapping sibling clips, put them in a `stack` (later child on top), or
 use `anchored.children[].layer` when they also need positioned boxes.

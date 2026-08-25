@@ -69,10 +69,6 @@ wrote preview.png (296x128)
 | `-size` | the scene's own `size` | Lay the scene out at `WxH` instead |
 | `-panel` | unset | Lay the scene out for a named panel and check its inks |
 
-A scene has to say how big it is, or something has to say for it. There is no
-default page size: there was one, and it was one family's 2.9" panel written
-into the display layer, so a scene that said nothing got somebody else's tag
-and was never told.
 
 ```
 $ inkwire render page.json
@@ -85,10 +81,7 @@ this scene states no size: give the document a size, or render with -size WxH or
 inkwire render -size 400x300 page.json
 ```
 
-`-panel` goes further: it takes the size from the panel and then packs the
-page for it, throwing the bytes away. That is what catches an ink the panel
-cannot show, which a preview cannot — a PNG of a red heading looks right
-whether or not the panel it is bound for has a colour plane.
+`-panel` takes the size and the available inks from the named panel.
 
 ```bash
 inkwire render -panel gicisky:0x0033 page.json
@@ -100,7 +93,7 @@ wrote page.png (296x128)
 wrote page.png (400x300)
 ```
 
-A page the panel cannot show says so, and still leaves the preview:
+Anything the panel cannot show is reported:
 
 ```bash
 inkwire render -panel gicisky:0x0028 page.json
@@ -111,19 +104,12 @@ wrote page.png (296x128)
 BW panel cannot show red ink at (10,10)
 ```
 
-The preview is written even when the panel refuses the page, because what it
-looks like is what says which part of it has to change; the exit code is what
-says it will not go on that panel. A misspelled panel or size exits 2, the way
-an unknown family does; a scene that will not lay out exits 1.
+The preview is still written when the panel refuses the page; the exit code
+says why it was refused. A misspelled panel or size exits 2; a scene that will
+not lay out exits 1.
 
-The family has to be stated because the two catalogues are numbered
-independently, and Gicisky panels can only be asked for by id: `0x000B` and
-`0x010B` are both called `EPD 2.1" BWR` and they are different sizes. An
-EPD-nRF5 panel takes either the firmware's name or its id. Both families' ids
-are listed under [Gicisky](#gicisky) and [EPD-nRF5](#epd-nrf5).
-
-`-size` and `-panel` are two ways of saying the same thing, so giving both
-is refused rather than resolved.
+`-size` and `-panel` are two ways of saying the same thing, so giving both is
+refused.
 
 The page-level fields are documented in full under "Page" in
 [SCHEMA.md](SCHEMA.md).
@@ -152,9 +138,7 @@ upload complete, tag is refreshing
 A scene stating a size the panel does not have is not refused: it is laid out
 again for the panel and a `size-mismatch` warning is reported. An ink the panel
 has no plane for is not refused either: it is drawn black and an
-`unsupported-ink` warning is reported, one per ink. Both families answer the
-same way, and the preview shows what the panel will show rather than what the
-scene asked for.
+`unsupported-ink` warning is reported, one per ink.
 
 Warnings from the render are printed with the write log, see [Warnings](#warnings).
 
@@ -288,7 +272,7 @@ is not driven.
 
 ### Models
 
-Read after connecting with `INIT`. A size mismatch is not refused: the page is laid out again for the panel and a `size-mismatch` warning is reported. Nor is an ink the panel has no plane for — yellow on a BWR panel, red on a BW one — which is drawn black with an `unsupported-ink` warning, exactly as it is for Gicisky.
+Read after connecting with `INIT`. A size mismatch is not refused: the page is laid out again for the panel and a `size-mismatch` warning is reported. An ink the panel has no plane for is not refused — yellow on a BWR panel, red on a BW one — it is drawn black with an `unsupported-ink` warning, the same as Gicisky.
 
 | ID | Name | Size | Inks | Packing |
 |---|---|---|---|---|

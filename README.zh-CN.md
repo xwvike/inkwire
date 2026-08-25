@@ -65,9 +65,6 @@ wrote preview.png (296x128)
 | `-size` | 场景自己的 `size` | 改按 `WxH` 排版 |
 | `-panel` | 未设置 | 按指定面板排版，并检查它的墨水 |
 
-场景要么自己说多大，要么由别人替它说。**没有默认页面尺寸**了——以前有一个，
-是某家族的 2.9" 面板，写死在 display 层里，于是一个什么都没说的场景拿到的是
-别人桌上那块标签的尺寸，而且从来没人告诉它。
 
 ```
 $ inkwire render page.json
@@ -80,9 +77,7 @@ this scene states no size: give the document a size, or render with -size WxH or
 inkwire render -size 400x300 page.json
 ```
 
-`-panel` 更进一步：尺寸取自面板，然后真的为它打包一遍，把字节丢掉。这是唯一
-能抓出面板显示不了的墨水的办法，而预览抓不到——一个红色标题的 PNG，无论目标
-面板有没有彩色平面，看上去都是对的。
+`-panel` 通过设置面板型号直接获取尺寸和支持的墨水颜色。
 
 ```bash
 inkwire render -panel gicisky:0x0033 page.json
@@ -94,7 +89,7 @@ wrote page.png (296x128)
 wrote page.png (400x300)
 ```
 
-面板显示不了的一页会说出来，预览照样留下：
+面板显示不了的内容会给出信息：
 
 ```bash
 inkwire render -panel gicisky:0x0028 page.json
@@ -105,15 +100,9 @@ wrote page.png (296x128)
 BW panel cannot show red ink at (10,10)
 ```
 
-面板拒绝这一页时预览照样写出来，因为它长什么样才是「该改哪里」的答案；退出码
-才是「它上不了这块屏」的答案。面板或尺寸写错退出 2，跟家族写错一样；场景排不
-出来退出 1。
+面板拒绝时依旧会渲染预览图，可以通过退出码判断拒绝原因。面板或尺寸写错退出码 2；场景无法排布 1。
 
-家族必须写明，因为两家的编号各排各的；而 Gicisky 面板只能按 id 要：`0x000B`
-和 `0x010B` 都叫 `EPD 2.1" BWR`，尺寸却不同。EPD-nRF5 面板则可以用固件给的名
-字或 id。两家的 id 都列在 [Gicisky](#gicisky) 和 [EPD-nRF5](#epd-nrf5) 两节。
-
-`-size` 和 `-panel` 是同一件事的两种说法，同时给会被拒绝，而不是替你挑一个。
+`-size` 和 `-panel` 是同一件事的两种说法，同时给会被拒绝。
 
 页面级字段的完整说明见 [SCHEMA.zh-CN.md](SCHEMA.zh-CN.md) 的「页面」一节。
 
@@ -140,7 +129,6 @@ upload complete, tag is refreshing
 
 场景声明的尺寸与面板不符不会拒绝，按面板重排并给出 `size-mismatch` 警告。面板没有
 对应色层的墨水同样不会拒绝：改画成黑色，每种墨水给一条 `unsupported-ink` 警告。
-两个家族的处理方式一致，预览图显示的是面板将要显示的样子，而不是场景写的样子。
 
 渲染报告中的警告打印在写入日志里，见[警告](#警告)。
 
@@ -269,7 +257,7 @@ FF:FF:92:94:38:61                      NEMR92943861    -50  3.0V  gicisky  EPD 4
 
 ### 型号
 
-`INIT` 连接后读出。尺寸不符不会拒绝，按实际面板重新排版并给出 `size-mismatch` 警告。面板没有对应色层的墨水也不拒绝——BWR 面板上的黄、BW 面板上的红——改画成黑色并给出 `unsupported-ink` 警告，与 Gicisky 完全一致。
+`INIT` 连接后读出。尺寸不符不会拒绝，按实际面板重新排版并给出 `size-mismatch` 警告。面板没有对应色层的墨水不拒绝——BWR 面板上的黄、BW 面板上的红——改画成黑色并给出 `unsupported-ink` 警告，与 Gicisky 完全一致。
 
 | ID | 名称 | 尺寸 | 颜色 | 打包 |
 |---|---|---|---|---|

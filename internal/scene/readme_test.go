@@ -162,12 +162,18 @@ func TestBothReadmesNameEveryDecodableField(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Only the table rows count. Naming a field anywhere in the document
+		// used to be enough, and a JSON example satisfied it — which is how
+		// `pattern` came to have a whole section with no property table at
+		// all, its two fields "documented" by appearing in the example nobody
+		// could look a type or a default up in.
+		rows := tableRows(string(doc))
 		for tag := range tags {
 			// A field is named whether it is written bare or qualified, as
 			// `children[].basis` and `shape.kind` are, so this matches the
 			// name itself rather than the whole span it sits in.
-			if !regexp.MustCompile(`\b` + regexp.QuoteMeta(tag) + `\b`).MatchString(string(doc)) {
-				t.Errorf("%s never names the %q field", path, tag)
+			if !regexp.MustCompile("`[^`]*\\b" + regexp.QuoteMeta(tag) + "\\b[^`]*`").MatchString(rows) {
+				t.Errorf("%s never gives the %q field a table row", path, tag)
 			}
 		}
 	}
@@ -362,4 +368,16 @@ func TestBothReadmesDocumentEveryDefault(t *testing.T) {
 			}
 		}
 	}
+}
+
+// tableRows is the document with everything but its table rows removed, so a
+// field named only in prose or in an example does not count as documented.
+func tableRows(doc string) string {
+	var rows []string
+	for _, line := range strings.Split(doc, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "|") {
+			rows = append(rows, line)
+		}
+	}
+	return strings.Join(rows, "\n")
 }
