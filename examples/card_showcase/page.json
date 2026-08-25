@@ -48,8 +48,8 @@
         {"bounds":{"x":7,"y":84,"width":184,"height":15},"node":{"type":"absolute","children":[
           {"bounds":{"x":0,"y":0,"width":184,"height":15},"node":{"type":"pattern","rows":["x.",".."],"inks":{"x":"black"}}},
           {"bounds":{"x":0,"y":0,"width":184,"height":15},"node":{"type":"rectangle","stroke":{"ink":"black","width":1}}},
-          {"bounds":{"x":26,"y":2,"width":132,"height":11},"node":{"type":"rectangle","fill":"white"}},
-          {"bounds":{"x":26,"y":2,"width":132,"height":11},"node":{"type":"text","align":"center","runs":[{"text":"BLUETOOTH ","font":"monaco","size":10,"ink":"black"},{"text":"蓝牙远程屏","font":"hzk","size":12,"ink":"red"}]}}
+          {"bounds":{"x":26,"y":2,"width":132,"height":12},"node":{"type":"rectangle","fill":"white"}},
+          {"bounds":{"x":26,"y":2,"width":132,"height":12},"node":{"type":"text","align":"center","runs":[{"text":"BLUETOOTH ","font":"monaco","size":10,"ink":"black"},{"text":"蓝牙远程屏","font":"hzk","size":12,"ink":"red"}]}}
         ]}}
       ]}}
     ]
