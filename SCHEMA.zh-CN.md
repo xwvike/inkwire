@@ -316,7 +316,7 @@ CLI 命令逐项打印扩展；HTTP 渲染响应在 JSON body 的
 | `align` | string | `start`、`center`、`end` | `start` |
 | `verticalAlign` | string | `top`、`middle`、`bottom` | `top` |
 | `wrap` | string | `none`、`runes` | `none` |
-| `lineHeight` | integer | | 字体 |
+| `lineHeight` | integer | 行盒高度；多出的部分在字形上下均分 | 字体 |
 
 | 字族 | 尺寸 | 覆盖 |
 |---|---|---|

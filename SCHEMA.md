@@ -324,7 +324,7 @@ be when `grow` is what decides how much room it takes.
 | `align` | string | `start`, `center`, `end` | `start` |
 | `verticalAlign` | string | `top`, `middle`, `bottom` | `top` |
 | `wrap` | string | `none`, `runes` | `none` |
-| `lineHeight` | integer | | font |
+| `lineHeight` | integer | the line box height; the spare is split above and below | font |
 
 | Family | Sizes | Coverage |
 |---|---|---|

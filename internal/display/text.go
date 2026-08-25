@@ -227,6 +227,13 @@ func (l *TextLayout) Clipped() (columns, lines int) {
 	// height instead reports a loss whenever a box is sized to the letters
 	// rather than to the descent and line gap below them, which is most
 	// single-line labels in this repository and none of them is clipped.
+	//
+	// Half-leading is deliberately not added here, though it is what moves the
+	// bodies down. This is a loose measure of a whole line being lost, taken
+	// from the top of the block and modelling neither verticalAlign nor where
+	// the leading puts the glyphs; adding one of the three and not the others
+	// made it report a clock in claude_status that measurement showed keeping
+	// every pixel it had.
 	used := 0
 	for index, line := range l.lines {
 		if used+line.ascent > available.Y {
@@ -237,6 +244,28 @@ func (l *TextLayout) Clipped() (columns, lines int) {
 	return columns, 0
 }
 
+// inkedHeight is the height of the letters rather than of the box holding them:
+// the laid-out height less the line gap that hangs below the last line.
+//
+// Centring used to use the full height, gap included, which put the letters
+// above the middle of the box by half that gap — every `verticalAlign: middle`
+// label sat one or two pixels high. It also made `lineHeight` move the letters,
+// because the gap it changed was counted on one side only; in CSS the same
+// number is spread above and below and cancels out of a centred line. Measuring
+// the letters instead cancels it here too, and leaves `top` alone, which is
+// where a line taller than its box is already relying on being anchored.
+func (l *TextLayout) inkedHeight() int {
+	if len(l.lines) == 0 {
+		return l.height
+	}
+	// The spare is subtracted whatever its sign. A line asked to be shorter than
+	// its own letters has a negative one, and dropping that case is what leaves
+	// every lineHeight below the natural one still moving a centred line — the
+	// case somebody tightening a label hits first.
+	last := l.lines[len(l.lines)-1]
+	return l.height - (last.height - last.ascent - last.descent)
+}
+
 func (l *TextLayout) Draw(canvas *Canvas) {
 	if canvas == nil || len(l.lines) == 0 {
 		return
@@ -245,9 +274,9 @@ func (l *TextLayout) Draw(canvas *Canvas) {
 	y := l.box.Bounds.Min.Y
 	switch l.box.VerticalAlign {
 	case AlignMiddle:
-		y += (l.box.Bounds.Dy() - l.height) / 2
+		y += (l.box.Bounds.Dy() - l.inkedHeight()) / 2
 	case AlignBottom:
-		y += l.box.Bounds.Dy() - l.height
+		y += l.box.Bounds.Dy() - l.inkedHeight()
 	}
 
 	for _, line := range l.lines {
