@@ -279,11 +279,16 @@ CLI 命令逐项打印扩展；HTTP 渲染响应在 JSON body 的
 {"type": "spacer", "size": {"width": 8, "height": 8}}
 ```
 
-| 节点 | 字段 |
-|---|---|
-| `stack` | `size`、`children[]` —— 同一区域内按序绘制，后面的子节点在上层 |
-| `padding` | `insets`（`top` `right` `bottom` `left`）、`child` |
-| `spacer` | `size` |
+| 字段 | 类型 | 取值 | 默认 |
+|---|---|---|---|
+| `type` | 字符串 | `stack`、`padding`、`spacer` | 必填 |
+| `size` | size | 仅 `stack` 与 `spacer` | `stack` 为容器的，`spacer` 为 `0`×`0` |
+| `children[]` | node 数组 | 仅 `stack`：同一区域内按序绘制，后面的在上层 | 空 |
+| `insets` | 对象 | 仅 `padding`：`top`、`right`、`bottom`、`left`，各为整数 | 每边 `0` |
+| `child` | node | 仅 `padding` | `padding` 必填 |
+
+`spacer` 不需要写 `size`。不写就是 0×0 —— 当占多少空间由 `grow` 决定时，这正是它
+该有的样子。
 
 ## 文字
 
@@ -316,10 +321,14 @@ CLI 命令逐项打印扩展；HTTP 渲染响应在 JSON body 的
 | 字族 | 尺寸 | 覆盖 |
 |---|---|---|
 | `ui` | 12 14 16 24 28 32 36 42 48 | 拉丁 + 中日韩 |
-| `hzk` | 12 14 16 24 28 32 36 42 48 | 拉丁 + 中日韩 |
+| `hzk` | 12 14 16 24 28 32 36 42 48 | **仅中日韩** —— GB2312，不含 ASCII |
 | `monaco` | 10 12 14 16 20 24 28 30 32 36 42 48 | **仅 ASCII** |
 
-16 以上为整数倍放大。混排拆成多个 run。
+只有 `ui` 两者都覆盖：它是 `monaco` 与 `hzk` 配对而成，`monaco` 优先。用 `hzk` 写
+数字会得到一条 `missing-runes` 警告和一个占位方块，所以混排要么用 `ui`，要么按字符
+类别拆成多个 run。
+
+16 以上为整数倍放大。
 
 ## 图片
 

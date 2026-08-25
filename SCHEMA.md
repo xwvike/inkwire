@@ -287,11 +287,16 @@ Anything requiring resampling is refused.
 {"type": "spacer", "size": {"width": 8, "height": 8}}
 ```
 
-| Node | Fields |
-|---|---|
-| `stack` | `size`, `children[]` — drawn in order over one area; later children are on top |
-| `padding` | `insets` (`top` `right` `bottom` `left`), `child` |
-| `spacer` | `size` |
+| Field | Type | Values | Default |
+|---|---|---|---|
+| `type` | string | `stack`, `padding`, `spacer` | required |
+| `size` | size | `stack` and `spacer` only | `stack` the container's, `spacer` `0`×`0` |
+| `children[]` | array of node | `stack` only: drawn in order over one area, later children on top | empty |
+| `insets` | object | `padding` only: `top`, `right`, `bottom`, `left`, each an integer | `0` a side |
+| `child` | node | `padding` only | required on `padding` |
+
+A `spacer` needs no `size`. Left out it is zero by zero, which is what it should
+be when `grow` is what decides how much room it takes.
 
 ## Text
 
@@ -324,10 +329,15 @@ Anything requiring resampling is refused.
 | Family | Sizes | Coverage |
 |---|---|---|
 | `ui` | 12 14 16 24 28 32 36 42 48 | Latin + CJK |
-| `hzk` | 12 14 16 24 28 32 36 42 48 | Latin + CJK |
+| `hzk` | 12 14 16 24 28 32 36 42 48 | **CJK only** — GB2312, no ASCII |
 | `monaco` | 10 12 14 16 20 24 28 30 32 36 42 48 | **ASCII only** |
 
-Sizes above 16 are integer enlargements. Split mixed lines into runs.
+`ui` is the only family that covers both: it is `monaco` and `hzk` paired, with
+`monaco` answering first. Asking `hzk` for a digit gets a `missing-runes`
+warning and a placeholder box, so mixed text either uses `ui` or is split into
+one run per script.
+
+Sizes above 16 are integer enlargements.
 
 ## Image
 
