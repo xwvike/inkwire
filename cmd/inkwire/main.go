@@ -117,11 +117,45 @@ func parseFlags(flags *flag.FlagSet, args []string, help io.Writer) (int, bool) 
 // the program nor the arguments that are not flags. Every command here already
 // had the right line written for the case where the argument count was wrong;
 // this is that same line, wired to -h as well, so the two cannot disagree.
-func command(name, usage string, stderr io.Writer) *flag.FlagSet {
+// usageLines is the one place a command's shape is written down.
+//
+// It used to be written twice: once for the line -h answers with, and once in
+// the summary `inkwire` prints when it is given nothing. The two drifted, as
+// two copies of a sentence do — the summary never learned that push and mode
+// take -settle, and nobody would find that by reading either one, only by
+// reading both and comparing. The order here is the order the summary lists.
+var usageLines = []struct{ name, takes string }{
+	{"render", "[-o preview.png] [-size WxH | -panel family:id] <scene.json>"},
+	{"push", "-device MAC-or-name [-family gicisky|nrfepd] [-settle 30s] <scene.json>"},
+	{"measure", "[-size WxH | -panel family:id] [-json] <scene.json>"},
+	{"scan", "[-timeout 15s]"},
+	{"mode", "-device MAC-or-name [-mode picture|calendar|clock] [-week-start sunday|monday] [-settle 30s]"},
+	{"serve", "[-listen address] [-assets directory]"},
+	{"schema", "[-lang en|zh]"},
+	{"version", ""},
+}
+
+// usageFor is the whole line, command included, as both places print it.
+func usageFor(name string) string {
+	for _, line := range usageLines {
+		if line.name == name {
+			if line.takes == "" {
+				return "inkwire " + name
+			}
+			return "inkwire " + name + " " + line.takes
+		}
+	}
+	// Unreachable in a build whose commands are all listed, which every
+	// command's -h test walks. Saying so beats printing a usage line with the
+	// arguments missing.
+	panic("inkwire: no usage line for " + name + "; add it to usageLines")
+}
+
+func command(name string, stderr io.Writer) *flag.FlagSet {
 	flags := flag.NewFlagSet(name, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
-		fmt.Fprintf(flags.Output(), "usage: %s\n", usage)
+		fmt.Fprintf(flags.Output(), "usage: %s\n", usageFor(name))
 		flags.PrintDefaults()
 	}
 	return flags
@@ -174,7 +208,7 @@ func buildVersion() string {
 // asking the program it is already running beats finding the right version of a
 // file on the web.
 func runSchema(args []string, stdout, stderr io.Writer) int {
-	flags := command("schema", "inkwire schema [-lang en|zh]", stderr)
+	flags := command("schema", stderr)
 	lang := flags.String("lang", "en", "which translation to print: en or zh")
 	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
@@ -196,7 +230,7 @@ func runSchema(args []string, stdout, stderr io.Writer) int {
 }
 
 func runServe(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
-	flags := command("serve", "inkwire serve [-listen 127.0.0.1:8080] [-assets directory]", stderr)
+	flags := command("serve", stderr)
 	address := flags.String("listen", "127.0.0.1:8080", "HTTP listen address")
 	assets := flags.String("assets", ".", "directory available to relative image sources")
 	if code, ok := parseFlags(flags, args, stdout); !ok {
@@ -225,7 +259,7 @@ func runServe(ctx context.Context, args []string, logger *log.Logger, stdout, st
 }
 
 func runScan(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
-	flags := command("scan", "inkwire scan [-timeout 15s]", stderr)
+	flags := command("scan", stderr)
 	timeout := flags.Duration("timeout", gicisky.DefaultScanTimeout, "how long to listen for advertisements")
 	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
@@ -301,7 +335,7 @@ func printDevices(writer io.Writer, devices []gicisky.FoundDevice, others []nrfe
 }
 
 func runRender(args []string, stdout, stderr io.Writer) int {
-	flags := command("render", "inkwire render [-o preview.png] [-size WxH | -panel family:id] <scene.json>", stderr)
+	flags := command("render", stderr)
 	output := flags.String("o", "", "PNG output path")
 	size := flags.String("size", "", "lay the scene out at this size instead of the one it declares, as `WxH`")
 	target := flags.String("panel", "", "lay the scene out for a named `family:id` panel and check its inks, such as gicisky:0x0033 or nrfepd:UC8176_420_BWR")
@@ -361,7 +395,7 @@ func runRender(args []string, stdout, stderr io.Writer) int {
 }
 
 func runPushScene(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
-	flags := command("push", "inkwire push -device MAC-or-name [-family gicisky|nrfepd] [-settle 30s] <scene.json>", stderr)
+	flags := command("push", stderr)
 	target := flags.String("device", "", "BLE address or advertised name, required; inkwire scan lists them")
 	family := flags.String("family", "auto", "tag family: auto, gicisky or nrfepd")
 	settle := flags.Duration("settle", nrfepd.DefaultSettle,
@@ -446,7 +480,7 @@ func pushGiciskyScene(ctx context.Context, found gicisky.FoundDevice, document c
 // involve the vendor's web tool, and a program that can only take a capability
 // away is a bad guest on somebody's hardware.
 func runMode(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
-	flags := command("mode", "inkwire mode -device MAC-or-name [-mode picture|calendar|clock] [-week-start sunday|monday] [-settle 30s]", stderr)
+	flags := command("mode", stderr)
 	target := flags.String("device", "", "BLE address or advertised name, required; inkwire scan lists them")
 	mode := flags.String("mode", "calendar", "what the tag draws for itself: picture, calendar or clock")
 	weekStart := flags.String("week-start", "", "first column of a calendar week: sunday or monday; unset leaves the tag's own setting alone")
@@ -581,7 +615,7 @@ func enableBluetooth(logger *log.Logger) bool {
 // between right and wrong is a pixel or two, and looking at the picture will
 // not tell you which node owns it.
 func runMeasure(args []string, stdout, stderr io.Writer) int {
-	flags := command("measure", "inkwire measure [-size WxH | -panel family:id] [-json] <scene.json>", stderr)
+	flags := command("measure", stderr)
 	size := flags.String("size", "", "lay the scene out at this size instead of the one it declares, as `WxH`")
 	target := flags.String("panel", "", "lay the scene out for a named `family:id` panel, such as gicisky:0x0033")
 	asJSON := flags.Bool("json", false, "write the placements as JSON instead of a tree")
@@ -819,12 +853,9 @@ func replaceExtension(path, extension string) string {
 }
 
 func printUsage(writer io.Writer) {
-	fmt.Fprintln(writer, "usage: inkwire render [-o preview.png] [-size WxH | -panel family:id] <scene.json>")
-	fmt.Fprintln(writer, "       inkwire push -device MAC-or-name [-family gicisky|nrfepd] <scene.json>")
-	fmt.Fprintln(writer, "       inkwire measure [-size WxH | -panel family:id] [-json] <scene.json>")
-	fmt.Fprintln(writer, "       inkwire scan [-timeout 15s]")
-	fmt.Fprintln(writer, "       inkwire mode -device MAC-or-name [-mode picture|calendar|clock] [-week-start sunday|monday]")
-	fmt.Fprintln(writer, "       inkwire serve [-listen address] [-assets directory]")
-	fmt.Fprintln(writer, "       inkwire schema [-lang en|zh]")
-	fmt.Fprintln(writer, "       inkwire version")
+	prefix := "usage: "
+	for _, line := range usageLines {
+		fmt.Fprintf(writer, "%s%s\n", prefix, usageFor(line.name))
+		prefix = "       "
+	}
 }

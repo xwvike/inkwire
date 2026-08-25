@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -147,6 +149,84 @@ func TestNoFlagDescriptionCarriesAStrayBackquote(t *testing.T) {
 		help := out.String() + errOut.String()
 		if strings.Contains(help, "`") {
 			t.Errorf("%s -h prints a backquote, so a description has more than one:\n%s", command, help)
+		}
+	}
+}
+
+// The summary and each command's own help are the same sentence.
+//
+// They were two strings for a while, one in printUsage and one handed to
+// command(), and they drifted the way two copies of a sentence do: the summary
+// never learned that push and mode take -settle. Nothing would show it except
+// reading both and comparing, which is what this does — except that they now
+// come from one table, so this is checking that they still do.
+func TestTheSummaryAndEachCommandsHelpAgree(t *testing.T) {
+	var summary bytes.Buffer
+	printUsage(&summary)
+	lines := strings.Split(strings.TrimSpace(summary.String()), "\n")
+	if len(lines) != len(usageLines) {
+		t.Fatalf("summary has %d lines, the table has %d entries", len(lines), len(usageLines))
+	}
+
+	for index, line := range usageLines {
+		want := usageFor(line.name)
+		if got := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(lines[index]), "usage:")); got != want {
+			t.Errorf("summary line %d is %q, want %q", index, got, want)
+		}
+		if line.name == "version" {
+			continue // It takes no flags, so it has no flag set to ask.
+		}
+		var help, ignored bytes.Buffer
+		if code := run([]string{line.name, "-h"}, &help, &ignored); code != 0 {
+			t.Errorf("%s -h exited %d", line.name, code)
+			continue
+		}
+		first, _, _ := strings.Cut(help.String(), "\n")
+		if got := strings.TrimPrefix(first, "usage: "); got != want {
+			t.Errorf("%s -h says %q, the summary says %q", line.name, got, want)
+		}
+	}
+}
+
+// Every command the dispatcher answers has a line in the table. A command that
+// runs and cannot say what it takes is worse than one that does not exist:
+// usageFor panics rather than printing a line with the arguments missing, and
+// that panic should be a test failure here rather than something a user sees.
+func TestEveryDispatchedCommandHasAUsageLine(t *testing.T) {
+	source, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatched := regexp.MustCompile(`case "([\w-]+)"(?:, "[^"]*")*:\n\s*(?:return run|fmt\.Fprintln\(stdout, buildVersion)`).
+		FindAllStringSubmatch(string(source), -1)
+	if len(dispatched) < 7 {
+		t.Fatalf("found %d dispatched commands, which cannot be right", len(dispatched))
+	}
+	listed := map[string]bool{}
+	for _, line := range usageLines {
+		listed[line.name] = true
+	}
+	for _, match := range dispatched {
+		if !listed[match[1]] {
+			t.Errorf("%q is dispatched but has no line in usageLines", match[1])
+		}
+	}
+}
+
+// A usage line names every flag its command takes.
+//
+// This is what would have caught the drift that started this: -settle existed,
+// push declared it, and the line describing push did not mention it. Agreement
+// between the two printers cannot catch that on its own — once they read one
+// table, dropping a flag from that table drops it from both and they go on
+// agreeing about a sentence that is missing something.
+func TestEveryUsageLineNamesEveryFlagItsCommandTakes(t *testing.T) {
+	for name, flags := range flagSets(t) {
+		line := usageFor(name)
+		for flag := range flags {
+			if !strings.Contains(line, "-"+flag) {
+				t.Errorf("usage for %s does not name -%s: %q", name, flag, line)
+			}
 		}
 	}
 }
