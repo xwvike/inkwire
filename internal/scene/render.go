@@ -57,7 +57,18 @@ func Render(document compose.Document) (Result, error) {
 	return render(document)
 }
 
+// TraceForSize is RenderForSize with the placements filled in. It is a separate
+// entry point rather than a flag because tracing answers a question somebody is
+// asking about a page, not a question the page has on its way to a tag.
+func TraceForSize(document compose.Document, size image.Point) (Result, error) {
+	return renderForSize(document, size, true)
+}
+
 func RenderForSize(document compose.Document, size image.Point) (Result, error) {
+	return renderForSize(document, size, false)
+}
+
+func renderForSize(document compose.Document, size image.Point, trace bool) (Result, error) {
 	if size.X <= 0 || size.Y <= 0 {
 		return Result{}, fmt.Errorf("target size must be positive, got %v", size)
 	}
@@ -71,7 +82,7 @@ func RenderForSize(document compose.Document, size image.Point) (Result, error) 
 	}
 	stated := document.Size
 	document.Size = logical
-	result, err := render(document)
+	result, err := renderWith(document, trace)
 	if err != nil {
 		return Result{}, err
 	}
@@ -97,10 +108,15 @@ func RenderForSize(document compose.Document, size image.Point) (Result, error) 
 }
 
 func render(document compose.Document) (Result, error) {
+	return renderWith(document, false)
+}
+
+func renderWith(document compose.Document, trace bool) (Result, error) {
 	compiler, err := compose.NewDefaultCompiler()
 	if err != nil {
 		return Result{}, err
 	}
+	compiler.Trace = trace
 	compiled, report, err := compiler.Compile(document)
 	if err != nil {
 		return Result{}, fmt.Errorf("compile scene: %w", err)

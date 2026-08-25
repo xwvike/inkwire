@@ -20,6 +20,7 @@ second download.
 |---|---|
 | `inkwire scan [-timeout 15s]` | List the tags a scan can currently see |
 | `inkwire render [-o out.png] [-size WxH \| -panel FAMILY:ID] <scene.json>` | PNG preview |
+| `inkwire measure [-size WxH \| -panel FAMILY:ID] [-json] <scene.json>` | Print where every node ended up |
 | `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] <scene.json>` | Render and write |
 | `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 clock / calendar mode |
 | `inkwire serve [-listen ADDR] [-assets DIR]` | Start the HTTP service |
@@ -113,6 +114,37 @@ refused.
 
 The page-level fields are documented in full under "Page" in
 [SCHEMA.md](SCHEMA.md).
+
+### measure
+
+Prints the box every node was given, and what the ones with an opinion would
+rather have had. Nothing is rendered.
+
+```bash
+inkwire measure page.json
+```
+
+```
+row         0,0    120x40
+    text    0,11    40x17   wants 56x17
+    text   44,11    76x17   wants 35x17
+
+warning root.children[0] [text-clipped]: "LAST REF" does not fit 40x17: 16 pixels along the line cut off
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `-size` | the scene's own `size` | Lay the scene out at `WxH` instead |
+| `-panel` | unset | Lay the scene out for a named panel |
+| `-json` | off | Write the placements as JSON instead of a tree |
+
+`wants` is the size the node asked for and appears only where that differs from
+the box it got. It is the answer to how wide a piece of text is, which otherwise
+took a render, a warning and a bisection to find out.
+
+A box smaller than what a node wants is not a fault on its own: a label is
+normally sized to its letters rather than to the descender and line gap under
+them. `text-clipped` is what says the difference cost something.
 
 ### push
 

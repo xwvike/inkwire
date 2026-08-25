@@ -77,6 +77,23 @@ type Report struct {
 	Warnings       []Warning
 	Images         []ImageDecision
 	GridExpansions []GridExpansion
+	// Placements is every node and the box it ended up in, in the order they
+	// were painted. Empty unless the compiler was asked to trace: a page has
+	// as many of these as it has nodes, and the answer to "did it render" does
+	// not want them.
+	Placements []Placement
+}
+
+// Placement is one node, where it was put, and what it would rather have had.
+//
+// Deciding a basis meant rendering, reading a warning and bisecting, because
+// nothing would say how wide a piece of text was. Wanted says it. It is zero
+// for nodes that have no opinion, and for those the box is the whole story.
+type Placement struct {
+	Path   string
+	Type   string
+	Bounds image.Rectangle
+	Wanted image.Point
 }
 
 // reportJSON is the shape a report has on the wire. It is a separate type
@@ -156,6 +173,10 @@ func (d *CompiledDocument) Render() (*display.Frame, error) {
 
 type Compiler struct {
 	Fonts *display.FontRegistry
+	// Trace fills Report.Placements. It is off by default because the cost is
+	// paid per node and the answer is wanted by a person reading a tree, not by
+	// a page on its way to a tag.
+	Trace bool
 }
 
 func NewCompiler(fonts *display.FontRegistry) (*Compiler, error) {
@@ -210,7 +231,7 @@ func (c *Compiler) Compile(document Document) (*CompiledDocument, Report, error)
 		if _, err := document.Root.measure(ctx, pageBounds.Size(), "root"); err != nil {
 			return nil, Report{}, err
 		}
-		if err := document.Root.paint(ctx, list, pageBounds, "root"); err != nil {
+		if err := ctx.paint(document.Root, list, pageBounds, "root"); err != nil {
 			return nil, Report{}, err
 		}
 	}
@@ -228,6 +249,51 @@ type compileContext struct {
 	compiler *Compiler
 	report   Report
 	seenRune map[rune]bool
+	// wanted is what a node said it needed, before whatever it was given.
+	// Only nodes that know an answer worth reporting fill it in.
+	wanted map[string]image.Point
+}
+
+// paint places a node and records where, then paints it.
+//
+// Every node in the tree goes through here, which is what makes the placements
+// a tree rather than a list of whatever happened to be interesting. It is the
+// same arrangement as warn: the context is the one thing that sees every node,
+// so it is the one place that can count them.
+func (c *compileContext) paint(node Node, list *display.DisplayList, bounds image.Rectangle, path string) error {
+	if c.compiler.Trace {
+		c.report.Placements = append(c.report.Placements, Placement{
+			Path:   path,
+			Type:   nodeName(node),
+			Bounds: bounds,
+			Wanted: c.wanted[path],
+		})
+	}
+	return node.paint(c, list, bounds, path)
+}
+
+// wants records the size a node asked for, which is not always the size it was
+// measured at: a container hands down a maximum and the measurement comes back
+// clamped to it, so the number that says a box is too small has already been
+// rounded off to the size of that box by the time anybody could read it.
+func (c *compileContext) wants(path string, size image.Point) {
+	if !c.compiler.Trace {
+		return
+	}
+	if c.wanted == nil {
+		c.wanted = make(map[string]image.Point)
+	}
+	c.wanted[path] = size
+}
+
+// nodeName is the type as a scene would spell it, so a placement can be found
+// in the document that produced it.
+func nodeName(node Node) string {
+	name := fmt.Sprintf("%T", node)
+	if index := strings.LastIndex(name, "."); index >= 0 {
+		name = name[index+1:]
+	}
+	return strings.ToLower(name[:1]) + name[1:]
 }
 
 func (c *compileContext) addMissing(path string, runes []rune, tried []string) {

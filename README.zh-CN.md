@@ -17,6 +17,7 @@ Json Schema驱动的电子纸标签渲染器。
 |---|---|
 | `inkwire scan [-timeout 15s]` | 列出当前可被扫描出来的标签 |
 | `inkwire render [-o out.png] [-size WxH \| -panel FAMILY:ID] <scene.json>` | PNG 预览 |
+| `inkwire measure [-size WxH \| -panel FAMILY:ID] [-json] <scene.json>` | 打印每个节点最终落在哪 |
 | `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] <scene.json>` | 渲染并写入 |
 | `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 时钟/日历 模式 |
 | `inkwire serve [-listen ADDR] [-assets DIR]` | 启动 HTTP 服务 |
@@ -105,6 +106,34 @@ BW panel cannot show red ink at (10,10)
 `-size` 和 `-panel` 是同一件事的两种说法，同时给会被拒绝。
 
 页面级字段的完整说明见 [SCHEMA.zh-CN.md](SCHEMA.zh-CN.md) 的「页面」一节。
+
+### measure
+
+打印每个节点分到的框，以及有主张的节点原本想要多大。不渲染。
+
+```bash
+inkwire measure page.json
+```
+
+```
+row         0,0    120x40
+    text    0,11    40x17   wants 56x17
+    text   44,11    76x17   wants 35x17
+
+warning root.children[0] [text-clipped]: "LAST REF" does not fit 40x17: 16 pixels along the line cut off
+```
+
+| 参数 | 默认 | 含义 |
+|---|---|---|
+| `-size` | 场景自己的 `size` | 改按 `WxH` 排版 |
+| `-panel` | 未设置 | 按指定面板排版 |
+| `-json` | 关 | 输出 JSON 而不是树 |
+
+`wants` 是节点要求的尺寸，只在与实际拿到的框不同时出现。想知道一段文字到底多宽，
+以前要靠渲染、看警告、二分，现在直接看这一列。
+
+框比 `wants` 小本身不算错：标签通常按字母高度设框，而不是按下伸部和行间距。真正说明
+这个差值有代价的是 `text-clipped`。
 
 ### push
 

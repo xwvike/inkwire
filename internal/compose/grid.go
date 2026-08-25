@@ -124,7 +124,7 @@ func (g Grid) paint(ctx *compileContext, list *display.DisplayList, bounds image
 		if err != nil {
 			return err
 		}
-		if err := child.Node.paint(ctx, list, placedBounds, nodePath); err != nil {
+		if err := ctx.paint(child.Node, list, placedBounds, nodePath); err != nil {
 			return err
 		}
 	}

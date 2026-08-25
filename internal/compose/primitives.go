@@ -319,7 +319,7 @@ func (c ClipPath) paint(ctx *compileContext, list *display.DisplayList, bounds i
 	list.Translate(bounds.Min)
 	list.ClipPath(c.Path)
 	list.Translate(image.Pt(-bounds.Min.X, -bounds.Min.Y))
-	err := c.Child.paint(ctx, list, bounds, path+".child")
+	err := ctx.paint(c.Child, list, bounds, path+".child")
 	list.Restore()
 	return err
 }
@@ -349,7 +349,7 @@ func (c Clip) measure(ctx *compileContext, maximum image.Point, path string) (im
 func (c Clip) paint(ctx *compileContext, list *display.DisplayList, bounds image.Rectangle, path string) error {
 	list.Save()
 	list.ClipRect(bounds)
-	err := c.Child.paint(ctx, list, bounds, path+".child")
+	err := ctx.paint(c.Child, list, bounds, path+".child")
 	list.Restore()
 	return err
 }
@@ -377,7 +377,7 @@ func (c ClipRect) measure(ctx *compileContext, maximum image.Point, path string)
 func (c ClipRect) paint(ctx *compileContext, list *display.DisplayList, bounds image.Rectangle, path string) error {
 	list.Save()
 	list.ClipRect(c.Rect.Add(bounds.Min))
-	err := c.Child.paint(ctx, list, bounds, path+".child")
+	err := ctx.paint(c.Child, list, bounds, path+".child")
 	list.Restore()
 	return err
 }
@@ -485,7 +485,7 @@ func (t Transformed) paint(ctx *compileContext, list *display.DisplayList, bound
 	// starting at the origin so the surface it lands on is only as large as it
 	// needs to be.
 	sub := &display.DisplayList{}
-	if err := t.Child.paint(ctx, sub, image.Rectangle{Max: inner}, path+".child"); err != nil {
+	if err := ctx.paint(t.Child, sub, image.Rectangle{Max: inner}, path+".child"); err != nil {
 		return err
 	}
 	// Twice, over opposite backgrounds. The surface has to be copied whole and

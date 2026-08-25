@@ -184,7 +184,7 @@ func (a Absolute) paint(ctx *compileContext, list *display.DisplayList, bounds i
 	for index, child := range a.Children {
 		nodePath := childPath(path, "children", index)
 		childBounds := child.Bounds.Add(bounds.Min)
-		if err := child.Node.paint(ctx, list, childBounds, nodePath); err != nil {
+		if err := ctx.paint(child.Node, list, childBounds, nodePath); err != nil {
 			return err
 		}
 	}
@@ -350,7 +350,7 @@ func paintFlow(ctx *compileContext, list *display.DisplayList, bounds image.Rect
 			crossStart = availableCross - childCross
 		}
 		childBounds := rectFromAxes(bounds.Min, cursor, crossStart, childMain, childCross, horizontal)
-		if err := child.Node.paint(ctx, list, childBounds, nodePath); err != nil {
+		if err := ctx.paint(child.Node, list, childBounds, nodePath); err != nil {
 			return err
 		}
 		cursor += childMain + gap
@@ -389,7 +389,7 @@ func (s Stack) measure(ctx *compileContext, maximum image.Point, path string) (i
 
 func (s Stack) paint(ctx *compileContext, list *display.DisplayList, bounds image.Rectangle, path string) error {
 	for index, child := range s.Children {
-		if err := child.paint(ctx, list, bounds, childPath(path, "children", index)); err != nil {
+		if err := ctx.paint(child, list, bounds, childPath(path, "children", index)); err != nil {
 			return err
 		}
 	}
@@ -427,7 +427,7 @@ func (p Padding) paint(ctx *compileContext, list *display.DisplayList, bounds im
 		return nil
 	}
 	inner := image.Rectangle{Min: min, Max: maxPoint}
-	return p.Child.paint(ctx, list, inner, path+".child")
+	return ctx.paint(p.Child, list, inner, path+".child")
 }
 
 // Spacer reserves an explicit size and paints nothing.
@@ -536,7 +536,7 @@ func (a Anchored) paint(ctx *compileContext, list *display.DisplayList, bounds i
 			ctx.warn(nodePath, "empty-layout", "the anchored box resolved to no area")
 			continue
 		}
-		if err := child.Node.paint(ctx, list, placed, nodePath); err != nil {
+		if err := ctx.paint(child.Node, list, placed, nodePath); err != nil {
 			return err
 		}
 	}

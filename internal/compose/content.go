@@ -47,6 +47,9 @@ func (t Text) measure(ctx *compileContext, maximum stdimage.Point, path string) 
 	if t.Size.Y > 0 {
 		size.Y = t.Size.Y
 	}
+	// Said before the clamp. Afterwards the number that would tell somebody the
+	// box is three pixels short has been rounded down to the size of that box.
+	ctx.wants(path, size)
 	return constrainSize(size, maximum), nil
 }
 

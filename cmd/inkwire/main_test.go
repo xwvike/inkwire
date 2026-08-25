@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -249,5 +250,89 @@ func TestANegativeSettleIsAUsageError(t *testing.T) {
 		if !strings.Contains(stderr.String(), "-settle 0") {
 			t.Errorf("%v stderr = %q, want it to say how to ask for no wait", args, stderr.String())
 		}
+	}
+}
+
+// measure answers the question that used to take a render, a warning and a
+// bisection: how big is this node, and how big did it want to be.
+func TestMeasureReportsTheBoxAndWhatItWanted(t *testing.T) {
+	_, scenePath := writeScene(t, `{"version":1,"size":{"width":120,"height":40},
+		"root":{"type":"row","crossAlign":"center","children":[
+			{"basis":40,"node":{"type":"text","runs":[{"text":"LAST REF","font":"monaco","size":12}]}}]}}`)
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"measure", scenePath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code = %d, stderr = %s", code, stderr.String())
+	}
+	out := stdout.String()
+	// The box is forty wide because basis said so; the text is wider than that
+	// and says so, which is the whole point of the column.
+	if !strings.Contains(out, "40x17") {
+		t.Errorf("output does not give the text its box:\n%s", out)
+	}
+	if !strings.Contains(out, "wants 56x17") {
+		t.Errorf("output does not say what the text wanted:\n%s", out)
+	}
+	// Every node is placed, not only the interesting ones.
+	if !strings.Contains(out, "row") {
+		t.Errorf("output skips the container:\n%s", out)
+	}
+
+	// A box that is genuinely smaller than the text is the case the number has
+	// to survive: the measurement comes back clamped to the box it was given,
+	// so a wants recorded after that clamp would report the box back and say
+	// nothing at all.
+	_, tight := writeScene(t, `{"version":1,"size":{"width":120,"height":40},
+		"root":{"type":"absolute","children":[
+			{"bounds":{"x":0,"y":0,"width":30,"height":10},
+			 "node":{"type":"text","runs":[{"text":"LAST REF","font":"monaco","size":12}]}}]}}`)
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"measure", tight}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "wants 56x17") {
+		t.Errorf("a box smaller than its text reported no want:\n%s", stdout.String())
+	}
+}
+
+// A node that got what it asked for says nothing extra. Repeating the size in a
+// second column for every node would bury the two that differ.
+func TestMeasureIsSilentAboutNodesThatFit(t *testing.T) {
+	_, scenePath := writeScene(t, `{"version":1,"size":{"width":120,"height":40},
+		"root":{"type":"text","runs":[{"text":"OK","font":"monaco","size":12}],"size":{"width":120,"height":40}}}`)
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"measure", scenePath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code = %d, stderr = %s", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "wants") {
+		t.Errorf("a node that fits should not be reported as wanting anything:\n%s", stdout.String())
+	}
+}
+
+// The JSON form spells a rectangle the way the rest of this program's JSON
+// does, rather than the way Go would marshal an image.Rectangle.
+func TestMeasureJSONUsesTheSchemaVocabulary(t *testing.T) {
+	_, scenePath := writeScene(t, redPage)
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"measure", "-size", "296x128", "-json", scenePath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code = %d, stderr = %s", code, stderr.String())
+	}
+	var rows []struct {
+		Path   string `json:"path"`
+		Type   string `json:"type"`
+		Bounds struct {
+			X, Y, Width, Height int
+		} `json:"bounds"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &rows); err != nil {
+		t.Fatalf("decode: %v\n%s", err, stdout.String())
+	}
+	if len(rows) == 0 {
+		t.Fatal("no placements")
+	}
+	if rows[0].Path != "root" || rows[0].Bounds.Width != 296 || rows[0].Bounds.Height != 128 {
+		t.Fatalf("root = %+v", rows[0])
 	}
 }

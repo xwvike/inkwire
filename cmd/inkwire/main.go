@@ -9,9 +9,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"image"
 	"io"
 	"log"
 	"net"
@@ -58,6 +60,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "render":
 		return runRender(args[1:], stdout, stderr)
+	case "measure":
+		return runMeasure(args[1:], stdout, stderr)
 	case "scan":
 		return runScan(ctx, args[1:], logger, stdout, stderr)
 	case "push":
@@ -568,6 +572,147 @@ func enableBluetooth(logger *log.Logger) bool {
 	return true
 }
 
+// runMeasure prints where every node ended up, and what the ones with an
+// opinion would rather have had.
+//
+// It exists because the only way to find out how wide a piece of text was, or
+// whether a box was a pixel short of the letters in it, was to render, read a
+// warning and bisect. A 296x128 panel does not forgive that: the difference
+// between right and wrong is a pixel or two, and looking at the picture will
+// not tell you which node owns it.
+func runMeasure(args []string, stdout, stderr io.Writer) int {
+	flags := command("measure", "inkwire measure [-size WxH | -panel family:id] [-json] <scene.json>", stderr)
+	size := flags.String("size", "", "lay the scene out at this size instead of the one it declares, as `WxH`")
+	target := flags.String("panel", "", "lay the scene out for a named `family:id` panel, such as gicisky:0x0033")
+	asJSON := flags.Bool("json", false, "write the placements as JSON instead of a tree")
+	if code, ok := parseFlags(flags, args, stdout); !ok {
+		return code
+	}
+	if flags.NArg() != 1 {
+		flags.Usage()
+		return 2
+	}
+	if *size != "" && *target != "" {
+		fmt.Fprintln(stderr, "measure takes -size or -panel, not both: they are two ways of saying the same thing.")
+		return 2
+	}
+
+	result, renderErr, usage := measureFile(flags.Arg(0), *size, *target)
+	if usage != nil {
+		fmt.Fprintln(stderr, usage)
+		return 2
+	}
+	if renderErr != nil {
+		fmt.Fprintln(stderr, renderErr)
+		return 1
+	}
+	if *asJSON {
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(placementsJSON(result.Report.Placements)); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
+	}
+	printPlacements(stdout, result.Report.Placements)
+	for _, warning := range result.Report.Warnings {
+		fmt.Fprintf(stdout, "\nwarning %s [%s]: %s\n", warning.Path, warning.Code, warning.Message)
+	}
+	return 0
+}
+
+// printPlacements indents by path depth, so the tree in the output is the tree
+// in the document.
+func printPlacements(writer io.Writer, placements []compose.Placement) {
+	width := 0
+	for _, p := range placements {
+		if n := depthOf(p.Path)*2 + len(p.Type); n > width {
+			width = n
+		}
+	}
+	for _, p := range placements {
+		indent := strings.Repeat("  ", depthOf(p.Path))
+		line := fmt.Sprintf("%s%-*s %4d,%-4d %3dx%-3d", indent, width-depthOf(p.Path)*2, p.Type,
+			p.Bounds.Min.X, p.Bounds.Min.Y, p.Bounds.Dx(), p.Bounds.Dy())
+		if p.Wanted != (image.Point{}) && p.Wanted != p.Bounds.Size() {
+			line += fmt.Sprintf("  wants %dx%d", p.Wanted.X, p.Wanted.Y)
+		}
+		fmt.Fprintln(writer, line)
+	}
+}
+
+// depthOf counts how far down the tree a path sits. Paths are written as
+// root.children[0].child, so the separators are the depth.
+func depthOf(path string) int {
+	return strings.Count(path, ".") + strings.Count(path, "[")
+}
+
+type placementJSON struct {
+	Path   string    `json:"path"`
+	Type   string    `json:"type"`
+	Bounds boxJSON   `json:"bounds"`
+	Wanted *sizeJSON `json:"wants,omitempty"`
+}
+
+// boxJSON and sizeJSON spell a rectangle the way every other rectangle in this
+// program's JSON is spelled: an origin and a size, in lower case.
+type boxJSON struct {
+	X      int `json:"x"`
+	Y      int `json:"y"`
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
+type sizeJSON struct {
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
+func placementsJSON(placements []compose.Placement) []placementJSON {
+	out := make([]placementJSON, 0, len(placements))
+	for _, p := range placements {
+		row := placementJSON{Path: p.Path, Type: p.Type,
+			Bounds: boxJSON{p.Bounds.Min.X, p.Bounds.Min.Y, p.Bounds.Dx(), p.Bounds.Dy()}}
+		if p.Wanted != (image.Point{}) {
+			row.Wanted = &sizeJSON{p.Wanted.X, p.Wanted.Y}
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+// measureFile is renderFile with the trace on. The two stay side by side
+// because they answer the same question about which size to lay out at.
+func measureFile(source, size, key string) (scene.Result, error, error) {
+	decoder := scene.Decoder{}
+	document, err := decoder.DecodeFile(source)
+	if err != nil {
+		return scene.Result{}, err, nil
+	}
+	switch {
+	case key != "":
+		known, err := panel.ByKey(key)
+		if err != nil {
+			return scene.Result{}, nil, err
+		}
+		result, err := scene.TraceForSize(document, known.Size())
+		return result, err, nil
+	case size != "":
+		bounds, err := panel.ParseSize(size)
+		if err != nil {
+			return scene.Result{}, nil, err
+		}
+		result, err := scene.TraceForSize(document, bounds)
+		return result, err, nil
+	}
+	if document.Size == (image.Point{}) {
+		return scene.Result{}, nil, fmt.Errorf("%w: give the document a size, or measure with -size WxH or -panel family:id", scene.ErrNoSize)
+	}
+	result, err := scene.TraceForSize(document, document.Size)
+	return result, err, nil
+}
+
 // renderFile lays a scene out at whichever size was asked for.
 //
 // Naming a panel does more than set the size: the page is packed for it too,
@@ -676,6 +821,7 @@ func replaceExtension(path, extension string) string {
 func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "usage: inkwire render [-o preview.png] [-size WxH | -panel family:id] <scene.json>")
 	fmt.Fprintln(writer, "       inkwire push -device MAC-or-name [-family gicisky|nrfepd] <scene.json>")
+	fmt.Fprintln(writer, "       inkwire measure [-size WxH | -panel family:id] [-json] <scene.json>")
 	fmt.Fprintln(writer, "       inkwire scan [-timeout 15s]")
 	fmt.Fprintln(writer, "       inkwire mode -device MAC-or-name [-mode picture|calendar|clock] [-week-start sunday|monday]")
 	fmt.Fprintln(writer, "       inkwire serve [-listen address] [-assets directory]")

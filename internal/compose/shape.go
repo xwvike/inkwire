@@ -166,14 +166,14 @@ func (c ClipShape) measure(ctx *compileContext, maximum image.Point, path string
 
 func (c ClipShape) paint(ctx *compileContext, list *display.DisplayList, bounds image.Rectangle, path string) error {
 	if c.Shape.empty() {
-		return c.Child.paint(ctx, list, bounds, path+".child")
+		return ctx.paint(c.Child, list, bounds, path+".child")
 	}
 	outline := c.Shape.Path(bounds.Size())
 	list.Save()
 	list.Translate(bounds.Min)
 	list.ClipPath(outline)
 	list.Translate(image.Pt(-bounds.Min.X, -bounds.Min.Y))
-	err := c.Child.paint(ctx, list, bounds, path+".child")
+	err := ctx.paint(c.Child, list, bounds, path+".child")
 	list.Restore()
 	return err
 }
