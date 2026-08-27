@@ -27,6 +27,7 @@ import (
 	"github.com/xwvike/inkwire/internal/compose"
 	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/gicisky"
+	"github.com/xwvike/inkwire/internal/markup"
 	"github.com/xwvike/inkwire/internal/nrfepd"
 	"github.com/xwvike/inkwire/internal/panel"
 	"github.com/xwvike/inkwire/internal/scene"
@@ -351,7 +352,7 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 }
 
 func (h *Handler) serveRender(writer http.ResponseWriter, request *http.Request) {
-	document, ok := h.decodeRequest(writer, request)
+	document, warnings, ok := h.decodeRequest(writer, request)
 	if !ok {
 		return
 	}
@@ -392,8 +393,13 @@ func (h *Handler) serveRender(writer http.ResponseWriter, request *http.Request)
 			fmt.Errorf("%w: give the document a size, or ask for one with ?size=WxH or ?panel=family:id", renderErr))
 		return
 	}
+	// What the front end could not honour goes back beside what the layout
+	// could not honour. A caller reading the report does not care which half
+	// of the pipeline dropped their declaration, and a page sent over the
+	// wire has nobody standing at a terminal to read a log line instead.
+	result.Report.Warnings = append(warnings, result.Report.Warnings...)
 	if result.Frame == nil {
-		writeError(writer, http.StatusUnprocessableEntity, "invalid-scene", renderErr)
+		writeErrorWithReport(writer, http.StatusUnprocessableEntity, "invalid-scene", renderErr, result.Report)
 		return
 	}
 	var encoded bytes.Buffer
@@ -421,7 +427,7 @@ func (h *Handler) serveRender(writer http.ResponseWriter, request *http.Request)
 }
 
 func (h *Handler) servePush(writer http.ResponseWriter, request *http.Request) {
-	document, ok := h.decodeRequest(writer, request)
+	document, warnings, ok := h.decodeRequest(writer, request)
 	if !ok {
 		return
 	}
@@ -475,12 +481,13 @@ func (h *Handler) servePush(writer http.ResponseWriter, request *http.Request) {
 	defer cancel()
 
 	if found.Family == tag.Gicisky {
-		h.writeGicisky(writer, ctx, target, found.Gicisky, document)
+		h.writeGicisky(writer, ctx, target, found.Gicisky, document, warnings)
 		return
 	}
 	// The page is built once the panel has said what it is, so there is no
 	// report to answer with until the write has been attempted.
 	written, rendered, pushErr := h.pushPageTo(ctx, target, found.NRFEPD, document)
+	rendered.Report.Warnings = append(warnings, rendered.Report.Warnings...)
 	status := h.release(target, written, pushErr)
 	if pushErr != nil {
 		code, httpStatus := "push-failed", http.StatusBadGateway
@@ -603,7 +610,7 @@ func (h *Handler) locate(ctx context.Context, target, asserted string) (tag.Foun
 }
 
 func (h *Handler) writeGicisky(writer http.ResponseWriter, ctx context.Context,
-	target string, found gicisky.FoundDevice, document compose.Document) {
+	target string, found gicisky.FoundDevice, document compose.Document, warnings []compose.Warning) {
 	if !found.Identified {
 		err := fmt.Errorf("%s advertised id 0x%04X, which this build does not know", target, found.Advertised.ID)
 		status := h.release(target, 0, err)
@@ -611,6 +618,7 @@ func (h *Handler) writeGicisky(writer http.ResponseWriter, ctx context.Context,
 		return
 	}
 	result, page, err := panel.Render(document, panel.OfGicisky(found.Profile))
+	result.Report.Warnings = append(warnings, result.Report.Warnings...)
 	if err != nil {
 		status := h.release(target, 0, err)
 		// A nil frame means the layout failed and there is no report to send.
@@ -749,24 +757,24 @@ func (h *Handler) newDriver(target string) *gicisky.Driver {
 	return driver
 }
 
-func (h *Handler) decodeRequest(writer http.ResponseWriter, request *http.Request) (compose.Document, bool) {
-	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
+func (h *Handler) decodeRequest(writer http.ResponseWriter, incoming *http.Request) (compose.Document, []compose.Warning, bool) {
+	mediaType, _, err := mime.ParseMediaType(incoming.Header.Get("Content-Type"))
 	if err != nil {
 		writeError(writer, http.StatusUnsupportedMediaType, "unsupported-media-type", fmt.Errorf("invalid Content-Type: %w", err))
-		return compose.Document{}, false
+		return compose.Document{}, nil, false
 	}
-	var sceneBytes []byte
-	var resources map[string][]byte
+	var sent payload
 	switch mediaType {
 	case "application/json":
-		request.Body = http.MaxBytesReader(writer, request.Body, maxSceneBytes)
-		sceneBytes, err = io.ReadAll(request.Body)
+		incoming.Body = http.MaxBytesReader(writer, incoming.Body, maxSceneBytes)
+		sent.scene, err = io.ReadAll(incoming.Body)
 	case "multipart/form-data":
-		request.Body = http.MaxBytesReader(writer, request.Body, maxRequestBytes)
-		sceneBytes, resources, err = readMultipart(request)
+		incoming.Body = http.MaxBytesReader(writer, incoming.Body, maxRequestBytes)
+		sent, err = readMultipart(incoming)
 	default:
-		writeError(writer, http.StatusUnsupportedMediaType, "unsupported-media-type", fmt.Errorf("Content-Type must be application/json or multipart/form-data"))
-		return compose.Document{}, false
+		writeError(writer, http.StatusUnsupportedMediaType, "unsupported-media-type",
+			fmt.Errorf("Content-Type must be application/json or multipart/form-data"))
+		return compose.Document{}, nil, false
 	}
 	if err != nil {
 		status, code := http.StatusBadRequest, "invalid-request"
@@ -775,73 +783,133 @@ func (h *Handler) decodeRequest(writer http.ResponseWriter, request *http.Reques
 			status, code = http.StatusRequestEntityTooLarge, "request-too-large"
 		}
 		writeError(writer, status, code, err)
-		return compose.Document{}, false
+		return compose.Document{}, nil, false
 	}
-	document, err := (scene.Decoder{BaseDir: h.baseDir, RestrictFiles: true, Resources: resources}).Decode(bytes.NewReader(sceneBytes))
+	sceneBytes := sent.scene
+	var warnings []compose.Warning
+	if sent.page != nil {
+		// A page compiles to a scene document and then goes the same way as
+		// one that arrived written. There is no second route through here:
+		// the limits, the resource map and the confinement below apply to a
+		// stylesheet's picture because they apply to every picture.
+		var compiled []byte
+		var err error
+		compiled, warnings, err = compilePage(sent)
+		if err != nil {
+			writeError(writer, http.StatusUnprocessableEntity, "invalid-page", err)
+			return compose.Document{}, warnings, false
+		}
+		sceneBytes = compiled
+	}
+	document, err := (scene.Decoder{BaseDir: h.baseDir, RestrictFiles: true, Resources: sent.resources}).Decode(bytes.NewReader(sceneBytes))
 	if err != nil {
 		writeError(writer, http.StatusUnprocessableEntity, "invalid-scene", err)
-		return compose.Document{}, false
+		return compose.Document{}, warnings, false
 	}
-	return document, true
+	return document, warnings, true
+}
+
+// payload is what arrived: a scene document, or a page and the stylesheet it
+// goes with, and whatever pictures and drawings either of them names.
+type payload struct {
+	scene      []byte
+	page       []byte
+	stylesheet []byte
+	resources  map[string][]byte
+}
+
+// compilePage turns a page that arrived over the wire into the document it
+// describes. A scene element reaches the parts sent with it and nothing else,
+// which is the same rule the decoder applies to a picture: a request carries
+// what it needs, and reaches no further.
+func compilePage(sent payload) ([]byte, []compose.Warning, error) {
+	compiler := markup.Compiler{
+		Scenes: func(reference markup.SceneRef) (json.RawMessage, error) {
+			if reference.Src == "" {
+				return json.RawMessage(reference.Inline), nil
+			}
+			embedded, ok := sent.resources[reference.Src]
+			if !ok {
+				return nil, fmt.Errorf("no part named %q was sent with this page", reference.Src)
+			}
+			return embedded, nil
+		},
+	}
+	compiled, err := compiler.Compile(string(sent.page), string(sent.stylesheet))
+	warnings := make([]compose.Warning, 0, len(compiled.Warnings))
+	for _, warning := range compiled.Warnings {
+		warnings = append(warnings, compose.Warning(warning))
+	}
+	return compiled.JSON, warnings, err
 }
 
 var errPartTooLarge = errors.New("multipart part exceeds its size limit")
 
-func readMultipart(request *http.Request) ([]byte, map[string][]byte, error) {
-	reader, err := request.MultipartReader()
+func readMultipart(incoming *http.Request) (payload, error) {
+	reader, err := incoming.MultipartReader()
 	if err != nil {
-		return nil, nil, fmt.Errorf("parse multipart request: %w", err)
+		return payload{}, fmt.Errorf("parse multipart request: %w", err)
 	}
-	var sceneBytes []byte
-	resources := make(map[string][]byte)
+	sent := payload{resources: map[string][]byte{}}
 	for {
 		part, err := reader.NextPart()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			return nil, nil, fmt.Errorf("read multipart request: %w", err)
+			return payload{}, fmt.Errorf("read multipart request: %w", err)
 		}
 		name := part.FormName()
 		if name == "" {
 			_ = part.Close()
-			return nil, nil, fmt.Errorf("multipart part has no form name")
+			return payload{}, fmt.Errorf("multipart part has no form name")
 		}
 		limit := int64(maxAssetBytes)
-		if name == "scene" {
+		if described[name] {
 			limit = maxSceneBytes
 		}
 		content, err := readPart(part, limit)
 		closeErr := part.Close()
 		if err != nil {
-			return nil, nil, fmt.Errorf("multipart part %q: %w", name, err)
+			return payload{}, fmt.Errorf("multipart part %q: %w", name, err)
 		}
 		if closeErr != nil {
-			return nil, nil, fmt.Errorf("close multipart part %q: %w", name, closeErr)
+			return payload{}, fmt.Errorf("close multipart part %q: %w", name, closeErr)
 		}
-		if name == "scene" {
-			if sceneBytes != nil {
-				return nil, nil, fmt.Errorf("multipart request contains more than one scene part")
+		if described[name] {
+			held := map[string]*[]byte{"scene": &sent.scene, "page": &sent.page, "stylesheet": &sent.stylesheet}[name]
+			if *held != nil {
+				return payload{}, fmt.Errorf("multipart request contains more than one %s part", name)
 			}
-			sceneBytes = content
+			*held = content
 			continue
 		}
 		if part.FileName() == "" {
-			return nil, nil, fmt.Errorf("multipart resource %q must be a file part", name)
+			return payload{}, fmt.Errorf("multipart resource %q must be a file part", name)
 		}
-		if _, exists := resources[name]; exists {
-			return nil, nil, fmt.Errorf("multipart request contains duplicate resource %q", name)
+		if _, exists := sent.resources[name]; exists {
+			return payload{}, fmt.Errorf("multipart request contains duplicate resource %q", name)
 		}
-		if len(resources) >= maxAssets {
-			return nil, nil, fmt.Errorf("multipart request contains more than %d resources", maxAssets)
+		if len(sent.resources) >= maxAssets {
+			return payload{}, fmt.Errorf("multipart request contains more than %d resources", maxAssets)
 		}
-		resources[name] = content
+		sent.resources[name] = content
 	}
-	if sceneBytes == nil {
-		return nil, nil, fmt.Errorf("multipart request has no scene part")
+	switch {
+	case sent.scene != nil && sent.page != nil:
+		return payload{}, fmt.Errorf("multipart request has both a scene and a page part; send one")
+	case sent.scene == nil && sent.page == nil:
+		return payload{}, fmt.Errorf("multipart request has no scene part")
+	case sent.scene != nil && sent.stylesheet != nil:
+		return payload{}, fmt.Errorf("multipart request has a stylesheet and no page for it to style")
 	}
-	return sceneBytes, resources, nil
+	return sent, nil
 }
+
+// described names the parts that say what to draw, as against the pictures and
+// drawings they refer to. They share the larger size limit and none of them is
+// a file part.
+var described = map[string]bool{"scene": true, "page": true, "stylesheet": true}
 
 func readPart(reader io.Reader, limit int64) ([]byte, error) {
 	content, err := io.ReadAll(io.LimitReader(reader, limit+1))

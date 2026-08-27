@@ -16,9 +16,10 @@ Json Schema驱动的电子纸标签渲染器。
 | 命令 | 用途 |
 |---|---|
 | `inkwire scan [-timeout 15s]` | 列出当前可被扫描出来的标签 |
-| `inkwire render [-o out.png] [-size WxH \| -panel FAMILY:ID] <scene.json>` | PNG 预览 |
-| `inkwire measure [-size WxH \| -panel FAMILY:ID] [-json] <scene.json>` | 打印每个节点最终落在哪 |
-| `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] <scene.json>` | 渲染并写入 |
+| `inkwire render [-o out.png] [-size WxH \| -panel FAMILY:ID] <page.html\|scene.json>` | PNG 预览 |
+| `inkwire compile [-o scene.json] <page.html>` | 打印页面编译出的场景文档 |
+| `inkwire measure [-size WxH \| -panel FAMILY:ID] [-json] <page.html\|scene.json>` | 打印每个节点最终落在哪 |
+| `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] <page.html\|scene.json>` | 渲染并写入 |
 | `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 时钟/日历 模式 |
 | `inkwire serve [-listen ADDR] [-assets DIR]` | 启动 HTTP 服务 |
 | `inkwire schema [-lang en\|zh]` | 打印 Json Schema 参考 |
@@ -433,6 +434,15 @@ curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
 | `missing-runes` | 字库缺少这些字形 |
 | `size-mismatch` | 场景声明的尺寸与面板不符，已按面板重排，超出部分被裁 |
 | `unsupported-ink` | 场景用了面板没有对应色层的墨水，已改画成黑色，每种墨水一条 |
+| `unsupported-declaration` | 页面用了本渲染器未实现的 CSS 属性或取值；直接忽略，不做近似 |
+| `unsupported-at-rule` | 页面用了 `@media` 之类的 at-rule；只有一块屏、一帧画面，没有可供选择的条件 |
+| `unresolved-scene` | `scene` 元素指向的图形读不出来；页面照常排版，那块留空 |
+| `unresolved-image` | `img` 元素指向的图片读不出来 |
+| `no-stylesheet` | 这一页完全没有样式：没给样式表，页面里也没有 `style` 元素、`link` 和 `style` 属性 |
+| `unresolved-stylesheet` | `link` 元素指向的样式表读不出来 |
+| `unsupported-selector` | 本 build 读不懂的选择器；跳过那条规则，样式表其余部分照常生效 |
+| `unreadable-rule` | 有语法错误的规则；同样跳过，一条坏规则不会赔上整份样式表 |
+| `substituted-font-size` | 页面要的字号或字体本 build 没有；用最接近的那个画，编译出的文档里写的就是它 |
 
 ### 错误
 
@@ -442,6 +452,7 @@ curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
 | `invalid-request` | 400 | 未指名 `device`，或 `family`、`mode`、`week-start` 取值未知，或 multipart 结构错误 |
 | `request-too-large` | 413 | 超出体积上限 |
 | `invalid-scene` | 422 | 无法解码或渲染 |
+| `invalid-page` | 422 | `page` 部分不是本渲染器能编译的页面 |
 | `unprocessable-scene` | 422 | 渲染成功，但无法为该面板打包 |
 | `render-failed` | 500 | PNG 编码失败 |
 | `device-busy` | 409 | 适配器占用中 |
@@ -524,6 +535,88 @@ curl -F 'scene=@page.json;type=application/json' \
 | 请求 | 64 MiB |
 | 资源数量 | 32 |
 | 渲染页面或解码后图片 | 16,777,216 像素 |
+
+## 用 HTML 和 CSS 写页面
+
+场景文档说的是每个节点摆在哪；样式表说的是这页是什么，排版随之而来。同一张页面
+两种写法，markup 版短 2 到 7 倍，`examples/desk/` 里的页面两种格式都在，可以对着读。
+
+**页面会被编译成场景文档。** 前端做的就只有这一件事——它不排版、不量字、不打开
+图片、不画任何像素。编译之后走的是场景文档一直以来的那一条路，所以页面受的限制、
+被拒的理由、经过的检查，跟别的文档完全一样，因为读它的没有第二个东西。
+
+中间产物是能看的：
+
+```
+inkwire compile examples/desk/tasks.html
+inkwire compile -o tasks.json examples/desk/tasks.html
+```
+
+看完可以拿去用，也可以跳过——凡是收 `scene.json` 的命令都同样收 `page.html`。
+
+页面的样式有三个来源，按这个顺序层叠：同名的 `.css` 文件、页面里的 `style` 元素、
+`link` 元素指向的另一个文件。写在一个文件里的页面旁边什么都不用放；只有三样都没有
+才会收到警告。
+
+```
+inkwire render examples/desk/tasks.html
+inkwire push -device 命令行墨水屏 examples/desk/tasks.html
+```
+
+根元素的 `width` 和 `height` 就是这一页的尺寸。它的 `orientation` 属性取
+`landscape`、`portrait-cw` 或 `portrait-ccw`，不写就是 landscape，跟场景文档一样。
+
+有一个测试会把每张两种写法都存在的页面各渲一遍，逐像素比对——这是防止两种写法
+变成两个渲染器的东西。
+
+### 走 HTTP
+
+`POST /v1/render` 和 `POST /v1/push` 用 multipart 收页面：一个 `page` 部分、一个
+`stylesheet` 部分，以及页面引用到的每张图片、每份图形各占一个文件部分。一次请求
+带 `scene` 或带 `page`，不能都带。
+
+### 样式表能说什么
+
+六十三个属性。把这块屏用不上的那些去掉之后，盒模型、flex、grid 和文本就是全部了。
+
+| 分组 | 属性 |
+|---|---|
+| 盒 | `display` `width` `height` `min-width` `max-width` `min-height` `max-height` `aspect-ratio` `box-sizing` `padding` `padding-top` `padding-right` `padding-bottom` `padding-left` `margin` `margin-top` `margin-right` `margin-bottom` `margin-left` |
+| flex 与 grid | `flex` `flex-direction` `flex-basis` `flex-grow` `gap` `row-gap` `column-gap` `align-items` `align-self` `justify-content` `justify-items` `justify-self` `grid-template-columns` `grid-template-rows` `grid-column` `grid-row` |
+| 定位 | `position` `top` `right` `bottom` `left` `inset` `z-index` |
+| 绘制 | `background` `background-color` `color` `border` `border-width` `border-style` `border-color` `border-radius` `visibility` |
+| 裁剪与变换 | `overflow` `clip-path` `transform` `rotate` `scale` |
+| 虚线 | `stroke-dasharray` `stroke-dashoffset` —— 用 SVG 的名字，因为虚线在别处就叫这个 |
+| 文本 | `font` `font-family` `font-size` `line-height` `text-align` `vertical-align` `white-space` |
+| 图片 | `object-fit` |
+
+其中 `color`、`font-family`、`font-size`、`line-height`、`text-align`、
+`vertical-align` 会继承，其余不继承，与 CSS 一致。`inherit`、`initial`、`unset`、
+`revert` 对以上任意属性都有效。
+
+长度可以是像素、百分比，以及两者之间的 `calc`。`margin: auto` 把元素推到容器的另一头。
+`white-space: pre` 保留页面用来对齐列的连续空格。
+
+### 不能说什么，以及为什么
+
+一块只有三种墨、没有灰阶的屏，`opacity`、渐变、阴影、抗锯齿都无事可做；点阵字库
+没有字重和斜体；一帧静态画面没有东西可动；不滚动的页面也没有地方给 overflow 溢。
+这些是直接没有，而不是拿别的东西凑。
+
+图形的缺席是另一回事。CSS 没有描述圆弧、多边形、图案、路径的词汇，硬给它造一套就是
+在造一门长得像 CSS 的方言。页面留住排版，把绘制交出去：
+
+```html
+<div class="frame"><scene src="chart-plot.json"></scene></div>
+```
+
+`examples/desk/chart.html` 里那条九十六点的曲线就是这么画的：那些点本来就没人手写，
+生成序列的东西顺手就把它们生成了。`scene` 元素接受一个 `src`，或者写在标签里的描述，
+它指向的内容会被内联进页面编译出的文档——出来的是一份自包含的描述，也就是推给设备的
+那份东西。
+
+没有什么会被悄悄丢掉。不认识的属性、不支持的取值、不属于三种墨的颜色、没有对应
+点阵的字号，每一样都会产生一条点名到元素和声明的警告。
 
 ## 示例
 

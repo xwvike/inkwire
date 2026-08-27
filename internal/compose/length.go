@@ -33,6 +33,16 @@ func Calc(tenths, pixels int) Length {
 
 func (l Length) IsSet() bool { return l.set }
 
+// Parts returns the length as it was stated: a share of the container in
+// tenths of a percent, and a number of pixels.
+//
+// A length could be written and resolved and printed, and never read back as
+// what it was written as. That was enough while the schema was only ever
+// decoded; a document that is now written as well as read needs the way in
+// reversed, and reversing it by parsing String was going to be somebody
+// eventually parsing "calc(87.3% -10px)" with a regular expression.
+func (l Length) Parts() (tenths, pixels int) { return l.percent, l.pixels }
+
 func (l Length) String() string {
 	switch {
 	case !l.set:

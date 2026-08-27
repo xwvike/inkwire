@@ -19,9 +19,10 @@ second download.
 | Command | Purpose |
 |---|---|
 | `inkwire scan [-timeout 15s]` | List the tags a scan can currently see |
-| `inkwire render [-o out.png] [-size WxH \| -panel FAMILY:ID] <scene.json>` | PNG preview |
-| `inkwire measure [-size WxH \| -panel FAMILY:ID] [-json] <scene.json>` | Print where every node ended up |
-| `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] <scene.json>` | Render and write |
+| `inkwire render [-o out.png] [-size WxH \| -panel FAMILY:ID] <page.html\|scene.json>` | PNG preview |
+| `inkwire compile [-o scene.json] <page.html>` | Print the scene document a page compiles to |
+| `inkwire measure [-size WxH \| -panel FAMILY:ID] [-json] <page.html\|scene.json>` | Print where every node ended up |
+| `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] <page.html\|scene.json>` | Render and write |
 | `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 clock / calendar mode |
 | `inkwire serve [-listen ADDR] [-assets DIR]` | Start the HTTP service |
 | `inkwire schema [-lang en\|zh]` | Print the JSON Schema reference |
@@ -465,6 +466,15 @@ Non-fatal.
 | `missing-runes` | Font lacks these glyphs |
 | `size-mismatch` | The scene states a size the panel does not have; laid out again for the panel, anything beyond it clipped |
 | `unsupported-ink` | The scene uses an ink the panel has no plane for; drawn black instead, one warning per ink |
+| `unsupported-declaration` | A page uses a CSS property or value this renderer does not implement; it was ignored, not approximated |
+| `unsupported-at-rule` | A page uses an at-rule such as `@media`; there is one panel and one frame, so there is nothing to select on |
+| `unresolved-scene` | A `scene` element named a drawing that could not be read; the page laid out with a hole where it was |
+| `unresolved-image` | An `img` element named a picture that could not be read |
+| `no-stylesheet` | The page has no style at all: no stylesheet was given, and it carries no `style` element, no `link` and no `style` attribute |
+| `unresolved-stylesheet` | A `link` element named a stylesheet that could not be read |
+| `unsupported-selector` | A selector this build cannot read; that rule is skipped and the rest of the stylesheet still applies |
+| `unreadable-rule` | A rule with a syntax error in it; skipped the same way, so one bad rule does not cost the stylesheet |
+| `substituted-font-size` | A page asked for a size or a family this build has no strike for; drawn at the nearest one it has, which the compiled document names |
 
 ### Errors
 
@@ -474,6 +484,7 @@ Non-fatal.
 | `invalid-request` | 400 | No `device` named, an unknown `family`, `mode` or `week-start`, or malformed multipart |
 | `request-too-large` | 413 | Over the size limit |
 | `invalid-scene` | 422 | Will not decode or render |
+| `invalid-page` | 422 | The `page` part is not a page this renderer can compile |
 | `unprocessable-scene` | 422 | Renders successfully, but cannot be packed for that panel |
 | `render-failed` | 500 | PNG encoding failed |
 | `device-busy` | 409 | Adapter in use |
@@ -558,6 +569,104 @@ that request.
 | Request | 64 MiB |
 | Asset count | 32 |
 | Rendered page or decoded image | 16,777,216 pixels |
+
+## Pages in HTML and CSS
+
+A scene document says where every node goes; a stylesheet says what the page
+is and lets the layout follow. The same page written both ways is 2 to 7 times
+shorter as markup, and the pages in `examples/desk/` are there in both formats
+so the two can be read side by side.
+
+**A page compiles to a scene document.** That is the whole of what the front
+end does — it does not lay anything out, measure a glyph, open a picture or
+draw a pixel. Everything after the compile is the one path a scene document
+has always taken, so a page is held to the same limits, the same refusals and
+the same checks, because it is not being read by anything else.
+
+You can see the middle:
+
+```
+inkwire compile examples/desk/tasks.html
+inkwire compile -o tasks.json examples/desk/tasks.html
+```
+
+and then use it, or skip it — every command that takes a `scene.json` takes a
+`page.html`.
+
+A page finds its style in three places, which cascade in this order: the file
+with the same path and `.css` on it, a `style` element in the page, and a
+`link` element naming another file. A page written in one file needs nothing
+beside it; only a page with none of the three is warned about.
+
+```
+inkwire render examples/desk/tasks.html
+inkwire push -device 命令行墨水屏 examples/desk/tasks.html
+```
+
+The root element's `width` and `height` are the page. Its `orientation`
+attribute is `landscape`, `portrait-cw` or `portrait-ccw`, and absent means
+landscape, as it does in a scene document.
+
+A test renders every page that exists in both formats and compares them pixel
+for pixel, which is what keeps two ways of writing a page from becoming two
+renderers.
+
+### Over HTTP
+
+`POST /v1/render` and `POST /v1/push` take a page in a multipart request: a
+`page` part, a `stylesheet` part, and a file part for every picture or drawing
+the page names. A request carries a `scene` part or a `page` part, not both.
+
+### What a stylesheet can say
+
+Sixty-three properties, which is the whole of the box model, flex, grid and
+text once the ones a panel has no use for are taken out.
+
+| Group | Properties |
+|---|---|
+| Box | `display` `width` `height` `min-width` `max-width` `min-height` `max-height` `aspect-ratio` `box-sizing` `padding` `padding-top` `padding-right` `padding-bottom` `padding-left` `margin` `margin-top` `margin-right` `margin-bottom` `margin-left` |
+| Flex and grid | `flex` `flex-direction` `flex-basis` `flex-grow` `gap` `row-gap` `column-gap` `align-items` `align-self` `justify-content` `justify-items` `justify-self` `grid-template-columns` `grid-template-rows` `grid-column` `grid-row` |
+| Position | `position` `top` `right` `bottom` `left` `inset` `z-index` |
+| Paint | `background` `background-color` `color` `border` `border-width` `border-style` `border-color` `border-radius` `visibility` |
+| Clipping and transform | `overflow` `clip-path` `transform` `rotate` `scale` |
+| Dashes | `stroke-dasharray` `stroke-dashoffset` — SVG's names, because a dashed line is called that everywhere else |
+| Text | `font` `font-family` `font-size` `line-height` `text-align` `vertical-align` `white-space` |
+| Image | `object-fit` |
+
+`color`, `font-family`, `font-size`, `line-height`, `text-align` and
+`vertical-align` inherit; everything else does not, which matches CSS.
+`inherit`, `initial`, `unset` and `revert` work on any of them.
+
+Lengths are pixels, percentages, and `calc` between the two. `margin: auto`
+pushes an item to the other end of its container. `white-space: pre` keeps the
+runs of spaces a page lines its columns up with.
+
+### What it cannot, and why
+
+There is nothing for `opacity`, gradients, shadows or antialiasing to do on a
+panel with three inks and no greys; nothing for font weight or italic with
+bitmap strikes; nothing to animate in one static frame; and nowhere for
+overflow to scroll. Those are absent rather than approximated.
+
+Geometry is absent for a different reason. CSS has no vocabulary for an arc, a
+polygon, a pattern or a path, and giving it one would be inventing a dialect
+that looks like CSS and is not. A page keeps the layout and hands the drawing
+over:
+
+```html
+<div class="frame"><scene src="chart-plot.json"></scene></div>
+```
+
+which is how `examples/desk/chart.html` draws a ninety-six point series: the
+points are not something anyone writes by hand, and whatever produced the
+series produced them too. A `scene` element takes a `src` or the description
+written inside it, and what it names is spliced into the document the page
+compiles to — so what comes out is one self-contained description, which is
+what a device is given.
+
+Nothing is dropped quietly. An unknown property, an unsupported value, an ink
+that is not one of the three and a font size with no strike each produce a
+warning that names the element and the declaration.
 
 ## Examples
 

@@ -1,0 +1,74 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  width: 296px;
+  height: 128px;
+  background: white;
+  color: black;
+}
+
+header {
+  vertical-align: middle;
+  flex-basis: 18px;
+  display: flex;
+  align-items: center;
+  padding: 0 5px;
+  background: black;
+  color: white;
+  font-family: ui;
+  font-size: 12px;
+}
+header .mono {
+  margin-left: auto;
+  font-family: monaco;
+}
+
+/* Three columns: the names as wide as the widest of them, the bars taking
+   what is left, the figures as wide as the longest pair. Nothing here states
+   a pixel width, and nothing needs revisiting when the contents change. */
+main {
+  flex-grow: 1;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-rows: repeat(4, 15px) 1fr;
+  row-gap: 3px;
+  column-gap: 5px;
+  padding: 3px 4px;
+  align-items: center;
+}
+
+.name {
+  font-family: monaco;
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+.bar {
+  align-self: stretch;
+  border: 1px solid black;
+  padding: 2px;
+}
+.bar > i {
+  display: block;
+  height: 100%;
+  background: black;
+}
+
+.figs {
+  text-align: right;
+  font-family: monaco;
+  font-size: 12px;
+  vertical-align: middle;
+}
+/* The total is the smaller half of the pair, so the used figure reads first. */
+.figs small { font-size: 10px; }
+
+footer {
+  grid-column: 1 / 4;
+  align-self: end;
+  font-family: ui;
+  font-size: 12px;
+}
+
+.hot { color: red; }
+i.hot { background: red; }

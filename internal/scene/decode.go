@@ -1486,3 +1486,9 @@ func decodeStrictBytes(source []byte, destination any) error {
 }
 
 func nodeError(path string, err error) error { return fmt.Errorf("%s: %w", path, err) }
+
+// DecodeNode decodes a single node, for a host that embeds one description
+// inside another.
+func (d Decoder) DecodeNode(source []byte) (compose.Node, error) {
+	return d.decodeNode(json.RawMessage(source), "node")
+}

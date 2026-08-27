@@ -58,6 +58,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "version", "-v", "--version":
 		fmt.Fprintln(stdout, buildVersion())
 		return 0
+	case "compile":
+		return runCompile(args[1:], stdout, stderr)
 	case "render":
 		return runRender(args[1:], stdout, stderr)
 	case "measure":
@@ -125,9 +127,10 @@ func parseFlags(flags *flag.FlagSet, args []string, help io.Writer) (int, bool) 
 // take -settle, and nobody would find that by reading either one, only by
 // reading both and comparing. The order here is the order the summary lists.
 var usageLines = []struct{ name, takes string }{
-	{"render", "[-o preview.png] [-size WxH | -panel family:id] <scene.json>"},
-	{"push", "-device MAC-or-name [-family gicisky|nrfepd] [-settle 30s] <scene.json>"},
-	{"measure", "[-size WxH | -panel family:id] [-json] <scene.json>"},
+	{"render", "[-o preview.png] [-size WxH | -panel family:id] <page.html|scene.json>"},
+	{"compile", "[-o scene.json] <page.html>"},
+	{"push", "-device MAC-or-name [-family gicisky|nrfepd] [-settle 30s] <page.html|scene.json>"},
+	{"measure", "[-size WxH | -panel family:id] [-json] <page.html|scene.json>"},
 	{"scan", "[-timeout 15s]"},
 	{"mode", "-device MAC-or-name [-mode picture|calendar|clock] [-week-start sunday|monday] [-settle 30s]"},
 	{"serve", "[-listen address] [-assets directory]"},
@@ -359,6 +362,10 @@ func runRender(args []string, stdout, stderr io.Writer) int {
 	}
 	result, renderErr, usage := renderFile(source, *size, *target)
 	if usage != nil {
+		// A page that lost a declaration on the way in is often why there is
+		// nothing to lay out. Printing the usage error on its own would send
+		// the author looking at the flags instead of at the file.
+		printWarnings(stderr, result.Report.Warnings)
 		fmt.Fprintln(stderr, usage)
 		return 2
 	}
@@ -422,10 +429,13 @@ func runPushScene(ctx context.Context, args []string, logger *log.Logger, stdout
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	document, err := (scene.Decoder{}).DecodeFile(flags.Arg(0))
+	document, warnings, err := loadDocument(flags.Arg(0))
 	if err != nil {
 		logger.Print(err)
 		return 1
+	}
+	for _, warning := range warnings {
+		logger.Printf("warning %s [%s]: %s", warning.Path, warning.Code, warning.Message)
 	}
 	if !enableBluetooth(logger) {
 		return 1
@@ -633,6 +643,7 @@ func runMeasure(args []string, stdout, stderr io.Writer) int {
 
 	result, renderErr, usage := measureFile(flags.Arg(0), *size, *target)
 	if usage != nil {
+		printWarnings(stderr, result.Report.Warnings)
 		fmt.Fprintln(stderr, usage)
 		return 2
 	}
@@ -719,11 +730,16 @@ func placementsJSON(placements []compose.Placement) []placementJSON {
 // measureFile is renderFile with the trace on. The two stay side by side
 // because they answer the same question about which size to lay out at.
 func measureFile(source, size, key string) (scene.Result, error, error) {
-	decoder := scene.Decoder{}
-	document, err := decoder.DecodeFile(source)
+	document, warnings, err := loadDocument(source)
 	if err != nil {
 		return scene.Result{}, err, nil
 	}
+	result, traceErr, usage := traceDocument(document, size, key)
+	result.Report.Warnings = append(warnings, result.Report.Warnings...)
+	return result, traceErr, usage
+}
+
+func traceDocument(document compose.Document, size, key string) (scene.Result, error, error) {
 	switch {
 	case key != "":
 		known, err := panel.ByKey(key)
@@ -759,16 +775,24 @@ func measureFile(source, size, key string) (scene.Result, error, error) {
 // as an unknown week start or an unknown family; a scene that will not lay out
 // exits 1.
 func renderFile(source, size, key string) (scene.Result, error, error) {
-	decoder := scene.Decoder{}
+	document, warnings, err := loadDocument(source)
+	if err != nil {
+		return scene.Result{}, err, nil
+	}
+	result, renderErr, usage := renderDocument(document, size, key)
+	// What the front end could not honour is reported beside what the layout
+	// could not honour, because an author reading the output does not care
+	// which half of the pipeline dropped their declaration.
+	result.Report.Warnings = append(warnings, result.Report.Warnings...)
+	return result, renderErr, usage
+}
+
+func renderDocument(document compose.Document, size, key string) (scene.Result, error, error) {
 	switch {
 	case key != "":
 		known, err := panel.ByKey(key)
 		if err != nil {
 			return scene.Result{}, nil, err
-		}
-		document, err := decoder.DecodeFile(source)
-		if err != nil {
-			return scene.Result{}, err, nil
 		}
 		result, _, err := panel.Render(document, known)
 		return result, err, nil
@@ -777,29 +801,29 @@ func renderFile(source, size, key string) (scene.Result, error, error) {
 		if err != nil {
 			return scene.Result{}, nil, err
 		}
-		document, err := decoder.DecodeFile(source)
-		if err != nil {
-			return scene.Result{}, err, nil
-		}
 		result, err := scene.RenderForSize(document, bounds)
 		return result, err, nil
 	}
-	result, err := decoder.RenderFile(source)
-	if errors.Is(err, scene.ErrNoSize) {
+	if document.Size == (image.Point{}) {
 		// A usage error rather than a bad scene: the document is fine, nobody
 		// said how big to draw it, and there are three ways to say.
-		return scene.Result{}, nil, fmt.Errorf("%w: give the document a size, or render with -size WxH or -panel family:id", err)
+		return scene.Result{}, nil, fmt.Errorf("%w: give the document a size, or render with -size WxH or -panel family:id", scene.ErrNoSize)
 	}
+	result, err := scene.RenderForSize(document, document.Size)
 	return result, err, nil
+}
+
+func printWarnings(writer io.Writer, warnings []compose.Warning) {
+	for _, warning := range warnings {
+		fmt.Fprintf(writer, "warning %s [%s]: %s\n", warning.Path, warning.Code, warning.Message)
+	}
 }
 
 func printReport(writer io.Writer, result scene.Result) {
 	if len(result.Report.MissingRunes) != 0 {
 		fmt.Fprintf(writer, "missing runes: %q\n", string(result.Report.MissingRunes))
 	}
-	for _, warning := range result.Report.Warnings {
-		fmt.Fprintf(writer, "warning %s [%s]: %s\n", warning.Path, warning.Code, warning.Message)
-	}
+	printWarnings(writer, result.Report.Warnings)
 	for _, expansion := range result.Report.GridExpansions {
 		fmt.Fprintf(writer, "grid %s: implicit-columns=%d implicit-rows=%d\n",
 			expansion.Path, expansion.ImplicitColumns, expansion.ImplicitRows)

@@ -3,6 +3,8 @@ package display
 import (
 	"embed"
 	"fmt"
+	"slices"
+	"sort"
 )
 
 const (
@@ -87,12 +89,7 @@ func NewBuiltinFontRegistry() (*FontRegistry, error) {
 		}
 	}
 
-	families := map[string]map[int]string{
-		"ui":     {12: "ui-12", 14: "ui-14", 16: "ui-16"},
-		"hzk":    {12: "HZK12", 14: "HZK14", 16: "HZK16"},
-		"monaco": {10: "MONACO10", 12: "MONACO12", 14: "MONACO14", 16: "MONACO16"},
-	}
-	for family, sizes := range families {
+	for family, sizes := range builtinFamilies {
 		for size, setName := range sizes {
 			if err := registry.RegisterFamily(family, size, setName); err != nil {
 				return nil, err
@@ -103,6 +100,51 @@ func NewBuiltinFontRegistry() (*FontRegistry, error) {
 		return nil, err
 	}
 	return registry, nil
+}
+
+// builtinFamilies is which strike answers a family at a size, and the only
+// copy of it. There were two, one for the sizes as bundled and one for the
+// enlargements, which is two places to add a font to and one of them to
+// forget. A third was about to be written in the front end, which needs to
+// know what sizes exist in order to write down one that does.
+var builtinFamilies = map[string]map[int]string{
+	"ui":     {12: "ui-12", 14: "ui-14", 16: "ui-16"},
+	"hzk":    {12: "HZK12", 14: "HZK14", 16: "HZK16"},
+	"monaco": {10: "MONACO10", 12: "MONACO12", 14: "MONACO14", 16: "MONACO16"},
+}
+
+// BuiltinFontFamilies names the families this build has, in a stable order.
+//
+// It answers without loading a font, because the question is which names mean
+// something and not what they look like — asked by anything translating a
+// language where a family is any word the author felt like into one where it
+// is one of three.
+func BuiltinFontFamilies() []string {
+	names := make([]string, 0, len(builtinFamilies))
+	for family := range builtinFamilies {
+		names = append(names, family)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// BuiltinFontSizes is every size a family can be drawn at, in order: the sizes
+// bundled, and each of them at the whole-number factors offered beside them.
+// Nothing is returned for a family this build does not have.
+func BuiltinFontSizes(family string) []int {
+	bundled, known := builtinFamilies[family]
+	if !known {
+		return nil
+	}
+	sizes := make([]int, 0, len(bundled)*(len(enlargements)+1))
+	for size := range bundled {
+		sizes = append(sizes, size)
+		for _, factor := range enlargements {
+			sizes = append(sizes, size*factor)
+		}
+	}
+	sort.Ints(sizes)
+	return slices.Compact(sizes)
 }
 
 // enlargements are the whole-number factors the bundled strikes are offered at.
@@ -122,11 +164,6 @@ func registerEnlargements(registry *FontRegistry, faces map[string]Face) error {
 		"ui-14": {"MONACO12", "HZK14"},
 		"ui-16": {"MONACO14", "HZK16"},
 	}
-	base := map[string]map[int]string{
-		"ui":     {12: "ui-12", 14: "ui-14", 16: "ui-16"},
-		"hzk":    {12: "HZK12", 14: "HZK14", 16: "HZK16"},
-		"monaco": {10: "MONACO10", 12: "MONACO12", 14: "MONACO14", 16: "MONACO16"},
-	}
 	for _, factor := range enlargements {
 		scaled := make(map[string]Face, len(faces))
 		for name, face := range faces {
@@ -145,7 +182,7 @@ func registerEnlargements(registry *FontRegistry, faces map[string]Face) error {
 				return err
 			}
 		}
-		for family, sizes := range base {
+		for family, sizes := range builtinFamilies {
 			for size, setName := range sizes {
 				enlargedSet := setName
 				if family == "ui" {

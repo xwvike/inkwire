@@ -117,16 +117,24 @@ func readDoc(t *testing.T, path string) string {
 func TestBothReadmesDocumentEveryWarningCode(t *testing.T) {
 	// panel joined the list when it started warning: the ink a page asked for
 	// and the panel it is bound for are only both known there, so that is
-	// where the warning about the two disagreeing has to be built.
+	// where the warning about the two disagreeing has to be built. markup and
+	// this directory joined it with the stylesheet front end, which reports a
+	// declaration it could not honour rather than quietly dropping it — a
+	// promise worth nothing if the codes are not documented.
 	sources := []string{
 		"../../internal/compose", "../../internal/scene", "../../internal/panel",
+		"../../internal/markup", ".",
 	}
 	emitted := map[string]string{}
-	// ctx.warn(path, "code", …) and the Warning literals a package builds by
-	// hand are the only two ways a code reaches a report.
+	// ctx.warn(path, "code", …), a Warning literal a package builds by hand,
+	// and a report callback handed a code are the three ways one reaches a
+	// report. The third was added after two codes went undocumented: they
+	// were raised where the stylesheet is parsed, which has no compiler to
+	// call warn on and so passes a function instead.
 	patterns := []*regexp.Regexp{
 		regexp.MustCompile(`\.warn\([^,]+,\s*"([a-z-]+)"`),
 		regexp.MustCompile(`Code:\s*"([a-z-]+)"`),
+		regexp.MustCompile(`report\(\s*"([a-z-]+)"\s*,`),
 	}
 	for _, dir := range sources {
 		entries, err := os.ReadDir(dir)
