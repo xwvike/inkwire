@@ -103,7 +103,7 @@ func (c *Canvas) StrokeCircle(center image.Point, radius int, stroke StrokeStyle
 	c.strokeBand(bounds, func(x, y int) bool {
 		return pointInCircle(x, y, center, radius) &&
 			(innerRadius < 0 || !pointInCircle(x, y, center, innerRadius))
-	}, closedOutline(bounds), stroke)
+	}, closedOutline(Upright(bounds)), stroke)
 }
 
 // FillEllipse fills the pixels whose centers lie inside bounds' ellipse.
@@ -116,14 +116,16 @@ func (c *Canvas) StrokeCircle(center image.Point, radius int, stroke StrokeStyle
 // This is a different parameterisation from FillCircle, not a disagreement
 // with it: over the bounding box of a circle of radius r this ellipse has a
 // radius of r+0.5 and so is the larger of the two.
-func (c *Canvas) FillEllipse(bounds image.Rectangle, ink Ink) {
-	if !ink.valid() || bounds.Empty() {
+func (c *Canvas) FillEllipse(oval Oval, ink Ink) {
+	if !ink.valid() || oval.Bounds.Empty() {
 		return
 	}
-	drawBounds := bounds.Intersect(c.logicalClip())
+	// A turned ellipse reaches outside the box it was stated in, so the pixels
+	// worth testing are those of the box it actually occupies.
+	drawBounds := oval.Extent().Intersect(c.logicalClip())
 	for y := drawBounds.Min.Y; y < drawBounds.Max.Y; y++ {
 		for x := drawBounds.Min.X; x < drawBounds.Max.X; x++ {
-			if pointInEllipse(x, y, bounds) {
+			if oval.contains(x, y) {
 				c.Set(x, y, ink)
 			}
 		}
@@ -131,14 +133,17 @@ func (c *Canvas) FillEllipse(bounds image.Rectangle, ink Ink) {
 }
 
 // StrokeEllipse draws the stroke inside bounds.
-func (c *Canvas) StrokeEllipse(bounds image.Rectangle, stroke StrokeStyle) {
-	if !stroke.valid() || bounds.Empty() {
+func (c *Canvas) StrokeEllipse(oval Oval, stroke StrokeStyle) {
+	if !stroke.valid() || oval.Bounds.Empty() {
 		return
 	}
-	inner := insetRect(bounds, stroke.Width)
-	c.strokeBand(bounds, func(x, y int) bool {
-		return pointInEllipse(x, y, bounds) && (inner.Empty() || !pointInEllipse(x, y, inner))
-	}, closedOutline(bounds), stroke)
+	// The inside edge of the stroke is the same ellipse turned the same way in
+	// a box inset by the width, which is what makes a turned outline the same
+	// thickness all the way round.
+	inner := Oval{Bounds: insetRect(oval.Bounds, stroke.Width), Rotation: oval.Rotation}
+	c.strokeBand(oval.Extent(), func(x, y int) bool {
+		return oval.contains(x, y) && (inner.Bounds.Empty() || !inner.contains(x, y))
+	}, closedOutline(oval), stroke)
 }
 
 // FillRoundRect fills rect with radius applied to all four corners.
@@ -172,8 +177,8 @@ func (c *Canvas) StrokeRoundRect(rect image.Rectangle, radius int, stroke Stroke
 
 // closedOutline is the perimeter of an ellipse as a polyline, used only to
 // measure how far along the edge a pixel sits when applying a dash.
-func closedOutline(bounds image.Rectangle) [][]image.Point {
-	points, _ := ellipseArcPoints(bounds, 0, 360)
+func closedOutline(oval Oval) [][]image.Point {
+	points, _ := ellipseArcPoints(oval, 0, 360)
 	if len(points) < 2 {
 		return nil
 	}

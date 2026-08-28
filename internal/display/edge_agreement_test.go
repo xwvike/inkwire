@@ -54,8 +54,8 @@ func TestFillAndStrokeAgreeOnTheEdge(t *testing.T) {
 			func(c *Canvas) { c.FillCircle(center, radius, InkBlack) },
 			func(c *Canvas) { c.StrokeCircle(center, radius, thin) }},
 		{"Ellipse", 0,
-			func(c *Canvas) { c.FillEllipse(box, InkBlack) },
-			func(c *Canvas) { c.StrokeEllipse(box, thin) }},
+			func(c *Canvas) { c.FillEllipse(Upright(box), InkBlack) },
+			func(c *Canvas) { c.StrokeEllipse(Upright(box), thin) }},
 
 		// Dashing used to reroute a closed shape through the brush stroker,
 		// putting 46 of 86 circle pixels outside the fill. It now only selects
@@ -64,13 +64,13 @@ func TestFillAndStrokeAgreeOnTheEdge(t *testing.T) {
 			func(c *Canvas) { c.FillCircle(center, radius, InkBlack) },
 			func(c *Canvas) { c.StrokeCircle(center, radius, dashed) }},
 		{"Ellipse dashed", 0,
-			func(c *Canvas) { c.FillEllipse(box, InkBlack) },
-			func(c *Canvas) { c.StrokeEllipse(box, dashed) }},
+			func(c *Canvas) { c.FillEllipse(Upright(box), InkBlack) },
+			func(c *Canvas) { c.StrokeEllipse(Upright(box), dashed) }},
 
 		// A full sweep closes the ellipse, so DrawArc strokes it as a region.
 		{"Ellipse vs DrawArc", 0,
-			func(c *Canvas) { c.FillEllipse(box, InkBlack) },
-			func(c *Canvas) { c.DrawArc(box, 0, 360, thin) }},
+			func(c *Canvas) { c.FillEllipse(Upright(box), InkBlack) },
+			func(c *Canvas) { c.DrawArc(Upright(box), 0, 360, thin) }},
 
 		// Not an alignment defect and not a defect at all: DrawArc agrees
 		// exactly with FillEllipse over this box, and comparing it against
@@ -82,7 +82,7 @@ func TestFillAndStrokeAgreeOnTheEdge(t *testing.T) {
 		// TestCircleAndEllipseAreDifferentParameterisations.
 		{"Circle vs DrawArc", 92,
 			func(c *Canvas) { c.FillCircle(center, radius, InkBlack) },
-			func(c *Canvas) { c.DrawArc(circleBounds(center, radius), 0, 360, thin) }},
+			func(c *Canvas) { c.DrawArc(Upright(circleBounds(center, radius)), 0, 360, thin) }},
 
 		// Polygons have no implicit stroker, so they build the inward band by
 		// eroding a mask of the fill instead. Both forms were straddling the
@@ -152,7 +152,7 @@ func TestCircleAndEllipseAreDifferentParameterisations(t *testing.T) {
 		byCircle := newTestFrame(t, 64, 64)
 		byEllipse := newTestFrame(t, 64, 64)
 		NewCanvas(byCircle).FillCircle(center, radius, InkBlack)
-		NewCanvas(byEllipse).FillEllipse(circleBounds(center, radius), InkBlack)
+		NewCanvas(byEllipse).FillEllipse(Upright(circleBounds(center, radius)), InkBlack)
 
 		// The circle is the smaller shape and sits wholly inside the ellipse,
 		// so the two never disagree about a pixel, only about how far to reach.
@@ -181,7 +181,7 @@ func TestCircleAndEllipseAreDifferentParameterisations(t *testing.T) {
 	// be touched on all four edges.
 	box := image.Rect(1, 1, 9, 6) // 8x5, both centres between pixels on one axis
 	even := newTestFrame(t, 10, 7)
-	NewCanvas(even).FillEllipse(box, InkBlack)
+	NewCanvas(even).FillEllipse(Upright(box), InkBlack)
 	for _, edge := range []image.Point{{X: 4, Y: 1}, {X: 4, Y: 5}, {X: 1, Y: 3}, {X: 8, Y: 3}} {
 		if ink, _ := even.InkAt(edge.X, edge.Y); ink != InkBlack {
 			t.Fatalf("an 8x5 ellipse does not reach %v on the edge of its own box", edge)

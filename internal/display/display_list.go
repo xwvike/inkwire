@@ -67,6 +67,7 @@ type displayCommand struct {
 	radius    int
 	start     float64
 	sweep     float64
+	rotation  float64
 	path      Path
 	layout    *TextLayout
 	pattern   *Pattern
@@ -272,19 +273,21 @@ func (d *DisplayList) StrokeCircle(center image.Point, radius int, stroke Stroke
 }
 
 // FillEllipse records an ellipse fill inside bounds.
-func (d *DisplayList) FillEllipse(bounds image.Rectangle, ink Ink) {
-	if bounds.Empty() || !ink.valid() {
+func (d *DisplayList) FillEllipse(oval Oval, ink Ink) {
+	if oval.Bounds.Empty() || !ink.valid() {
 		return
 	}
-	d.appendDraw(displayCommand{kind: commandFillEllipse, rect: bounds, ink: ink}, bounds)
+	d.appendDraw(displayCommand{kind: commandFillEllipse, rect: oval.Bounds, rotation: oval.Rotation, ink: ink},
+		oval.Extent())
 }
 
 // StrokeEllipse records an ellipse outline inside bounds.
-func (d *DisplayList) StrokeEllipse(bounds image.Rectangle, stroke StrokeStyle) {
-	if bounds.Empty() || !stroke.valid() {
+func (d *DisplayList) StrokeEllipse(oval Oval, stroke StrokeStyle) {
+	if oval.Bounds.Empty() || !stroke.valid() {
 		return
 	}
-	d.appendDraw(displayCommand{kind: commandStrokeEllipse, rect: bounds, stroke: cloneStroke(stroke)}, bounds)
+	d.appendDraw(displayCommand{kind: commandStrokeEllipse, rect: oval.Bounds, rotation: oval.Rotation,
+		stroke: cloneStroke(stroke)}, oval.Extent())
 }
 
 // FillRoundRect records a filled rounded rectangle.
@@ -304,44 +307,47 @@ func (d *DisplayList) StrokeRoundRect(rect image.Rectangle, radius int, stroke S
 }
 
 // DrawArc records an elliptical arc using clockwise screen-space degrees.
-func (d *DisplayList) DrawArc(bounds image.Rectangle, startDegrees, sweepDegrees float64, stroke StrokeStyle) {
-	points, _ := ellipseArcPoints(bounds, startDegrees, sweepDegrees)
+func (d *DisplayList) DrawArc(oval Oval, startDegrees, sweepDegrees float64, stroke StrokeStyle) {
+	points, _ := ellipseArcPoints(oval, startDegrees, sweepDegrees)
 	if len(points) == 0 || !stroke.valid() {
 		return
 	}
 	paintBounds := strokedPointBounds(polygonBounds(points), stroke.Width)
 	d.appendDraw(displayCommand{
-		kind: commandDrawArc, rect: bounds, start: startDegrees, sweep: sweepDegrees, stroke: cloneStroke(stroke),
+		kind: commandDrawArc, rect: oval.Bounds, rotation: oval.Rotation,
+		start: startDegrees, sweep: sweepDegrees, stroke: cloneStroke(stroke),
 	}, paintBounds)
 }
 
 // FillPie records a filled elliptical sector.
-func (d *DisplayList) FillPie(bounds image.Rectangle, startDegrees, sweepDegrees float64, ink Ink) {
-	points, closed := ellipseArcPoints(bounds, startDegrees, sweepDegrees)
+func (d *DisplayList) FillPie(oval Oval, startDegrees, sweepDegrees float64, ink Ink) {
+	points, closed := ellipseArcPoints(oval, startDegrees, sweepDegrees)
 	if len(points) == 0 || !ink.valid() {
 		return
 	}
 	paintBounds := polygonBounds(points)
 	if closed {
-		paintBounds = bounds
+		paintBounds = oval.Extent()
 	} else if len(points) >= 2 {
-		center := image.Pt((bounds.Min.X+bounds.Max.X-1)/2, (bounds.Min.Y+bounds.Max.Y-1)/2)
+		center := oval.centrePixel()
 		paintBounds = paintBounds.Union(image.Rectangle{Min: center, Max: center.Add(image.Pt(1, 1))})
 	}
-	d.appendDraw(displayCommand{kind: commandFillPie, rect: bounds, start: startDegrees, sweep: sweepDegrees, ink: ink}, paintBounds)
+	d.appendDraw(displayCommand{kind: commandFillPie, rect: oval.Bounds, rotation: oval.Rotation,
+		start: startDegrees, sweep: sweepDegrees, ink: ink}, paintBounds)
 }
 
 // FillChord records the fill between an elliptical arc and its endpoint chord.
-func (d *DisplayList) FillChord(bounds image.Rectangle, startDegrees, sweepDegrees float64, ink Ink) {
-	points, closed := ellipseArcPoints(bounds, startDegrees, sweepDegrees)
+func (d *DisplayList) FillChord(oval Oval, startDegrees, sweepDegrees float64, ink Ink) {
+	points, closed := ellipseArcPoints(oval, startDegrees, sweepDegrees)
 	if len(points) == 0 || len(points) == 2 || !ink.valid() {
 		return
 	}
 	paintBounds := polygonBounds(points)
 	if closed {
-		paintBounds = bounds
+		paintBounds = oval.Extent()
 	}
-	d.appendDraw(displayCommand{kind: commandFillChord, rect: bounds, start: startDegrees, sweep: sweepDegrees, ink: ink}, paintBounds)
+	d.appendDraw(displayCommand{kind: commandFillChord, rect: oval.Bounds, rotation: oval.Rotation,
+		start: startDegrees, sweep: sweepDegrees, ink: ink}, paintBounds)
 }
 
 // StrokePath records all contours in path.
@@ -499,19 +505,19 @@ func (c displayCommand) replay(canvas *Canvas) error {
 	case commandStrokeCircle:
 		canvas.StrokeCircle(c.point, c.radius, c.stroke)
 	case commandFillEllipse:
-		canvas.FillEllipse(c.rect, c.ink)
+		canvas.FillEllipse(Oval{Bounds: c.rect, Rotation: c.rotation}, c.ink)
 	case commandStrokeEllipse:
-		canvas.StrokeEllipse(c.rect, c.stroke)
+		canvas.StrokeEllipse(Oval{Bounds: c.rect, Rotation: c.rotation}, c.stroke)
 	case commandFillRoundRect:
 		canvas.FillRoundRect(c.rect, c.radius, c.ink)
 	case commandStrokeRoundRect:
 		canvas.StrokeRoundRect(c.rect, c.radius, c.stroke)
 	case commandDrawArc:
-		canvas.DrawArc(c.rect, c.start, c.sweep, c.stroke)
+		canvas.DrawArc(Oval{Bounds: c.rect, Rotation: c.rotation}, c.start, c.sweep, c.stroke)
 	case commandFillPie:
-		canvas.FillPie(c.rect, c.start, c.sweep, c.ink)
+		canvas.FillPie(Oval{Bounds: c.rect, Rotation: c.rotation}, c.start, c.sweep, c.ink)
 	case commandFillChord:
-		canvas.FillChord(c.rect, c.start, c.sweep, c.ink)
+		canvas.FillChord(Oval{Bounds: c.rect, Rotation: c.rotation}, c.start, c.sweep, c.ink)
 	case commandStrokePath:
 		canvas.StrokePath(c.path, c.stroke)
 	case commandFillPath:

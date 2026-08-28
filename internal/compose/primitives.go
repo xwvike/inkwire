@@ -171,6 +171,11 @@ type Ellipse struct {
 	Size   image.Point
 	Fill   *display.Ink
 	Stroke *display.StrokeStyle
+	// Rotation turns the ellipse clockwise about the centre of its box, in
+	// degrees. It turns the ellipse and not the box, so a turned one reaches
+	// outside the box it was measured in — as a circle does when its centre
+	// sits at the edge of one.
+	Rotation float64
 }
 
 func (Ellipse) composeNode() {}
@@ -182,10 +187,10 @@ func (e Ellipse) measure(_ *compileContext, maximum image.Point, path string) (i
 }
 func (e Ellipse) paint(_ *compileContext, list *display.DisplayList, bounds image.Rectangle, _ string) error {
 	if e.Fill != nil {
-		list.FillEllipse(bounds, *e.Fill)
+		list.FillEllipse(display.Oval{Bounds: bounds, Rotation: e.Rotation}, *e.Fill)
 	}
 	if e.Stroke != nil {
-		list.StrokeEllipse(bounds, *e.Stroke)
+		list.StrokeEllipse(display.Oval{Bounds: bounds, Rotation: e.Rotation}, *e.Stroke)
 	}
 	return nil
 }
@@ -193,7 +198,10 @@ func (e Ellipse) paint(_ *compileContext, list *display.DisplayList, bounds imag
 type Arc struct {
 	Size         image.Point
 	Start, Sweep float64
-	Stroke       display.StrokeStyle
+	// Rotation turns the ellipse the arc runs on, which Start and Sweep are
+	// then measured around. An arc on a circle is unaffected by it.
+	Rotation float64
+	Stroke   display.StrokeStyle
 }
 
 func (Arc) composeNode() {}
@@ -204,13 +212,14 @@ func (a Arc) measure(_ *compileContext, maximum image.Point, path string) (image
 	return preferredSize(a.Size, a.Size, maximum)
 }
 func (a Arc) paint(_ *compileContext, list *display.DisplayList, bounds image.Rectangle, _ string) error {
-	list.DrawArc(bounds, a.Start, a.Sweep, a.Stroke)
+	list.DrawArc(display.Oval{Bounds: bounds, Rotation: a.Rotation}, a.Start, a.Sweep, a.Stroke)
 	return nil
 }
 
 type Pie struct {
 	Size         image.Point
 	Start, Sweep float64
+	Rotation     float64
 	Ink          display.Ink
 }
 
@@ -222,13 +231,14 @@ func (p Pie) measure(_ *compileContext, maximum image.Point, path string) (image
 	return preferredSize(p.Size, p.Size, maximum)
 }
 func (p Pie) paint(_ *compileContext, list *display.DisplayList, bounds image.Rectangle, _ string) error {
-	list.FillPie(bounds, p.Start, p.Sweep, p.Ink)
+	list.FillPie(display.Oval{Bounds: bounds, Rotation: p.Rotation}, p.Start, p.Sweep, p.Ink)
 	return nil
 }
 
 type Chord struct {
 	Size         image.Point
 	Start, Sweep float64
+	Rotation     float64
 	Ink          display.Ink
 }
 
@@ -240,7 +250,7 @@ func (c Chord) measure(_ *compileContext, maximum image.Point, path string) (ima
 	return preferredSize(c.Size, c.Size, maximum)
 }
 func (c Chord) paint(_ *compileContext, list *display.DisplayList, bounds image.Rectangle, _ string) error {
-	list.FillChord(bounds, c.Start, c.Sweep, c.Ink)
+	list.FillChord(display.Oval{Bounds: bounds, Rotation: c.Rotation}, c.Start, c.Sweep, c.Ink)
 	return nil
 }
 

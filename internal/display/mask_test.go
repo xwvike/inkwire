@@ -72,7 +72,7 @@ func TestMaskInnerBandStaysInsideTheShape(t *testing.T) {
 	bounds := image.Rect(0, 0, 64, 64)
 	shapes := map[string]func(x, y int) bool{
 		"circle":  func(x, y int) bool { return pointInCircle(x, y, image.Pt(32, 32), 25) },
-		"ellipse": func(x, y int) bool { return pointInEllipse(x, y, image.Rect(4, 12, 60, 52)) },
+		"ellipse": func(x, y int) bool { return Upright(image.Rect(4, 12, 60, 52)).contains(x, y) },
 		"polygon": func(x, y int) bool {
 			return pointInPolygon(image.Pt(x, y), []image.Point{{X: 8, Y: 8}, {X: 56, Y: 18}, {X: 44, Y: 58}, {X: 12, Y: 46}})
 		},

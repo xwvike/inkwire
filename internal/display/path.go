@@ -67,9 +67,10 @@ func (p *Path) CubicTo(control1, control2, point image.Point) {
 	p.current = point
 }
 
-// Arc appends an elliptical arc using the same clockwise degree convention as DrawArc.
-func (p *Path) Arc(bounds image.Rectangle, startDegrees, sweepDegrees float64) {
-	points, closed := ellipseArcPoints(bounds, startDegrees, sweepDegrees)
+// Arc appends an elliptical arc using the same clockwise degree convention as
+// DrawArc, on an ellipse that may be turned out of square with the page.
+func (p *Path) Arc(oval Oval, startDegrees, sweepDegrees float64) {
+	points, closed := ellipseArcPoints(oval, startDegrees, sweepDegrees)
 	if len(points) == 0 {
 		return
 	}

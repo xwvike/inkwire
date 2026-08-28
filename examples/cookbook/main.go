@@ -140,7 +140,7 @@ func fills(c *display.Canvas, fonts *display.FontRegistry) error {
 	// and is measured across whole pixels so it touches all four sides. They
 	// therefore intentionally differ by half a pixel over the same geometry.
 	c.FillCircle(image.Pt(96, 38), 10, display.InkBlack)
-	c.FillEllipse(image.Rect(112, 28, 146, 48), display.InkRed)
+	c.FillEllipse(display.Upright(image.Rect(112, 28, 146, 48)), display.InkRed)
 
 	// Polygons and paths fill under the even-odd rule, so a contour inside
 	// another leaves a hole rather than filling it.
@@ -157,8 +157,8 @@ func fills(c *display.Canvas, fonts *display.FontRegistry) error {
 	// Pie and chord are the two ways to close an arc: to the centre, or across
 	// the ends. Zero degrees points right and a positive sweep turns clockwise,
 	// because y grows downward.
-	c.FillPie(image.Rect(218, 26, 248, 50), -90, 250, display.InkBlack)
-	c.FillChord(image.Rect(254, 26, 288, 50), 20, 200, display.InkRed)
+	c.FillPie(display.Upright(image.Rect(218, 26, 248, 50)), -90, 250, display.InkBlack)
+	c.FillChord(display.Upright(image.Rect(254, 26, 288, 50)), 20, 200, display.InkRed)
 
 	// A pattern is the only way to put a third value between ink and paper, and
 	// it reads as texture rather than as grey at this pixel pitch. Runes not
@@ -174,7 +174,7 @@ func fills(c *display.Canvas, fonts *display.FontRegistry) error {
 	// FillPattern only fills a rectangle. Shape it by clipping, which is why
 	// there is no patterned variant of the other eight fills.
 	var disc display.Path
-	disc.Arc(image.Rect(96, 54, 118, 76), 0, 360)
+	disc.Arc(display.Upright(image.Rect(96, 54, 118, 76)), 0, 360)
 	c.Save()
 	c.ClipPath(disc)
 	c.FillPattern(image.Rect(96, 54, 118, 76), hatch)
@@ -204,12 +204,12 @@ func strokes(c *display.Canvas, fonts *display.FontRegistry) error {
 			display.StrokeStyle{Ink: display.InkBlack, Width: width})
 	}
 	c.StrokeCircle(image.Pt(152, 34), 11, thin(display.InkBlack))
-	c.StrokeEllipse(image.Rect(168, 22, 202, 46), thin(display.InkRed))
+	c.StrokeEllipse(display.Upright(image.Rect(168, 22, 202, 46)), thin(display.InkRed))
 	c.StrokePolygon([]image.Point{{X: 210, Y: 46}, {X: 226, Y: 22}, {X: 242, Y: 46}}, thin(display.InkBlack))
 
 	// A partial sweep is an open curve, so it is centred on its own path; a full
 	// sweep closes the ellipse and is stroked inward like StrokeEllipse.
-	c.DrawArc(image.Rect(250, 22, 288, 46), 150, 240, thin(display.InkRed))
+	c.DrawArc(display.Upright(image.Rect(250, 22, 288, 46)), 150, 240, thin(display.InkRed))
 
 	// Open paths: no inside, so the brush is centred. Ends and joins are square
 	// and cannot be configured, because the stroker stamps a square brush along
@@ -253,7 +253,7 @@ func paths(c *display.Canvas, fonts *display.FontRegistry) error {
 	var tab display.Path
 	tab.MoveTo(image.Pt(104, 48))
 	tab.LineTo(image.Pt(104, 30))
-	tab.Arc(image.Rect(104, 22, 128, 46), 180, 90)
+	tab.Arc(display.Upright(image.Rect(104, 22, 128, 46)), 180, 90)
 	tab.LineTo(image.Pt(140, 22))
 	c.StrokePath(tab, thin(display.InkRed))
 
@@ -263,7 +263,7 @@ func paths(c *display.Canvas, fonts *display.FontRegistry) error {
 	for _, r := range []int{22, 12} {
 		box := image.Rect(170-r, 36-r, 170+r, 36+r)
 		ring.MoveTo(image.Pt(box.Min.X, 36))
-		ring.Arc(box, 180, 360)
+		ring.Arc(display.Upright(box), 180, 360)
 		ring.Close()
 	}
 	// Contours are filled together under even-odd, so the inner one cuts a hole.
@@ -384,7 +384,7 @@ func state(c *display.Canvas, fonts *display.FontRegistry) error {
 	// It applies to shapes, text and images alike, because everything reaches
 	// the frame through the same pixel write.
 	var star display.Path
-	star.Arc(image.Rect(120, 26, 168, 74), 0, 360)
+	star.Arc(display.Upright(image.Rect(120, 26, 168, 74)), 0, 360)
 	c.Save()
 	c.ClipPath(star)
 	c.FillRect(image.Rect(120, 26, 168, 50), display.InkBlack)

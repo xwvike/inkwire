@@ -23,7 +23,7 @@ func TestClipPathRestrictsDrawingToTheRegion(t *testing.T) {
 	canvas := NewCanvas(frame)
 
 	var circle Path
-	circle.Arc(image.Rect(8, 8, 32, 32), 0, 360)
+	circle.Arc(Upright(image.Rect(8, 8, 32, 32)), 0, 360)
 	canvas.ClipPath(circle)
 	canvas.FillRect(frame.Bounds(), InkBlack)
 
@@ -70,7 +70,7 @@ func TestClipPathComposesWithRectAndSurvivesRestore(t *testing.T) {
 	canvas := NewCanvas(frame)
 
 	var circle Path
-	circle.Arc(image.Rect(4, 4, 36, 36), 0, 360)
+	circle.Arc(Upright(image.Rect(4, 4, 36, 36)), 0, 360)
 
 	canvas.Save()
 	canvas.ClipPath(circle)
@@ -91,7 +91,7 @@ func TestClipPathOnChildCanvasDoesNotReachTheParent(t *testing.T) {
 	parent := NewCanvas(frame)
 
 	var circle Path
-	circle.Arc(image.Rect(4, 4, 36, 36), 0, 360)
+	circle.Arc(Upright(image.Rect(4, 4, 36, 36)), 0, 360)
 	parent.ClipPath(circle)
 
 	// The wedge has to reach into the circle for the case to mean anything:
@@ -127,7 +127,7 @@ func TestClipPathAppliesToImagesAndText(t *testing.T) {
 	}
 
 	var circle Path
-	circle.Arc(image.Rect(4, 4, 36, 36), 0, 360)
+	circle.Arc(Upright(image.Rect(4, 4, 36, 36)), 0, 360)
 	canvas.ClipPath(circle)
 	if err := canvas.DrawImage(source, frame.Bounds(), ImageOptions{}); err != nil {
 		t.Fatal(err)

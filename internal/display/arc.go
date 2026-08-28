@@ -10,13 +10,13 @@ import (
 // A sweep that closes the ellipse describes a region, not a line, so it is
 // stroked inside bounds like StrokeEllipse. A partial sweep is an open curve
 // with no inside and stays centred on the arc.
-func (c *Canvas) DrawArc(bounds image.Rectangle, startDegrees, sweepDegrees float64, stroke StrokeStyle) {
+func (c *Canvas) DrawArc(oval Oval, startDegrees, sweepDegrees float64, stroke StrokeStyle) {
 	if !stroke.valid() {
 		return
 	}
-	points, closed := ellipseArcPoints(bounds, startDegrees, sweepDegrees)
+	points, closed := ellipseArcPoints(oval, startDegrees, sweepDegrees)
 	if closed {
-		c.StrokeEllipse(bounds, stroke)
+		c.StrokeEllipse(oval, stroke)
 		return
 	}
 	if len(points) >= 1 {
@@ -25,13 +25,13 @@ func (c *Canvas) DrawArc(bounds image.Rectangle, startDegrees, sweepDegrees floa
 }
 
 // FillPie fills an elliptical sector between an arc and its center.
-func (c *Canvas) FillPie(bounds image.Rectangle, startDegrees, sweepDegrees float64, ink Ink) {
+func (c *Canvas) FillPie(oval Oval, startDegrees, sweepDegrees float64, ink Ink) {
 	if !ink.valid() {
 		return
 	}
-	points, closed := ellipseArcPoints(bounds, startDegrees, sweepDegrees)
+	points, closed := ellipseArcPoints(oval, startDegrees, sweepDegrees)
 	if closed {
-		c.FillEllipse(bounds, ink)
+		c.FillEllipse(oval, ink)
 		return
 	}
 	if len(points) == 1 {
@@ -41,7 +41,7 @@ func (c *Canvas) FillPie(bounds image.Rectangle, startDegrees, sweepDegrees floa
 	if len(points) < 2 {
 		return
 	}
-	center := image.Pt((bounds.Min.X+bounds.Max.X-1)/2, (bounds.Min.Y+bounds.Max.Y-1)/2)
+	center := oval.centrePixel()
 	polygon := make([]image.Point, 1, len(points)+1)
 	polygon[0] = center
 	polygon = append(polygon, points...)
@@ -49,13 +49,13 @@ func (c *Canvas) FillPie(bounds image.Rectangle, startDegrees, sweepDegrees floa
 }
 
 // FillChord fills the area between an elliptical arc and the line joining its endpoints.
-func (c *Canvas) FillChord(bounds image.Rectangle, startDegrees, sweepDegrees float64, ink Ink) {
+func (c *Canvas) FillChord(oval Oval, startDegrees, sweepDegrees float64, ink Ink) {
 	if !ink.valid() {
 		return
 	}
-	points, closed := ellipseArcPoints(bounds, startDegrees, sweepDegrees)
+	points, closed := ellipseArcPoints(oval, startDegrees, sweepDegrees)
 	if closed {
-		c.FillEllipse(bounds, ink)
+		c.FillEllipse(oval, ink)
 		return
 	}
 	if len(points) == 1 {
@@ -67,22 +67,24 @@ func (c *Canvas) FillChord(bounds image.Rectangle, startDegrees, sweepDegrees fl
 	}
 }
 
-func ellipseArcPoints(bounds image.Rectangle, startDegrees, sweepDegrees float64) ([]image.Point, bool) {
-	if bounds.Empty() || invalidAngle(startDegrees) || invalidAngle(sweepDegrees) || sweepDegrees == 0 {
+func ellipseArcPoints(oval Oval, startDegrees, sweepDegrees float64) ([]image.Point, bool) {
+	if oval.Bounds.Empty() || invalidAngle(startDegrees) || invalidAngle(sweepDegrees) ||
+		invalidAngle(oval.Rotation) || sweepDegrees == 0 {
 		return nil, false
 	}
 	closed := math.Abs(sweepDegrees) >= 360
 	if closed {
 		sweepDegrees = math.Copysign(360, sweepDegrees)
 	}
-	centerX := float64(bounds.Min.X+bounds.Max.X-1) / 2
-	centerY := float64(bounds.Min.Y+bounds.Max.Y-1) / 2
-	radiusX := float64(bounds.Dx()-1) / 2
-	radiusY := float64(bounds.Dy()-1) / 2
-	points := sampleArc(centerX, centerY, radiusX, radiusY, startDegrees, sweepDegrees)
+	points := sampleArc(oval, startDegrees, sweepDegrees)
+	// Rounding a sample can put it a pixel outside the ellipse it came from,
+	// so each is held inside the box the ellipse actually occupies — which is
+	// the stated box while the ellipse is square to the page, and a larger one
+	// once it is turned.
+	extent := oval.Extent()
 	for i := range points {
-		points[i].X = min(max(points[i].X, bounds.Min.X), bounds.Max.X-1)
-		points[i].Y = min(max(points[i].Y, bounds.Min.Y), bounds.Max.Y-1)
+		points[i].X = min(max(points[i].X, extent.Min.X), extent.Max.X-1)
+		points[i].Y = min(max(points[i].Y, extent.Min.Y), extent.Max.Y-1)
 	}
 	if closed && len(points) > 1 && points[len(points)-1] == points[0] {
 		points = points[:len(points)-1]
@@ -112,7 +114,7 @@ func roundRectPoints(rect image.Rectangle, radius int) []image.Point {
 	starts := []float64{180, 270, 0, 90}
 	var points []image.Point
 	for i, center := range centers {
-		arc := sampleArc(float64(center.X), float64(center.Y), float64(radius), float64(radius), starts[i], 90)
+		arc := sampleArc(Upright(circleBounds(center, radius)), starts[i], 90)
 		for _, point := range arc {
 			points = appendDistinctPoint(points, point)
 		}
@@ -120,18 +122,14 @@ func roundRectPoints(rect image.Rectangle, radius int) []image.Point {
 	return points
 }
 
-func sampleArc(centerX, centerY, radiusX, radiusY, startDegrees, sweepDegrees float64) []image.Point {
+func sampleArc(oval Oval, startDegrees, sweepDegrees float64) []image.Point {
+	radiusX, radiusY := oval.radii()
 	length := math.Abs(sweepDegrees) * math.Pi / 180 * max(radiusX, radiusY)
 	steps := max(1, int(math.Ceil(length)))
 	points := make([]image.Point, 0, steps+1)
 	for step := 0; step <= steps; step++ {
-		angle := (startDegrees + sweepDegrees*float64(step)/float64(steps)) * math.Pi / 180
-		sine, cosine := math.Sincos(angle)
-		point := image.Pt(
-			int(math.Round(centerX+radiusX*cosine)),
-			int(math.Round(centerY+radiusY*sine)),
-		)
-		points = appendDistinctPoint(points, point)
+		x, y := oval.at(startDegrees + sweepDegrees*float64(step)/float64(steps))
+		points = appendDistinctPoint(points, image.Pt(int(math.Round(x)), int(math.Round(y))))
 	}
 	return points
 }

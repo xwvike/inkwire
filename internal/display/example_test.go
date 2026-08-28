@@ -37,7 +37,7 @@ func ExamplePath() {
 	path.LineTo(image.Pt(10, 30))
 	path.Close()
 	canvas.FillPath(path, display.InkBlack)
-	canvas.DrawArc(image.Rect(50, 10, 81, 41), 180, 270, display.StrokeStyle{
+	canvas.DrawArc(display.Upright(image.Rect(50, 10, 81, 41)), 180, 270, display.StrokeStyle{
 		Ink: display.InkRed, Width: 2, Dash: []int{4, 2},
 	})
 

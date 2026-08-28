@@ -124,18 +124,18 @@ func appendRoundRect(path *display.Path, box image.Rectangle, corner int) {
 	// way; only the straight runs between them are stated as pixels.
 	path.MoveTo(image.Pt(box.Min.X+corner, box.Min.Y))
 	path.LineTo(image.Pt(right-corner, box.Min.Y))
-	path.Arc(image.Rect(box.Max.X-2*corner, box.Min.Y, box.Max.X, box.Min.Y+2*corner), -90, 90)
+	path.Arc(display.Upright(image.Rect(box.Max.X-2*corner, box.Min.Y, box.Max.X, box.Min.Y+2*corner)), -90, 90)
 	path.LineTo(image.Pt(right, bottom-corner))
-	path.Arc(image.Rect(box.Max.X-2*corner, box.Max.Y-2*corner, box.Max.X, box.Max.Y), 0, 90)
+	path.Arc(display.Upright(image.Rect(box.Max.X-2*corner, box.Max.Y-2*corner, box.Max.X, box.Max.Y)), 0, 90)
 	path.LineTo(image.Pt(box.Min.X+corner, bottom))
-	path.Arc(image.Rect(box.Min.X, box.Max.Y-2*corner, box.Min.X+2*corner, box.Max.Y), 90, 90)
+	path.Arc(display.Upright(image.Rect(box.Min.X, box.Max.Y-2*corner, box.Min.X+2*corner, box.Max.Y)), 90, 90)
 	path.LineTo(image.Pt(box.Min.X, box.Min.Y+corner))
-	path.Arc(image.Rect(box.Min.X, box.Min.Y, box.Min.X+2*corner, box.Min.Y+2*corner), 180, 90)
+	path.Arc(display.Upright(image.Rect(box.Min.X, box.Min.Y, box.Min.X+2*corner, box.Min.Y+2*corner)), 180, 90)
 	path.Close()
 }
 
 func appendEllipse(path *display.Path, bounds image.Rectangle) {
-	path.Arc(bounds, 0, 360)
+	path.Arc(display.Upright(bounds), 0, 360)
 	path.Close()
 }
 

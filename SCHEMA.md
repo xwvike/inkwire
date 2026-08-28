@@ -433,6 +433,7 @@ Area comes from `absolute` bounds or a shared `stack`.
 | `center` | point | `circle` only: the centre | the area's centre |
 | `start` | number | `arc`, `pie`, `chord` only: first angle in degrees | required on those three |
 | `sweep` | number | `arc`, `pie`, `chord` only: angle swept in degrees | required on those three |
+| `rotation` | number | `ellipse`, `arc`, `pie` and `chord`: degrees clockwise the ellipse is turned about the centre of its area. It turns the ellipse and not the area, so a turned one reaches outside the area it was measured in | `0` |
 
 A shape needs a `fill` or a `stroke` to draw anything, except `pixel`, `pie`
 and `chord`, which take an `ink`. `ellipse`, `arc`, `pie` and `chord` use the
@@ -506,7 +507,7 @@ whole rectangle rather than a centre and radius.
 | `line` | `to` |
 | `quadratic` | `control`, `to` |
 | `cubic` | `control1`, `control2`, `to` |
-| `arc` | `bounds`, `start`, `sweep` |
+| `arc` | `bounds`, `start`, `sweep`, `rotation` |
 | `close` | |
 
 ≥1 command, and `fill` or `stroke`.

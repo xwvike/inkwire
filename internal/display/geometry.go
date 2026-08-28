@@ -13,17 +13,6 @@ func pointInCircle(x, y int, center image.Point, radius int) bool {
 	return xDistance*xDistance+yDistance*yDistance <= radius64*radius64
 }
 
-func pointInEllipse(x, y int, bounds image.Rectangle) bool {
-	if !image.Pt(x, y).In(bounds) {
-		return false
-	}
-	dx := int64(bounds.Dx())
-	dy := int64(bounds.Dy())
-	xDistance := int64(2*x + 1 - bounds.Min.X - bounds.Max.X)
-	yDistance := int64(2*y + 1 - bounds.Min.Y - bounds.Max.Y)
-	return xDistance*xDistance*dy*dy+yDistance*yDistance*dx*dx <= dx*dx*dy*dy
-}
-
 func pointInRoundRect(x, y int, rect image.Rectangle, radius int) bool {
 	point := image.Pt(x, y)
 	if !point.In(rect) {

@@ -107,7 +107,7 @@ func TestCircleStrokeSupportsExactWidthsOneThroughSix(t *testing.T) {
 func TestEllipseUsesHalfOpenBounds(t *testing.T) {
 	frame := newTestFrame(t, 10, 7)
 	canvas := NewCanvas(frame)
-	canvas.FillEllipse(image.Rect(1, 1, 9, 6), InkBlack)
+	canvas.FillEllipse(Upright(image.Rect(1, 1, 9, 6)), InkBlack)
 
 	assertInk(t, frame, 4, 1, InkBlack)
 	assertInk(t, frame, 1, 1, InkWhite)
@@ -171,7 +171,7 @@ func TestStrokeWiderThanShapeFillsInterior(t *testing.T) {
 	canvas := NewCanvas(frame)
 	stroke := StrokeStyle{Ink: InkRed, Width: 8}
 	canvas.StrokeRect(image.Rect(0, 0, 5, 5), stroke)
-	canvas.StrokeEllipse(image.Rect(7, 0, 12, 5), stroke)
+	canvas.StrokeEllipse(Upright(image.Rect(7, 0, 12, 5)), stroke)
 
 	assertInk(t, frame, 2, 2, InkRed)
 	assertInk(t, frame, 9, 2, InkRed)

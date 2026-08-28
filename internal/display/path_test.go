@@ -62,7 +62,7 @@ func TestFillPathImplicitlyClosesOpenContourAndClips(t *testing.T) {
 
 func TestPathArcBoundsCloneAndReset(t *testing.T) {
 	var path Path
-	path.Arc(image.Rect(2, 3, 11, 12), 180, 180)
+	path.Arc(Upright(image.Rect(2, 3, 11, 12)), 180, 180)
 	clone := path.Clone()
 	path.Reset()
 
@@ -80,7 +80,7 @@ func TestPathArcBoundsCloneAndReset(t *testing.T) {
 func TestFullPathArcConnectsBackToStart(t *testing.T) {
 	frame := newTestFrame(t, 11, 11)
 	var path Path
-	path.Arc(image.Rect(1, 1, 10, 10), 0, 360)
+	path.Arc(Upright(image.Rect(1, 1, 10, 10)), 0, 360)
 	NewCanvas(frame).StrokePath(path, StrokeStyle{Ink: InkBlack, Width: 1})
 
 	assertInk(t, frame, 9, 5, InkBlack)

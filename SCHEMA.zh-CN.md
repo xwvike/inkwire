@@ -423,6 +423,7 @@ JSON，PNG 以 base64 `pngBase64` 与报告一起返回。
 | `center` | point | 仅 `circle`：圆心 | 区域中心 |
 | `start` | 数值 | 仅 `arc`、`pie`、`chord`：起始角度（度） | 这三者必填 |
 | `sweep` | 数值 | 仅 `arc`、`pie`、`chord`：扫过角度（度） | 这三者必填 |
+| `rotation` | 数值 | `ellipse`、`arc`、`pie`、`chord`：椭圆绕其区域中心顺时针转过的角度。转的是椭圆不是区域，所以转过之后它会伸到当初量它的那个区域外面 | `0` |
 
 图元需要 `fill` 或 `stroke` 才会画出东西；`pixel`、`pie`、`chord` 用 `ink`。
 `ellipse`、`arc`、`pie`、`chord` 使用整个矩形，而不是中心加半径。
@@ -495,7 +496,7 @@ JSON，PNG 以 base64 `pngBase64` 与报告一起返回。
 | `line` | `to` |
 | `quadratic` | `control`、`to` |
 | `cubic` | `control1`、`control2`、`to` |
-| `arc` | `bounds`、`start`、`sweep` |
+| `arc` | `bounds`、`start`、`sweep`、`rotation` |
 | `close` | |
 
 ≥1 条命令，且需 `fill` 或 `stroke`。

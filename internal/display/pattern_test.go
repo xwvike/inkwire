@@ -123,7 +123,7 @@ func TestPatternFillIsShapedByTheClip(t *testing.T) {
 	canvas := NewCanvas(frame)
 
 	var circle Path
-	circle.Arc(image.Rect(8, 8, 32, 32), 0, 360)
+	circle.Arc(Upright(image.Rect(8, 8, 32, 32)), 0, 360)
 	canvas.Save()
 	canvas.ClipPath(circle)
 	canvas.FillPattern(frame.Bounds(), checkerPattern(t))
