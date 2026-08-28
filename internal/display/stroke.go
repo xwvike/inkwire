@@ -28,10 +28,43 @@ func (s StrokeStyle) valid() bool {
 	return true
 }
 
+// fillBrush stamps the brush at a point already worked out on the frame.
+//
+// The brush is square to the page rather than turned with the line. A turned
+// square differs from an upright one only at the two ends of a run, and only
+// by less than the width — which at one to three pixels is nothing at all,
+// where a turned brush would cost a second inverse mapping for every stamp.
 func (c *Canvas) fillBrush(center image.Point, stroke StrokeStyle) {
 	offset := stroke.Width / 2
 	minPoint := center.Sub(image.Pt(offset, offset))
-	c.FillRect(image.Rectangle{Min: minPoint, Max: minPoint.Add(image.Pt(stroke.Width, stroke.Width))}, stroke.Ink)
+	for y := minPoint.Y; y < minPoint.Y+stroke.Width; y++ {
+		for x := minPoint.X; x < minPoint.X+stroke.Width; x++ {
+			c.setDevice(image.Pt(x, y), stroke.Ink)
+		}
+	}
+}
+
+// mapPoints puts a run of points where the transform says they go.
+//
+// A line is turned by turning its ends and drawing between them, not by
+// turning the pixels it was drawn as. Bresenham on the moved ends steps from
+// one pixel to the next by construction, so the line it draws is connected
+// whatever angle it is at; moving the pixels of an already-drawn line would
+// space them out and leave a dotted line behind.
+func (c *Canvas) mapPoints(points []image.Point) []image.Point {
+	offset, whole := c.state.matrix.Offset()
+	if whole && offset == (image.Point{}) {
+		return points
+	}
+	moved := make([]image.Point, len(points))
+	for index, point := range points {
+		if whole {
+			moved[index] = point.Add(offset)
+			continue
+		}
+		moved[index] = c.state.matrix.ApplyPoint(point)
+	}
+	return moved
 }
 
 // The dash is measured as real distance travelled along the outline, not as a
@@ -43,6 +76,7 @@ func (c *Canvas) strokePoints(points []image.Point, closed bool, stroke StrokeSt
 	if !stroke.valid() || len(points) == 0 {
 		return
 	}
+	points = c.mapPoints(points)
 	pattern := newDashPattern(stroke)
 	if len(points) == 1 {
 		if pattern == nil || pattern.on(0) {

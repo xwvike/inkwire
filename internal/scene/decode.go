@@ -323,7 +323,7 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 		if err != nil {
 			return nil, err
 		}
-		return compose.Ellipse{Size: value.Size.point(), Rotation: value.Rotation, Fill: fill, Stroke: stroke}, nil
+		return compose.Ellipse{Size: value.Size.point(), Fill: fill, Stroke: stroke}, nil
 	case "arc":
 		var value arcJSON
 		if err := decodeStrictBytes(raw, &value); err != nil {
@@ -333,8 +333,7 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 		if err != nil {
 			return nil, err
 		}
-		return compose.Arc{Size: value.Size.point(), Start: value.Start, Sweep: value.Sweep,
-			Rotation: value.Rotation, Stroke: stroke}, nil
+		return compose.Arc{Size: value.Size.point(), Start: value.Start, Sweep: value.Sweep, Stroke: stroke}, nil
 	case "pie", "chord":
 		var value segmentJSON
 		if err := decodeStrictBytes(raw, &value); err != nil {
@@ -345,11 +344,9 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 			return nil, fmt.Errorf("%s.ink: %w", path, err)
 		}
 		if header.Type == "pie" {
-			return compose.Pie{Size: value.Size.point(), Start: value.Start, Sweep: value.Sweep,
-				Rotation: value.Rotation, Ink: ink}, nil
+			return compose.Pie{Size: value.Size.point(), Start: value.Start, Sweep: value.Sweep, Ink: ink}, nil
 		}
-		return compose.Chord{Size: value.Size.point(), Start: value.Start, Sweep: value.Sweep,
-			Rotation: value.Rotation, Ink: ink}, nil
+		return compose.Chord{Size: value.Size.point(), Start: value.Start, Sweep: value.Sweep, Ink: ink}, nil
 	case "path":
 		var value pathJSON
 		if err := decodeStrictBytes(raw, &value); err != nil {
@@ -434,6 +431,21 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 			return nil, err
 		}
 		return compose.ClipShape{Size: value.Size.point(), Shape: shape, Child: child}, nil
+	case "rotated":
+		var value rotatedJSON
+		if err := decodeStrictBytes(raw, &value); err != nil {
+			return nil, nodeError(path, err)
+		}
+		child, err := d.decodeNode(value.Child, path+".child")
+		if err != nil {
+			return nil, err
+		}
+		node := compose.Rotated{Size: value.Size.point(), Degrees: value.Degrees, Child: child}
+		if value.Origin != nil {
+			origin := value.Origin.point()
+			node.Origin = &origin
+		}
+		return node, nil
 	case "transformed":
 		var value transformedJSON
 		if err := decodeStrictBytes(raw, &value); err != nil {
@@ -691,6 +703,14 @@ type clipJSON struct {
 	Type  string          `json:"type"`
 	Size  sizeJSON        `json:"size,omitempty"`
 	Child json.RawMessage `json:"child"`
+}
+
+type rotatedJSON struct {
+	Type    string          `json:"type"`
+	Size    sizeJSON        `json:"size,omitempty"`
+	Degrees float64         `json:"degrees,omitempty"`
+	Origin  *pointJSON      `json:"origin,omitempty"`
+	Child   json.RawMessage `json:"child"`
 }
 
 type transformedJSON struct {
@@ -1155,27 +1175,24 @@ type circleJSON struct {
 	Stroke *strokeJSON `json:"stroke,omitempty"`
 }
 type paintedJSON struct {
-	Type     string      `json:"type"`
-	Size     sizeJSON    `json:"size,omitempty"`
-	Rotation float64     `json:"rotation,omitempty"`
-	Fill     *string     `json:"fill,omitempty"`
-	Stroke   *strokeJSON `json:"stroke,omitempty"`
+	Type   string      `json:"type"`
+	Size   sizeJSON    `json:"size,omitempty"`
+	Fill   *string     `json:"fill,omitempty"`
+	Stroke *strokeJSON `json:"stroke,omitempty"`
 }
 type arcJSON struct {
-	Type     string     `json:"type"`
-	Size     sizeJSON   `json:"size,omitempty"`
-	Start    float64    `json:"start,omitempty"`
-	Sweep    float64    `json:"sweep,omitempty"`
-	Rotation float64    `json:"rotation,omitempty"`
-	Stroke   strokeJSON `json:"stroke"`
+	Type   string     `json:"type"`
+	Size   sizeJSON   `json:"size,omitempty"`
+	Start  float64    `json:"start,omitempty"`
+	Sweep  float64    `json:"sweep,omitempty"`
+	Stroke strokeJSON `json:"stroke"`
 }
 type segmentJSON struct {
-	Type     string   `json:"type"`
-	Size     sizeJSON `json:"size,omitempty"`
-	Start    float64  `json:"start,omitempty"`
-	Sweep    float64  `json:"sweep,omitempty"`
-	Rotation float64  `json:"rotation,omitempty"`
-	Ink      string   `json:"ink"`
+	Type  string   `json:"type"`
+	Size  sizeJSON `json:"size,omitempty"`
+	Start float64  `json:"start,omitempty"`
+	Sweep float64  `json:"sweep,omitempty"`
+	Ink   string   `json:"ink"`
 }
 type pathJSON struct {
 	Type     string            `json:"type"`

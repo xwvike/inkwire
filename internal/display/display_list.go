@@ -19,7 +19,7 @@ type DisplayList struct {
 }
 
 type displayListState struct {
-	offset  image.Point
+	matrix  Matrix
 	clip    image.Rectangle
 	hasClip bool
 }
@@ -32,6 +32,7 @@ const (
 	commandClipRect
 	commandClipPath
 	commandTranslate
+	commandTransform
 	commandSet
 	commandFillRect
 	commandFillPattern
@@ -68,6 +69,7 @@ type displayCommand struct {
 	start     float64
 	sweep     float64
 	rotation  float64
+	matrix    Matrix
 	path      Path
 	layout    *TextLayout
 	pattern   *Pattern
@@ -130,6 +132,20 @@ func (d *DisplayList) Replay(canvas *Canvas) error {
 }
 
 // Save records and pushes the current translation and clipping state.
+// transform is the transform in force.
+//
+// A display list is usable as its zero value and several places make one that
+// way. The zero matrix is not the identity — it flattens the plane onto a
+// point — so an untouched list reads as the identity here rather than being
+// required to be constructed with one. Reading it anywhere else would be the
+// bug this exists to make impossible.
+func (d *DisplayList) transform() Matrix {
+	if d.state.matrix == (Matrix{}) {
+		return Identity()
+	}
+	return d.state.matrix
+}
+
 func (d *DisplayList) Save() {
 	d.stack = append(d.stack, d.state)
 	d.commands = append(d.commands, displayCommand{kind: commandSave})
@@ -150,7 +166,7 @@ func (d *DisplayList) Restore() bool {
 
 // ClipRect records a clip in the current logical coordinates.
 func (d *DisplayList) ClipRect(rect image.Rectangle) {
-	deviceRect := rect.Add(d.state.offset)
+	deviceRect := d.transform().MapRect(rect)
 	if d.state.hasClip {
 		d.state.clip = d.state.clip.Intersect(deviceRect)
 	} else {
@@ -165,7 +181,7 @@ func (d *DisplayList) ClipRect(rect image.Rectangle) {
 // safe over-estimate of what replay can paint.
 func (d *DisplayList) ClipPath(path Path) {
 	path = path.Clone()
-	deviceRect := path.Bounds().Add(d.state.offset)
+	deviceRect := d.transform().MapRect(path.Bounds())
 	if d.state.hasClip {
 		d.state.clip = d.state.clip.Intersect(deviceRect)
 	} else {
@@ -177,8 +193,18 @@ func (d *DisplayList) ClipPath(path Path) {
 
 // Translate records an integer origin offset for subsequent commands.
 func (d *DisplayList) Translate(offset image.Point) {
-	d.state.offset = d.state.offset.Add(offset)
+	d.state.matrix = Translate(offset).Then(d.transform())
 	d.commands = append(d.commands, displayCommand{kind: commandTranslate, point: offset})
+}
+
+// Transform records a transform composed inside the one already in force.
+//
+// It is not a picture being moved. Everything recorded after it works out its
+// own geometry through the transform before deciding which pixels it covers,
+// so a turned drawing is drawn turned rather than drawn and then turned.
+func (d *DisplayList) Transform(matrix Matrix) {
+	d.state.matrix = matrix.Then(d.transform())
+	d.commands = append(d.commands, displayCommand{kind: commandTransform, matrix: matrix})
 }
 
 // Set records one pixel write.
@@ -443,7 +469,7 @@ func (d *DisplayList) DrawImage(source image.Image, destination image.Rectangle,
 
 func (d *DisplayList) appendDraw(command displayCommand, bounds image.Rectangle) {
 	d.commands = append(d.commands, command)
-	bounds = bounds.Add(d.state.offset)
+	bounds = d.transform().MapRect(bounds)
 	if d.state.hasClip {
 		bounds = bounds.Intersect(d.state.clip)
 	}
@@ -484,6 +510,8 @@ func (c displayCommand) replay(canvas *Canvas) error {
 		canvas.ClipPath(c.path)
 	case commandTranslate:
 		canvas.Translate(c.point)
+	case commandTransform:
+		canvas.Transform(c.matrix)
 	case commandSet:
 		canvas.Set(c.point.X, c.point.Y, c.ink)
 	case commandFillRect:

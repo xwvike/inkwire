@@ -433,7 +433,6 @@ Area comes from `absolute` bounds or a shared `stack`.
 | `center` | point | `circle` only: the centre | the area's centre |
 | `start` | number | `arc`, `pie`, `chord` only: first angle in degrees | required on those three |
 | `sweep` | number | `arc`, `pie`, `chord` only: angle swept in degrees | required on those three |
-| `rotation` | number | `ellipse`, `arc`, `pie` and `chord`: degrees clockwise the ellipse is turned about the centre of its area. It turns the ellipse and not the area, so a turned one reaches outside the area it was measured in | `0` |
 
 A shape needs a `fill` or a `stroke` to draw anything, except `pixel`, `pie`
 and `chord`, which take an `ink`. `ellipse`, `arc`, `pie` and `chord` use the
@@ -539,6 +538,43 @@ across the area.
   }
 }
 ```
+
+## Rotated
+
+Turns its child about a point, at any angle.
+
+| Field | Type | Values | Default |
+|---|---|---|---|
+| `type` | string | `rotated` | required |
+| `size` | size | the area to turn | the container's |
+| `degrees` | number | clockwise degrees | `0` |
+| `origin` | point | the point turned about, from the top left of the area | the area's centre |
+| `child` | node | what is turned | required |
+
+```json
+{
+  "type": "rotated",
+  "degrees": 37,
+  "child": {"type": "rectangle", "fill": "black"}
+}
+```
+
+This does not change the layout, which is what CSS does with a transform and
+the only answer that composes: a box whose size depended on its angle could not
+be laid out beside anything, because its neighbours would move as it turned. A
+turned child reaches outside its area, the way a circle reaches outside an area
+its centre sits at the edge of.
+
+Anything drawn from geometry is turned exactly at any angle, because the shape
+works out where it goes before deciding which pixels it covers. Text and
+pictures are already pixels, so they are sampled: a quarter turn is exact and
+anything else is rough, which at twelve pixels shows. They are drawn anyway,
+because a stylesheet that turns a box turns what is written in it.
+
+`transformed` is the other one and does something else: it draws its child onto
+a surface and moves the surface whole, which is why it takes a whole number of
+quarter turns and a whole-number magnification. Use it to magnify; use this to
+turn.
 
 ## Clipping
 

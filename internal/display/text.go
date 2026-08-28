@@ -359,14 +359,22 @@ func (c *Canvas) DrawTextBox(registry *FontRegistry, box TextBox) (*TextLayout, 
 	return layout, nil
 }
 
+// drawGlyph puts one glyph on the canvas.
+//
+// A strike is a picture of a letter rather than an outline of one, so a glyph
+// turned by anything but a quarter has to be sampled, and at twelve pixels
+// that shows. It is sampled rather than refused because CSS turns a box and
+// everything in it, and a page whose labels vanished at an angle would be a
+// worse surprise than one whose labels are rough at an angle.
+//
+// Glyph.On is already the question this needs asked, so the whole of the
+// difference between a glyph square to the page and one at an angle is which
+// pixels get to ask it — which is what fillWhere decides.
 func drawGlyph(canvas *Canvas, at image.Point, glyph Glyph, ink Ink) {
-	for y := 0; y < glyph.Height; y++ {
-		for x := 0; x < glyph.Width; x++ {
-			if glyph.On(x, y) {
-				canvas.Set(at.X+x, at.Y+y, ink)
-			}
-		}
-	}
+	box := image.Rectangle{Min: at, Max: at.Add(image.Pt(glyph.Width, glyph.Height))}
+	canvas.fillWhere(box, func(x, y int) (Ink, bool) {
+		return ink, glyph.On(x-at.X, y-at.Y)
+	})
 }
 
 func drawMissingGlyph(canvas *Canvas, rect image.Rectangle, ink Ink) {

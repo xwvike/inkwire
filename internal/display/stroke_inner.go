@@ -23,8 +23,13 @@ func (c *Canvas) strokeInward(shape image.Rectangle, inside func(x, y int) bool,
 // along outlines. Shapes that can test their own inside at two sizes describe
 // the band directly and need no mask; the clip can bound the work for them,
 // because their test knows the geometry with or without it.
+// The band and its dashes are both worked out in the coordinates the shape was
+// stated in, and fillWhere asks about them there — so a turned outline is the
+// same band, asked about in the same place, and its dashes fall where they
+// would have fallen. Turning the dash mask instead would space the dashes by
+// how far the raster travelled rather than by how long the line is, which is
+// the mistake dashPattern already exists to avoid.
 func (c *Canvas) strokeBand(bounds image.Rectangle, inBand func(x, y int) bool, outlines [][]image.Point, stroke StrokeStyle) {
-	bounds = bounds.Intersect(c.logicalClip())
 	if bounds.Empty() {
 		return
 	}
@@ -32,14 +37,12 @@ func (c *Canvas) strokeBand(bounds image.Rectangle, inBand func(x, y int) bool, 
 	if pattern := newDashPattern(stroke); pattern != nil {
 		dashed = dashRegion(bounds, outlines, pattern)
 	}
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			if !inBand(x, y) || (dashed != nil && !dashed.at(x, y)) {
-				continue
-			}
-			c.Set(x, y, stroke.Ink)
+	c.fillWhere(bounds, func(x, y int) (Ink, bool) {
+		if !inBand(x, y) || (dashed != nil && !dashed.at(x, y)) {
+			return 0, false
 		}
-	}
+		return stroke.Ink, true
+	})
 }
 
 // dashPattern evaluates a dash by arc length rather than by counting raster

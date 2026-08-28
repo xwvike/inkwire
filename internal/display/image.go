@@ -232,14 +232,25 @@ func (c *Canvas) DrawImage(source image.Image, destination image.Rectangle, opti
 		}
 	}
 
+	// The dither is worked out on the grid the picture was sampled onto and
+	// then put on the frame in one pass, rather than a pixel at a time as it
+	// is decided. Error diffusion needs a square grid with a next row on it,
+	// which the frame is not once there is a turn between them; and writing
+	// each pixel as it is decided would move them forward one by one, which
+	// is what leaves a turned picture full of holes.
+	var quantized []Ink
 	switch options.Dither {
 	case DitherThreshold:
-		drawThresholdImage(c, drawRect, luminance, redPixels, float64(options.Threshold))
+		quantized = thresholdImage(drawRect, luminance, redPixels, float64(options.Threshold))
 	case DitherFloydSteinberg:
-		drawFloydSteinbergImage(c, drawRect, luminance, redPixels, float64(options.Threshold))
+		quantized = floydSteinbergImage(drawRect, luminance, redPixels, float64(options.Threshold))
 	case DitherOrdered:
-		drawOrderedImage(c, drawRect, luminance, redPixels)
+		quantized = orderedImage(drawRect, luminance, redPixels)
 	}
+	width := drawRect.Dx()
+	c.fillWhere(drawRect, func(x, y int) (Ink, bool) {
+		return quantized[(y-drawRect.Min.Y)*width+x-drawRect.Min.X], true
+	})
 	return nil
 }
 
@@ -343,27 +354,28 @@ func bilerp(c00, c10, c01, c11, tx, ty float64) float64 {
 	return top + (bottom-top)*ty
 }
 
-func drawThresholdImage(canvas *Canvas, rect image.Rectangle, values []float64, red []bool, threshold float64) {
+func thresholdImage(rect image.Rectangle, values []float64, red []bool, threshold float64) []Ink {
+	inks := make([]Ink, len(values))
 	for index, value := range values {
-		x := rect.Min.X + index%rect.Dx()
-		y := rect.Min.Y + index/rect.Dx()
-		canvas.Set(x, y, quantizedInk(value, red[index], threshold))
+		inks[index] = quantizedInk(value, red[index], threshold)
 	}
+	return inks
 }
 
-func drawFloydSteinbergImage(canvas *Canvas, rect image.Rectangle, values []float64, red []bool, threshold float64) {
+func floydSteinbergImage(rect image.Rectangle, values []float64, red []bool, threshold float64) []Ink {
 	width := rect.Dx()
+	inks := make([]Ink, len(values))
 	errors := make([]float64, len(values))
 	for index, base := range values {
 		x := index % width
 		y := index / width
 		if red[index] {
-			canvas.Set(rect.Min.X+x, rect.Min.Y+y, InkRed)
+			inks[index] = InkRed
 			continue
 		}
 		value := min(255, max(0, base+errors[index]))
 		ink := quantizedInk(value, false, threshold)
-		canvas.Set(rect.Min.X+x, rect.Min.Y+y, ink)
+		inks[index] = ink
 		output := 0.0
 		if ink == InkWhite {
 			output = 255
@@ -382,21 +394,24 @@ func drawFloydSteinbergImage(canvas *Canvas, rect image.Rectangle, values []floa
 			}
 		}
 	}
+	return inks
 }
 
-func drawOrderedImage(canvas *Canvas, rect image.Rectangle, values []float64, red []bool) {
+func orderedImage(rect image.Rectangle, values []float64, red []bool) []Ink {
 	bayer := [4][4]int{
 		{0, 8, 2, 10},
 		{12, 4, 14, 6},
 		{3, 11, 1, 9},
 		{15, 7, 13, 5},
 	}
+	inks := make([]Ink, len(values))
 	for index, value := range values {
 		x := index % rect.Dx()
 		y := index / rect.Dx()
 		threshold := (float64(bayer[y%4][x%4]) + 0.5) * 255 / 16
-		canvas.Set(rect.Min.X+x, rect.Min.Y+y, quantizedInk(value, red[index], threshold))
+		inks[index] = quantizedInk(value, red[index], threshold)
 	}
+	return inks
 }
 
 func quantizedInk(luminance float64, red bool, threshold float64) Ink {

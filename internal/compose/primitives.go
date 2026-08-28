@@ -171,11 +171,6 @@ type Ellipse struct {
 	Size   image.Point
 	Fill   *display.Ink
 	Stroke *display.StrokeStyle
-	// Rotation turns the ellipse clockwise about the centre of its box, in
-	// degrees. It turns the ellipse and not the box, so a turned one reaches
-	// outside the box it was measured in — as a circle does when its centre
-	// sits at the edge of one.
-	Rotation float64
 }
 
 func (Ellipse) composeNode() {}
@@ -187,10 +182,10 @@ func (e Ellipse) measure(_ *compileContext, maximum image.Point, path string) (i
 }
 func (e Ellipse) paint(_ *compileContext, list *display.DisplayList, bounds image.Rectangle, _ string) error {
 	if e.Fill != nil {
-		list.FillEllipse(display.Oval{Bounds: bounds, Rotation: e.Rotation}, *e.Fill)
+		list.FillEllipse(display.Upright(bounds), *e.Fill)
 	}
 	if e.Stroke != nil {
-		list.StrokeEllipse(display.Oval{Bounds: bounds, Rotation: e.Rotation}, *e.Stroke)
+		list.StrokeEllipse(display.Upright(bounds), *e.Stroke)
 	}
 	return nil
 }
@@ -198,10 +193,7 @@ func (e Ellipse) paint(_ *compileContext, list *display.DisplayList, bounds imag
 type Arc struct {
 	Size         image.Point
 	Start, Sweep float64
-	// Rotation turns the ellipse the arc runs on, which Start and Sweep are
-	// then measured around. An arc on a circle is unaffected by it.
-	Rotation float64
-	Stroke   display.StrokeStyle
+	Stroke       display.StrokeStyle
 }
 
 func (Arc) composeNode() {}
@@ -212,14 +204,13 @@ func (a Arc) measure(_ *compileContext, maximum image.Point, path string) (image
 	return preferredSize(a.Size, a.Size, maximum)
 }
 func (a Arc) paint(_ *compileContext, list *display.DisplayList, bounds image.Rectangle, _ string) error {
-	list.DrawArc(display.Oval{Bounds: bounds, Rotation: a.Rotation}, a.Start, a.Sweep, a.Stroke)
+	list.DrawArc(display.Upright(bounds), a.Start, a.Sweep, a.Stroke)
 	return nil
 }
 
 type Pie struct {
 	Size         image.Point
 	Start, Sweep float64
-	Rotation     float64
 	Ink          display.Ink
 }
 
@@ -231,14 +222,13 @@ func (p Pie) measure(_ *compileContext, maximum image.Point, path string) (image
 	return preferredSize(p.Size, p.Size, maximum)
 }
 func (p Pie) paint(_ *compileContext, list *display.DisplayList, bounds image.Rectangle, _ string) error {
-	list.FillPie(display.Oval{Bounds: bounds, Rotation: p.Rotation}, p.Start, p.Sweep, p.Ink)
+	list.FillPie(display.Upright(bounds), p.Start, p.Sweep, p.Ink)
 	return nil
 }
 
 type Chord struct {
 	Size         image.Point
 	Start, Sweep float64
-	Rotation     float64
 	Ink          display.Ink
 }
 
@@ -250,7 +240,7 @@ func (c Chord) measure(_ *compileContext, maximum image.Point, path string) (ima
 	return preferredSize(c.Size, c.Size, maximum)
 }
 func (c Chord) paint(_ *compileContext, list *display.DisplayList, bounds image.Rectangle, _ string) error {
-	list.FillChord(display.Oval{Bounds: bounds, Rotation: c.Rotation}, c.Start, c.Sweep, c.Ink)
+	list.FillChord(display.Upright(bounds), c.Start, c.Sweep, c.Ink)
 	return nil
 }
 
@@ -521,4 +511,70 @@ func (t Transformed) paint(ctx *compileContext, list *display.DisplayList, bound
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	return list.DrawFrame(surface, bounds.Min, t.Transform, covered)
+}
+
+// Rotated turns its child about a point.
+//
+// It is not the same node as Transformed and does not do the same thing.
+// Transformed draws its child onto a surface and moves the surface, which
+// works for a whole number of quarter turns and a whole-number magnification
+// because those move every pixel onto another pixel. Rotated moves nothing:
+// it puts a turn into the drawing state, and everything under it works out
+// where its own geometry goes before deciding which pixels that covers. A
+// turned line is a line between turned ends, not a line drawn and then turned.
+//
+// So any angle at all is exact for anything drawn from geometry. What is
+// already pixels — a glyph from a bitmap strike, a picture — is sampled, and
+// at twelve pixels a glyph at an angle is rough. It is drawn anyway, because a
+// stylesheet that turns a box turns what is written in it, and a label that
+// vanished at an angle would surprise an author more than a rough one does.
+//
+// # Why it does not change the layout
+//
+// The child is measured and given the same box it would have had. That is what
+// CSS does with a transform and it is the only answer that composes: a box
+// whose size depended on its angle could not be laid out beside anything,
+// because its neighbours would move as it turned. A turned child reaches
+// outside its box, the way a circle reaches outside a box its centre sits at
+// the edge of.
+type Rotated struct {
+	Size    image.Point
+	Degrees float64
+	// Origin is the point turned about, measured from the top left of the box.
+	// Absent is the centre of the box, which is what transform-origin defaults
+	// to and what somebody who says "turn this" means by it.
+	Origin *image.Point
+	Child  Node
+}
+
+func (Rotated) composeNode() {}
+
+func (r Rotated) measure(ctx *compileContext, maximum image.Point, path string) (image.Point, error) {
+	if nilNode(r.Child) {
+		return image.Point{}, fmt.Errorf("%s.child: node must not be nil", path)
+	}
+	if !validSize(r.Size) {
+		return image.Point{}, fmt.Errorf("%s: size must not be negative, got %v", path, r.Size)
+	}
+	inner, err := r.Child.measure(ctx, maximum, path+".child")
+	if err != nil {
+		return image.Point{}, err
+	}
+	return preferredSize(inner, r.Size, maximum)
+}
+
+func (r Rotated) paint(ctx *compileContext, list *display.DisplayList, bounds image.Rectangle, path string) error {
+	if bounds.Empty() {
+		ctx.warn(path, "empty-layout", "the turned box has no area")
+		return nil
+	}
+	origin := image.Pt((bounds.Min.X+bounds.Max.X)/2, (bounds.Min.Y+bounds.Max.Y)/2)
+	if r.Origin != nil {
+		origin = bounds.Min.Add(*r.Origin)
+	}
+	list.Save()
+	list.Transform(display.Rotate(r.Degrees, float64(origin.X), float64(origin.Y)))
+	err := ctx.paint(r.Child, list, bounds, path+".child")
+	list.Restore()
+	return err
 }

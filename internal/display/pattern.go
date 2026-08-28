@@ -89,13 +89,10 @@ func (c *Canvas) FillPattern(rect image.Rectangle, pattern *Pattern) {
 	if pattern == nil {
 		return
 	}
-	rect = rect.Intersect(c.logicalClip())
-	for y := rect.Min.Y; y < rect.Max.Y; y++ {
-		for x := rect.Min.X; x < rect.Max.X; x++ {
-			device := c.devicePoint(image.Pt(x, y))
-			if ink, paint := pattern.at(device.X, device.Y); paint {
-				c.Set(x, y, ink)
-			}
-		}
-	}
+	// A pattern is anchored to the frame rather than to what it fills, so that
+	// two shapes filled with one tile line up with each other.
+	c.fillWhere(rect, func(x, y int) (Ink, bool) {
+		device := c.devicePoint(image.Pt(x, y))
+		return pattern.at(device.X, device.Y)
+	})
 }

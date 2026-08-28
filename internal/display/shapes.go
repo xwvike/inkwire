@@ -61,14 +61,9 @@ func (c *Canvas) FillPolygon(points []image.Point, ink Ink) {
 	if !ink.valid() || len(points) < 3 {
 		return
 	}
-	bounds := polygonBounds(points).Intersect(c.logicalClip())
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			if pointInPolygon(image.Pt(x, y), points) {
-				c.Set(x, y, ink)
-			}
-		}
-	}
+	c.fillWhere(polygonBounds(points), func(x, y int) (Ink, bool) {
+		return ink, pointInPolygon(image.Pt(x, y), points)
+	})
 }
 
 // FillCircle fills a circle whose center and perimeter pixels are included.
@@ -82,14 +77,9 @@ func (c *Canvas) FillCircle(center image.Point, radius int, ink Ink) {
 	if radius < 0 || !ink.valid() {
 		return
 	}
-	drawBounds := circleBounds(center, radius).Intersect(c.logicalClip())
-	for y := drawBounds.Min.Y; y < drawBounds.Max.Y; y++ {
-		for x := drawBounds.Min.X; x < drawBounds.Max.X; x++ {
-			if pointInCircle(x, y, center, radius) {
-				c.Set(x, y, ink)
-			}
-		}
-	}
+	c.fillWhere(circleBounds(center, radius), func(x, y int) (Ink, bool) {
+		return ink, pointInCircle(x, y, center, radius)
+	})
 }
 
 // StrokeCircle draws the stroke inside the circle's bounding box. Dashing only
@@ -122,14 +112,7 @@ func (c *Canvas) FillEllipse(oval Oval, ink Ink) {
 	}
 	// A turned ellipse reaches outside the box it was stated in, so the pixels
 	// worth testing are those of the box it actually occupies.
-	drawBounds := oval.Extent().Intersect(c.logicalClip())
-	for y := drawBounds.Min.Y; y < drawBounds.Max.Y; y++ {
-		for x := drawBounds.Min.X; x < drawBounds.Max.X; x++ {
-			if oval.contains(x, y) {
-				c.Set(x, y, ink)
-			}
-		}
-	}
+	c.fillWhere(oval.Extent(), func(x, y int) (Ink, bool) { return ink, oval.contains(x, y) })
 }
 
 // StrokeEllipse draws the stroke inside bounds.
@@ -152,14 +135,9 @@ func (c *Canvas) FillRoundRect(rect image.Rectangle, radius int, ink Ink) {
 		return
 	}
 	radius = clampRadius(rect, radius)
-	drawBounds := rect.Intersect(c.logicalClip())
-	for y := drawBounds.Min.Y; y < drawBounds.Max.Y; y++ {
-		for x := drawBounds.Min.X; x < drawBounds.Max.X; x++ {
-			if pointInRoundRect(x, y, rect, radius) {
-				c.Set(x, y, ink)
-			}
-		}
-	}
+	c.fillWhere(rect, func(x, y int) (Ink, bool) {
+		return ink, pointInRoundRect(x, y, rect, radius)
+	})
 }
 
 // StrokeRoundRect draws the stroke inside rect.
