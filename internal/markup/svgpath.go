@@ -31,6 +31,7 @@ type command struct {
 	Bounds   *rect   `json:"bounds,omitempty"`
 	Start    float64 `json:"start,omitempty"`
 	Sweep    float64 `json:"sweep,omitempty"`
+	Rotation float64 `json:"rotation,omitempty"`
 }
 
 // pathPen carries what a command needs to know about the ones before it: where
@@ -220,10 +221,6 @@ func (c *compiler) pathCommand(letter byte, scanner *pathScanner, pen *pathPen, 
 			return nil, "an arc needs an end point"
 		}
 		endX, endY := absolute(x, y)
-		if rotation != 0 {
-			c.warn(path, "unsupported-declaration", fmt.Sprintf(
-				"d: an arc rotated by %g degrees is drawn unrotated; an arc here is square to the page", rotation))
-		}
 		bounds, start, sweep, drawn := arcFromEndpoints(frame,
 			pen.x, pen.y, endX, endY, math.Abs(radiusX), math.Abs(radiusY), largeArc, sweepFlag)
 		pen.x, pen.y = endX, endY
@@ -232,7 +229,11 @@ func (c *compiler) pathCommand(letter byte, scanner *pathScanner, pen *pathPen, 
 			// Either radius is zero, which the spec says is a straight line.
 			return []command{{Op: "line", To: atFrame(frame, endX, endY)}}, ""
 		}
-		return []command{{Op: "arc", Bounds: bounds, Start: start, Sweep: sweep}}, ""
+		// The third number is the tilt of this arc's own ellipse, which two
+		// arcs in one path may state differently — so it belongs to the arc
+		// and not to any transform around it. SVG carries it for that reason
+		// and the schema carries it for the same one.
+		return []command{{Op: "arc", Bounds: bounds, Start: start, Sweep: sweep, Rotation: rotation}}, ""
 
 	case 'z':
 		pen.x, pen.y = pen.startX, pen.startY

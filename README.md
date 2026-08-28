@@ -628,7 +628,7 @@ text once the ones a panel has no use for are taken out.
 | Flex and grid | `flex` `flex-direction` `flex-basis` `flex-grow` `gap` `row-gap` `column-gap` `align-items` `align-self` `justify-content` `justify-items` `justify-self` `grid-template-columns` `grid-template-rows` `grid-column` `grid-row` |
 | Position | `position` `top` `right` `bottom` `left` `inset` `z-index` |
 | Paint | `background` `background-color` `color` `border` `border-width` `border-style` `border-color` `border-radius` `visibility` |
-| Clipping and transform | `overflow` `clip-path` `transform` `rotate` `scale` |
+| Clipping and transform | `overflow` `clip-path` `transform` `rotate` `transform-origin` `scale` |
 | Drawing | `fill` `stroke` `stroke-width` — what a shape in an `svg` element is painted with, and a stylesheet outranks the attribute |
 | Dashes | `stroke-dasharray` `stroke-dashoffset` — SVG's names, because a dashed line is called that everywhere else |
 | Text | `font` `font-family` `font-size` `line-height` `text-align` `vertical-align` `white-space` |

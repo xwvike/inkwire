@@ -105,7 +105,7 @@ func TestADrawingSaysWhatItCouldNotDraw(t *testing.T) {
 		"an element this build has not":    {`<foreignObject width="9" height="9"/>`, "foreignObject"},
 		"a stroke thinner than a pixel":    {`<line x1="0" y1="0" x2="9" y2="9" stroke="black" stroke-width="0.2"/>`, "less than a pixel"},
 		"points that do not pair up":       {`<polyline points="0,0 10" stroke="black"/>`, "not a run of pairs"},
-		"a transform this build cannot do": {`<g transform="rotate(37)"><rect width="9" height="9"/></g>`, "rotate(37)"},
+		"a transform this build cannot do": {`<g transform="skewX(10)"><rect width="9" height="9"/></g>`, "skewX"},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -293,16 +293,71 @@ func TestAPathDrawsAsFarAsItGot(t *testing.T) {
 	}
 }
 
-// A rotated arc cannot be drawn square to the page, and is said rather than
-// silently drawn as something else.
-func TestARotatedArcIsReported(t *testing.T) {
-	_, warnings := pathOf(t, "M 0 10 A 10 5 45 0 1 20 10")
-	var said string
+// An arc's third number is the tilt of its own ellipse, and two arcs in one
+// path may state it differently — so it belongs to the arc rather than to any
+// transform around it. SVG carries it for that reason and the schema carries
+// it for the same one; it used to be thrown away with a warning, which was a
+// standard parameter not working.
+func TestAnArcKeepsItsOwnTilt(t *testing.T) {
+	commands, warnings := pathOf(t, "M 0 10 A 10 5 45 0 1 20 10")
 	for _, warning := range warnings {
+		t.Errorf("warning: %s", warning.Message)
+	}
+	if len(commands) != 2 || commands[1].Op != "arc" {
+		t.Fatalf("did not read as a move and an arc: %+v", commands)
+	}
+	if commands[1].Rotation != 45 {
+		t.Errorf("the arc's tilt came back as %g, want 45", commands[1].Rotation)
+	}
+
+	// Two arcs in one path, tilted differently, which is the case a transform
+	// around them cannot produce.
+	pair, _ := pathOf(t, "M 0 0 A 10 5 45 0 1 20 0 A 10 5 -30 0 1 40 0")
+	if len(pair) != 3 {
+		t.Fatalf("did not read as a move and two arcs: %+v", pair)
+	}
+	if pair[1].Rotation != 45 || pair[2].Rotation != -30 {
+		t.Errorf("the two tilts came back as %g and %g, want 45 and -30", pair[1].Rotation, pair[2].Rotation)
+	}
+}
+
+// A rotate in a transform attribute becomes a turn of its own rather than
+// being folded into the coordinates, because a rect folded through a turn
+// stops being a rect and an ellipse stops being an ellipse.
+func TestAGroupsRotateBecomesATurn(t *testing.T) {
+	flat, page := drawing(t, `<g transform="rotate(37)"><rect width="10" height="10" fill="black"/></g>`)
+	for _, warning := range page.Warnings {
+		t.Errorf("warning: %s", warning.Message)
+	}
+	if !strings.Contains(flat, `"type":"rotated","degrees":37`) {
+		t.Errorf("the group's rotate did not become a turn:\n%s", page.JSON)
+	}
+	// The shape inside is still the shape it was written as.
+	if !strings.Contains(flat, `"type":"rectangle"`) {
+		t.Errorf("the rect stopped being a rect:\n%s", page.JSON)
+	}
+
+	// SVG turns about the drawing's origin unless a point is named, which is
+	// not what a node defaults to, so it has to be said.
+	if !strings.Contains(flat, `"origin":{"x":0,"y":0}`) {
+		t.Errorf("a rotate with no point named did not turn about the origin:\n%s", page.JSON)
+	}
+	about, _ := drawing(t, `<g transform="rotate(37, 20, 30)"><rect width="10" height="10" fill="black"/></g>`)
+	if !strings.Contains(about, `"origin":{"x":20,"y":30}`) {
+		t.Errorf("the named point was not used:\n%s", about)
+	}
+}
+
+// A move after a turn would run along turned axes, which the coordinates this
+// folds a move into cannot carry. It is reported rather than drawn wrong.
+func TestAMoveAfterATurnIsReported(t *testing.T) {
+	_, page := drawing(t, `<g transform="rotate(30) translate(10,10)"><rect width="9" height="9"/></g>`)
+	var said string
+	for _, warning := range page.Warnings {
 		said += warning.Message
 	}
-	if !strings.Contains(said, "45") {
-		t.Errorf("the rotation was not reported: %q", said)
+	if !strings.Contains(said, "turned axes") {
+		t.Errorf("nothing said it: %q", said)
 	}
 }
 
@@ -480,12 +535,12 @@ func TestATransformIsFoldedIntoTheCoordinates(t *testing.T) {
 	}
 }
 
-// What cannot be folded is drawn where it was written and said. Turning and
-// shearing are what the panel has no way to do, and a group quietly drawn
-// square when it was written at an angle is worse than one drawn square and
-// reported.
+// What this cannot do is drawn as written and said. A turn is no longer on the
+// list — it became a node of its own — so what is left is shearing, an
+// arbitrary matrix, and a magnification that is not a whole number the same on
+// both axes.
 func TestATransformThatCannotBeFoldedIsReported(t *testing.T) {
-	for _, transform := range []string{"rotate(37)", "skewX(10)", "matrix(1,0,0,1,5,5)", "scale(1.5)", "scale(2,3)"} {
+	for _, transform := range []string{"skewX(10)", "matrix(1,0,0,1,5,5)", "scale(1.5)", "scale(2,3)"} {
 		t.Run(transform, func(t *testing.T) {
 			_, page := drawing(t, `<g transform="`+transform+`"><rect width="9" height="9"/></g>`)
 			var said string

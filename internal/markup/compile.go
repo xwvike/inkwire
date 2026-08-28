@@ -404,12 +404,36 @@ func shaped(node *emitted, s style) *emitted {
 // transformed wraps a node when the style asks for a magnification or a turn.
 // The wrapper draws the subtree onto a surface of its own, so everything under
 // it moves together rather than each shape being redrawn at a new size.
+// transformed wraps a node in whichever of the two transforms it asked for.
+//
+// They are separate nodes because they are separate things. A magnification
+// redraws the subtree onto a larger surface, which is exact only in whole
+// numbers. A turn puts a turn into the drawing state and everything under it
+// works out where its own geometry goes, which is exact at any angle for
+// anything drawn from geometry — and resampled, as it has to be, for a glyph
+// or a picture.
+//
+// The turn goes outside the magnification, so a box magnified and turned is
+// turned as it ends up rather than as it was written.
 func transformed(node *emitted, s style) *emitted {
-	if node == nil || (s.transform == display.Transform{}) {
+	if node == nil {
 		return node
 	}
-	return &emitted{Type: "transformed",
-		Scale: s.transform.Scale, Turns: s.transform.Turns, Child: node}
+	if (s.transform != display.Transform{}) {
+		node = &emitted{Type: "transformed",
+			Scale: s.transform.Scale, Turns: s.transform.Turns, Child: node}
+	}
+	if s.rotate == 0 {
+		return node
+	}
+	turn := &emitted{Type: "rotated", Degrees: s.rotate, Child: node}
+	if s.rotateOrigin != nil {
+		turn.Origin = &origin{
+			X: lengthValue(lengthOf(s.rotateOrigin[0])),
+			Y: lengthValue(lengthOf(s.rotateOrigin[1])),
+		}
+	}
+	return turn
 }
 
 func radiusOf(s style) int {

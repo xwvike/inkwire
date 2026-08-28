@@ -414,21 +414,27 @@ func TestRotateTurnsTheSubtree(t *testing.T) {
 	}
 }
 
-// Anything that would have to resample is refused rather than approximated.
-func TestOnlyExactTransformsAreAccepted(t *testing.T) {
+// A magnification that would have to resample is refused rather than
+// approximated. A turn is not: a turn is not a magnification, and everything
+// under one works out where its own geometry goes rather than being redrawn
+// at a new size, so any angle at all is exact for anything that is not
+// already pixels.
+func TestOnlyExactMagnificationsAreAccepted(t *testing.T) {
 	for _, css := range []string{
 		`.a { scale: 1.5; }`,
 		`.a { scale: 2 3; }`,
-		`.a { rotate: 45deg; }`,
-		`.a { rotate: 30deg; }`,
 	} {
 		said := warningsFor(t, `<i class="a"></i>`, ` .a { display: block; background: black; flex-grow: 1; }`+css)
 		if said == "" {
 			t.Errorf("%s was accepted, but it cannot be done without resampling", css)
 		}
 	}
-	// The exact ones are not refused.
-	for _, css := range []string{`.a { scale: 3; }`, `.a { rotate: 180deg; }`, `.a { rotate: -90deg; }`} {
+	// A whole magnification and an angle of any size are not refused.
+	for _, css := range []string{
+		`.a { scale: 3; }`, `.a { rotate: 180deg; }`, `.a { rotate: -90deg; }`,
+		`.a { rotate: 45deg; }`, `.a { rotate: 37.5deg; }`, `.a { rotate: 0.2turn; }`,
+		`.a { rotate: 30deg; transform-origin: top left; }`,
+	} {
 		said := warningsFor(t, `<i class="a"></i>`, ` .a { display: block; background: black; flex-grow: 1; }`+css)
 		if said != "" {
 			t.Errorf("%s was refused: %s", css, said)
@@ -497,8 +503,8 @@ func TestTransformFunctionForm(t *testing.T) {
 		` .a { display: block; background: black; flex-grow: 1; transform: rotate(90deg) scale(2); }`); said != "" {
 		t.Errorf("a composed transform was refused: %s", said)
 	}
-	// Functions that would have to resample are named, not lumped together.
-	for _, css := range []string{`transform: skew(10deg)`, `transform: translate(4px, 4px)`, `transform: rotate(45deg)`} {
+	// Functions this build has no way to do are named, not lumped together.
+	for _, css := range []string{`transform: skew(10deg)`, `transform: translate(4px, 4px)`, `transform: scale(1.5)`} {
 		if said := warningsFor(t, `<i class="a"></i>`,
 			` .a { display: block; background: black; flex-grow: 1; `+css+`; }`); said == "" {
 			t.Errorf("%s was accepted", css)

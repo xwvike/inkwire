@@ -442,8 +442,7 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 		}
 		node := compose.Rotated{Size: value.Size.point(), Degrees: value.Degrees, Child: child}
 		if value.Origin != nil {
-			origin := value.Origin.point()
-			node.Origin = &origin
+			node.Origin = &[2]compose.Length{value.Origin.X.length, value.Origin.Y.length}
 		}
 		return node, nil
 	case "transformed":
@@ -709,8 +708,15 @@ type rotatedJSON struct {
 	Type    string          `json:"type"`
 	Size    sizeJSON        `json:"size,omitempty"`
 	Degrees float64         `json:"degrees,omitempty"`
-	Origin  *pointJSON      `json:"origin,omitempty"`
+	Origin  *originJSON     `json:"origin,omitempty"`
 	Child   json.RawMessage `json:"child"`
+}
+
+// originJSON is a point stated in lengths, so that half way along a box can be
+// said before the box has a size.
+type originJSON struct {
+	X offsetJSON `json:"x,omitempty"`
+	Y offsetJSON `json:"y,omitempty"`
 }
 
 type transformedJSON struct {

@@ -29,8 +29,8 @@ func TestEveryFieldThisPackageWritesIsAFieldTheSchemaReads(t *testing.T) {
 		t.Fatalf("found %d field names in the schema, which cannot be right", len(read))
 	}
 	written := map[string]string{}
-	for _, emitted := range []any{document{}, emitted{}, size{}, insets{}, stroke{}, run{},
-		overrides{}, point{}, shape{}, rect{}, placed{}, pathValue{}, layoutChild{}, gridChild{}, anchor{}} {
+	for _, emitted := range []any{document{}, emitted{}, size{}, insets{}, stroke{}, run{}, command{},
+		overrides{}, point{}, shape{}, rect{}, placed{}, pathValue{}, origin{}, layoutChild{}, gridChild{}, anchor{}} {
 		structure := reflect.TypeOf(emitted)
 		for index := range structure.NumField() {
 			tag, ok := structure.Field(index).Tag.Lookup("json")

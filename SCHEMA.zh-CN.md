@@ -536,13 +536,14 @@ JSON，PNG 以 base64 `pngBase64` 与报告一起返回。
 | `type` | 字符串 | `rotated` | 必填 |
 | `size` | size | 要旋转的区域 | 容器的 |
 | `degrees` | 数值 | 顺时针角度 | `0` |
-| `origin` | point | 绕着转的那个点，从区域左上角量起 | 区域中心 |
+| `origin` | 含 `x`、`y` 两个长度的对象 | 绕着转的那个点，从区域左上角量起。用长度而不是数字，这样在区域还没有尺寸的时候就能说“到一半的地方” | 区域中心 |
 | `child` | node | 被转的东西 | 必填 |
 
 ```json
 {
   "type": "rotated",
   "degrees": 37,
+  "origin": {"x": "0%", "y": "100%"},
   "child": {"type": "rectangle", "fill": "black"}
 }
 ```

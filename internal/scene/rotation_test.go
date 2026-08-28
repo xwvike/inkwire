@@ -164,3 +164,26 @@ func TestTheOriginIsSettableAndDefaultsToTheCentre(t *testing.T) {
 		t.Error("turning about a corner drew what turning about the middle drew")
 	}
 }
+
+// The origin is written as a share of the box as often as a distance into it,
+// and a share of a box that has not been laid out cannot be a number. So it is
+// a length, and the two spellings have to mean the same thing where they meet.
+func TestTheOriginCanBeAShareOfTheBox(t *testing.T) {
+	const node = `{"type":"rectangle","size":{"width":40,"height":40},"fill":"black"}`
+	rotated := func(origin string) string {
+		return `{"type":"absolute","children":[{"bounds":{"x":10,"y":10,"width":40,"height":40},"node":` +
+			`{"type":"rotated","degrees":30,` + origin + `"child":` + node + `}}]}`
+	}
+	if !same(inkOf(t, rotated(`"origin":{"x":"50%","y":"50%"},`)), inkOf(t, rotated(""))) {
+		t.Error("half way along the box drew something other than the centre it defaults to")
+	}
+	if !same(inkOf(t, rotated(`"origin":{"x":"0%","y":"0%"},`)), inkOf(t, rotated(`"origin":{"x":0,"y":0},`))) {
+		t.Error("nought per cent and nought pixels drew different pictures")
+	}
+	if !same(inkOf(t, rotated(`"origin":{"x":"100%","y":"100%"},`)), inkOf(t, rotated(`"origin":{"x":40,"y":40},`))) {
+		t.Error("the whole of the box and its width in pixels drew different pictures")
+	}
+	if same(inkOf(t, rotated(`"origin":{"x":"0%","y":"0%"},`)), inkOf(t, rotated(`"origin":{"x":"100%","y":"100%"},`))) {
+		t.Error("turning about opposite corners drew the same picture")
+	}
+}

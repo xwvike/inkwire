@@ -585,7 +585,7 @@ inkwire push -device 命令行墨水屏 examples/desk/tasks.html
 | flex 与 grid | `flex` `flex-direction` `flex-basis` `flex-grow` `gap` `row-gap` `column-gap` `align-items` `align-self` `justify-content` `justify-items` `justify-self` `grid-template-columns` `grid-template-rows` `grid-column` `grid-row` |
 | 定位 | `position` `top` `right` `bottom` `left` `inset` `z-index` |
 | 绘制 | `background` `background-color` `color` `border` `border-width` `border-style` `border-color` `border-radius` `visibility` |
-| 裁剪与变换 | `overflow` `clip-path` `transform` `rotate` `scale` |
+| 裁剪与变换 | `overflow` `clip-path` `transform` `rotate` `transform-origin` `scale` |
 | 绘制 | `fill` `stroke` `stroke-width` —— `svg` 元素里的形状用什么画；样式表压过呈现属性 |
 | 虚线 | `stroke-dasharray` `stroke-dashoffset` —— 用 SVG 的名字，因为虚线在别处就叫这个 |
 | 文本 | `font` `font-family` `font-size` `line-height` `text-align` `vertical-align` `white-space` |

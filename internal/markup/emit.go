@@ -84,6 +84,8 @@ type emitted struct {
 	Inks     map[string]string `json:"inks,omitempty"`
 	Commands []command         `json:"commands,omitempty"`
 	Rect     *rect             `json:"rect,omitempty"`
+	Degrees  float64           `json:"degrees,omitempty"`
+	Origin   *origin           `json:"origin,omitempty"`
 	Path     *pathValue        `json:"path,omitempty"`
 
 	// Last, so that a node that wraps another reads as what it does before
@@ -189,6 +191,13 @@ type rect struct {
 // drawn — so it carries the commands and nothing else.
 type pathValue struct {
 	Commands []command `json:"commands"`
+}
+
+// origin is the point a turn happens about, in lengths because it is written
+// as a share of the box more often than as a distance into it.
+type origin struct {
+	X any `json:"x,omitempty"`
+	Y any `json:"y,omitempty"`
 }
 
 // placed is one child of an absolute box.

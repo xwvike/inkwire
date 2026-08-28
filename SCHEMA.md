@@ -548,13 +548,14 @@ Turns its child about a point, at any angle.
 | `type` | string | `rotated` | required |
 | `size` | size | the area to turn | the container's |
 | `degrees` | number | clockwise degrees | `0` |
-| `origin` | point | the point turned about, from the top left of the area | the area's centre |
+| `origin` | object of two lengths, `x` and `y` | the point turned about, from the top left of the area. A length, so that half way along an area can be said before the area has a size | the area's centre |
 | `child` | node | what is turned | required |
 
 ```json
 {
   "type": "rotated",
   "degrees": 37,
+  "origin": {"x": "0%", "y": "100%"},
   "child": {"type": "rectangle", "fill": "black"}
 }
 ```

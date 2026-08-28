@@ -138,16 +138,39 @@ func (c *compiler) svgChildren(node *html.Node, box rect, inherited svgPaint, fr
 			// element is for. What it says and this cannot do is reported
 			// here rather than once per child, since it was written once.
 			c.reportUnread(child, childPath)
-			c.svgChildren(child, box,
-				c.svgPaint(child, inherited, c.computed(child, style{}, childPath), childPath),
-				c.transformed(child, frame, childPath), childPath, into)
+			paint := c.svgPaint(child, inherited, c.computed(child, style{}, childPath), childPath)
+			degrees, about, turned := c.turnOf(child, frame, childPath)
+			if !turned {
+				c.svgChildren(child, box, paint, c.transformed(child, frame, childPath), childPath, into)
+				continue
+			}
+			// A turned group becomes a box of its own, turned. Its children
+			// keep the coordinates they were written in, which is what makes
+			// the turn the only thing that moved.
+			var inner []placed
+			c.svgChildren(child, box, paint, c.transformed(child, frame, childPath), childPath, &inner)
+			if len(inner) == 0 {
+				continue
+			}
+			*into = append(*into, placed{Bounds: box, Node: &emitted{
+				Type: "rotated", Degrees: degrees, Origin: about,
+				Child: &emitted{Type: "absolute", Children: inner},
+			}})
 		case "title", "desc", "metadata", "defs", "clipPath", "pattern":
 			// Not drawn, by their own definition.
 		default:
 			placement, ok := c.svgShape(child, box, inherited, c.transformed(child, frame, childPath), childPath)
-			if ok {
-				*into = append(*into, c.clipped(child, box, frame, placement, childPath))
+			if !ok {
+				continue
 			}
+			placement = c.clipped(child, box, frame, placement, childPath)
+			if degrees, about, turned := c.turnOf(child, frame, childPath); turned {
+				placement = placed{Bounds: box, Node: &emitted{
+					Type: "rotated", Degrees: degrees, Origin: about,
+					Child: &emitted{Type: "absolute", Children: []placed{placement}},
+				}}
+			}
+			*into = append(*into, placement)
 		}
 	}
 }
@@ -566,12 +589,75 @@ func (c *compiler) transformed(node *html.Node, outer svgFrame, path string) svg
 				continue
 			}
 			frame.scale *= factor
+		case "rotate":
+			// Handled by turnOf, which puts it on a node of its own rather
+			// than into the coordinates: a turn folded into the numbers would
+			// stop a rect being a rect and an ellipse being an ellipse.
 		default:
 			c.warn(path, "unsupported-declaration", fmt.Sprintf(
 				"transform: %s%s is not something this build can do; the group is drawn untransformed", name, arguments))
 		}
 	}
 	return frame
+}
+
+// turnOf reads the rotation out of a transform attribute, in the drawing's own
+// coordinates. The second return says whether there was one.
+//
+// A turn is not folded into the coordinates the way a move and a magnification
+// are. Folding one would take a rect out of being a rect and an ellipse out of
+// being an ellipse, since neither is square to the page once turned; a node
+// keeps them what they are and lets the drawing state carry the angle.
+//
+// SVG applies the functions in a transform left to right, each inside the last.
+// A move or a magnification after a turn would therefore be along turned axes,
+// which the frame cannot carry — so it is reported rather than drawn wrong.
+func (c *compiler) turnOf(node *html.Node, outer svgFrame, path string) (float64, *origin, bool) {
+	stated := strings.TrimSpace(attribute(node, "transform"))
+	if stated == "" {
+		return 0, nil, false
+	}
+	frame := outer
+	degrees, turned := 0.0, false
+	var about *origin
+	for _, function := range svgTransforms(stated) {
+		name, arguments := function[0], function[1]
+		numbers := readNumbers(arguments)
+		switch name {
+		case "rotate":
+			if len(numbers) != 1 && len(numbers) != 3 {
+				c.warn(path, "unsupported-declaration", fmt.Sprintf(
+					"transform: rotate%s takes an angle, or an angle and a point", arguments))
+				continue
+			}
+			if turned {
+				c.warn(path, "unsupported-declaration",
+					"transform: a second rotate on one element is not read; write them on nested elements")
+				continue
+			}
+			degrees, turned = numbers[0], true
+			if len(numbers) == 3 {
+				x, y := frame.place(numbers[1], numbers[2])
+				about = &origin{X: pixels(x), Y: pixels(y)}
+			}
+		case "translate", "scale":
+			if turned {
+				c.warn(path, "unsupported-declaration", fmt.Sprintf(
+					"transform: %s%s comes after a rotate, so it would run along turned axes; it is not read",
+					name, arguments))
+				continue
+			}
+			frame = c.transformed(node, frame, path)
+		}
+	}
+	if turned && about == nil {
+		// SVG turns about the drawing's origin when no point is named, which
+		// is not what CSS does and has to be said as a point rather than left
+		// to the node's own default of the middle of its box.
+		x, y := frame.place(0, 0)
+		about = &origin{X: pixels(x), Y: pixels(y)}
+	}
+	return degrees, about, turned
 }
 
 // svgTransforms splits a transform attribute into the functions it names,

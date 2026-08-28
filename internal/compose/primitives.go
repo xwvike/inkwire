@@ -541,9 +541,14 @@ type Rotated struct {
 	Size    image.Point
 	Degrees float64
 	// Origin is the point turned about, measured from the top left of the box.
-	// Absent is the centre of the box, which is what transform-origin defaults
-	// to and what somebody who says "turn this" means by it.
-	Origin *image.Point
+	// Absent is the centre, which is what transform-origin defaults to and
+	// what somebody who says "turn this" means by it.
+	//
+	// It is a pair of lengths rather than a pair of numbers because it is
+	// written as a share of the box more often than as a distance into it —
+	// the middle, a corner, half way down — and a share of a box that has not
+	// been laid out yet is not a number anybody can work out.
+	Origin *[2]Length
 	Child  Node
 }
 
@@ -570,7 +575,14 @@ func (r Rotated) paint(ctx *compileContext, list *display.DisplayList, bounds im
 	}
 	origin := image.Pt((bounds.Min.X+bounds.Max.X)/2, (bounds.Min.Y+bounds.Max.Y)/2)
 	if r.Origin != nil {
-		origin = bounds.Min.Add(*r.Origin)
+		x, statedX := r.Origin[0].Offset(bounds.Dx())
+		y, statedY := r.Origin[1].Offset(bounds.Dy())
+		if statedX {
+			origin.X = bounds.Min.X + x
+		}
+		if statedY {
+			origin.Y = bounds.Min.Y + y
+		}
 	}
 	list.Save()
 	list.Transform(display.Rotate(r.Degrees, float64(origin.X), float64(origin.Y)))

@@ -2,6 +2,7 @@ package markup
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -87,12 +88,19 @@ type style struct {
 	inset      [4]length // top, right, bottom, left
 	layer      int
 	transform  display.Transform
-	ratio      float64
-	columns    []compose.Track
-	rows       []compose.Track
-	rowGap     int
-	columnGap  int
-	gapSet     bool
+	// rotate is an angle in degrees, held apart from transform because the two
+	// are no longer the same kind of thing: a magnification redraws a subtree
+	// onto a larger surface, and a turn puts a turn into the state everything
+	// under it works its own geometry out through. One is exact at whole
+	// numbers, the other at any angle at all.
+	rotate       float64
+	rotateOrigin *[2]length
+	ratio        float64
+	columns      []compose.Track
+	rows         []compose.Track
+	rowGap       int
+	columnGap    int
+	gapSet       bool
 	// The three properties a drawing is painted with. SVG states them as
 	// attributes and CSS states them as properties, and CSS wins — a
 	// presentation attribute is a rule of no specificity, so any selector
@@ -368,6 +376,16 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 			pixels = 1
 		}
 		s.strokeWidth = &pixels
+	case "transform-origin":
+		// The point a turn happens about, written the way CSS writes it: one
+		// or two values, each a keyword, a share of the box or a distance
+		// into it. Two keywords may be written either way round, which is why
+		// they are sorted out before anything is measured.
+		origin, ok := parseTransformOrigin(value, property, report)
+		if !ok {
+			return
+		}
+		s.rotateOrigin = origin
 	case "stroke-dasharray":
 		fields := strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ' ' })
 		pattern := make([]int, 0, len(fields))
@@ -417,13 +435,12 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 		}
 		s.transform.Scale = factor
 	case "rotate":
-		turns, ok := quarterTurns(value)
+		degrees, ok := parseAngle(value)
 		if !ok {
-			report(fmt.Sprintf(
-				"rotate: %s must be a whole number of quarter turns; anything else would have to resample", value))
+			report(fmt.Sprintf("rotate: %s is not an angle; write it in degrees, such as 37deg", value))
 			return
 		}
-		s.transform.Turns = turns
+		s.rotate = degrees
 	case "transform":
 		// The function form is what most stylesheets say, and it composes:
 		// "rotate(90deg) scale(2)" is both, applied together.
@@ -443,15 +460,14 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 				}
 				s.transform.Scale = factor
 			case "rotate":
-				turns, ok := quarterTurns(argument)
+				degrees, ok := parseAngle(argument)
 				if !ok {
-					report(fmt.Sprintf(
-						"transform: rotate(%s) must be a whole number of quarter turns", argument))
+					report(fmt.Sprintf("transform: rotate(%s) is not an angle; write it in degrees", argument))
 					return
 				}
-				s.transform.Turns = turns
+				s.rotate = degrees
 			case "none":
-				s.transform = display.Transform{}
+				s.transform, s.rotate, s.rotateOrigin = display.Transform{}, 0, nil
 			default:
 				report(fmt.Sprintf(
 					"transform: %s() is not supported; only scale and rotate move every pixel onto another pixel",
@@ -691,6 +707,89 @@ func (s *style) setPaint(property string, value *paint) {
 	s.stroke = value
 }
 
+// parseAngle reads an angle. CSS writes one with a unit and SVG writes one
+// without, and both turn up in a stylesheet for a panel.
+func parseAngle(value string) (float64, bool) {
+	trimmed := strings.TrimSpace(strings.ToLower(value))
+	for _, unit := range []string{"deg", "grad", "rad", "turn"} {
+		body, found := strings.CutSuffix(trimmed, unit)
+		if !found {
+			continue
+		}
+		number, err := strconv.ParseFloat(strings.TrimSpace(body), 64)
+		if err != nil {
+			return 0, false
+		}
+		switch unit {
+		case "deg":
+			return number, true
+		case "grad":
+			return number * 360 / 400, true
+		case "rad":
+			return number * 180 / math.Pi, true
+		case "turn":
+			return number * 360, true
+		}
+	}
+	number, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil {
+		return 0, false
+	}
+	return number, true
+}
+
+// originKeywords are the words CSS lets a transform-origin be written with,
+// each of them the share of the box it names.
+var originKeywords = map[string]struct {
+	share float64
+	axis  int // 0 for the horizontal, 1 for the vertical, -1 for either
+}{
+	"left": {0, 0}, "right": {1, 0},
+	"top": {0, 1}, "bottom": {1, 1},
+	"center": {0.5, -1},
+}
+
+// parseTransformOrigin reads one or two values into a pair of lengths.
+func parseTransformOrigin(value, property string, report func(string)) (*[2]length, bool) {
+	fields := strings.Fields(strings.ToLower(strings.TrimSpace(value)))
+	if len(fields) == 0 || len(fields) > 2 {
+		report(fmt.Sprintf("%s: %s is one or two values", property, value))
+		return nil, false
+	}
+	// A third value is a distance along the axis out of the page, which a
+	// panel has none of.
+	origin := [2]length{}
+	stated := [2]bool{}
+	for index, field := range fields {
+		axis := index
+		if keyword, known := originKeywords[field]; known {
+			if keyword.axis >= 0 {
+				axis = keyword.axis
+			}
+			if stated[axis] {
+				report(fmt.Sprintf("%s: %s names the same axis twice", property, value))
+				return nil, false
+			}
+			origin[axis] = length{set: true, percent: keyword.share * 100}
+			stated[axis] = true
+			continue
+		}
+		size := parseLength(field, property, report)
+		if !size.set {
+			return nil, false
+		}
+		origin[axis], stated[axis] = size, true
+	}
+	// One value states the horizontal and leaves the vertical in the middle,
+	// which is what CSS does with it.
+	for axis := range origin {
+		if !stated[axis] {
+			origin[axis] = length{set: true, percent: 50}
+		}
+	}
+	return &origin, true
+}
+
 // wholePixels reads a dash length, which SVG writes without a unit and CSS
 // writes with one. Both are accepted because both are what an author will
 // have in front of them: the property is SVG's and the file is a stylesheet.
@@ -734,24 +833,6 @@ func crossOfMain(main compose.MainAlignment) compose.CrossAlignment {
 		return compose.CrossEnd
 	}
 	return compose.CrossStretch
-}
-
-// quarterTurns accepts the angles that move every pixel onto another pixel.
-// Between them a rotation has to decide which of two pixels a sample belongs
-// to, and either answer thins some strokes and thickens others.
-func quarterTurns(value string) (int, bool) {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "none" || trimmed == "0" {
-		return 0, true
-	}
-	degrees, err := strconv.ParseFloat(strings.TrimSuffix(trimmed, "deg"), 64)
-	if err != nil {
-		return 0, false
-	}
-	if degrees != float64(int(degrees)) || int(degrees)%90 != 0 {
-		return 0, false
-	}
-	return ((int(degrees)/90)%4 + 4) % 4, true
 }
 
 // inheritOne copies one property from the value the parent passed down.
