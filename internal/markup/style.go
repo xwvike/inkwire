@@ -93,9 +93,17 @@ type style struct {
 	rowGap     int
 	columnGap  int
 	gapSet     bool
-	cellColumn [2]int // line, span
-	cellRow    [2]int
-	justify    compose.MainAlignment
+	// The three properties a drawing is painted with. SVG states them as
+	// attributes and CSS states them as properties, and CSS wins — a
+	// presentation attribute is a rule of no specificity, so any selector
+	// beats it. Held as pointers because not stating one and stating it as
+	// none are different answers, and both have to survive being inherited.
+	fill        *paint
+	stroke      *paint
+	strokeWidth *int
+	cellColumn  [2]int // line, span
+	cellRow     [2]int
+	justify     compose.MainAlignment
 	// alignSelf overrides the container's align-items for one item. The
 	// pointer distinguishes "not stated" from "stretch".
 	alignSelf   *compose.CrossAlignment
@@ -117,16 +125,26 @@ type border struct {
 
 // inherited is the subset CSS passes down. Everything else starts fresh on
 // each element.
+// paint is an ink, or the absence of one. fill: none and no fill at all are
+// not the same: the first says do not paint, the second says ask the parent.
+type paint struct {
+	ink  display.Ink
+	none bool
+}
+
 func (s style) inherited() style {
 	return style{
-		color:      s.color,
-		fontFamily: s.fontFamily,
-		fontSize:   s.fontSize,
-		textAlign:  s.textAlign,
-		textVAlign: s.textVAlign,
-		lineHeight: s.lineHeight,
-		wrap:       s.wrap,
-		preserve:   s.preserve,
+		fill:        s.fill,
+		stroke:      s.stroke,
+		strokeWidth: s.strokeWidth,
+		color:       s.color,
+		fontFamily:  s.fontFamily,
+		fontSize:    s.fontSize,
+		textAlign:   s.textAlign,
+		textVAlign:  s.textVAlign,
+		lineHeight:  s.lineHeight,
+		wrap:        s.wrap,
+		preserve:    s.preserve,
 	}
 }
 
@@ -326,6 +344,30 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 	// rather than something of this package's own invention because they are
 	// what a dashed line is called everywhere else, and a subset that renames
 	// what it borrows is a dialect.
+	case "fill", "stroke":
+		// A drawing's two paints. They inherit, which is what lets a group
+		// state them once for everything inside it.
+		value = strings.TrimSpace(value)
+		if value == "none" || value == "transparent" {
+			s.setPaint(property, &paint{none: true})
+			return
+		}
+		ink, ok := parseInk(value, property, report)
+		if !ok {
+			return
+		}
+		s.setPaint(property, &paint{ink: ink})
+	case "stroke-width":
+		width := parseLength(value, property, report)
+		if !width.fixed() {
+			return
+		}
+		pixels := width.px()
+		if pixels < 1 {
+			report(fmt.Sprintf("stroke-width: %s is less than a pixel; drawn at 1", value))
+			pixels = 1
+		}
+		s.strokeWidth = &pixels
 	case "stroke-dasharray":
 		fields := strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ' ' })
 		pattern := make([]int, 0, len(fields))
@@ -640,6 +682,15 @@ func (s *style) applyFontShorthand(value, property string, inherited style, repo
 	report(fmt.Sprintf("font: %s states no size; a size and a family are the whole of what this reads", value))
 }
 
+// setPaint writes whichever of the two paints was named.
+func (s *style) setPaint(property string, value *paint) {
+	if property == "fill" {
+		s.fill = value
+		return
+	}
+	s.stroke = value
+}
+
 // wholePixels reads a dash length, which SVG writes without a unit and CSS
 // writes with one. Both are accepted because both are what an author will
 // have in front of them: the property is SVG's and the file is a stylesheet.
@@ -716,6 +767,12 @@ func (s *style) inheritOne(property string, inherited style) {
 		s.textAlign = inherited.textAlign
 	case "vertical-align":
 		s.textVAlign = inherited.textVAlign
+	case "fill":
+		s.fill = inherited.fill
+	case "stroke":
+		s.stroke = inherited.stroke
+	case "stroke-width":
+		s.strokeWidth = inherited.strokeWidth
 	case "line-height":
 		s.lineHeight = inherited.lineHeight
 	case "white-space":
@@ -734,6 +791,12 @@ func (s *style) reset(property string) {
 		s.background = nil
 	case "border", "border-width", "border-style", "border-color", "border-radius":
 		s.border, s.dashed, s.dash, s.dashOffset = nil, false, nil, 0
+	case "fill":
+		s.fill = nil
+	case "stroke":
+		s.stroke = nil
+	case "stroke-width":
+		s.strokeWidth = nil
 	case "padding":
 		s.padding = fresh.padding
 	case "margin":

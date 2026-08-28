@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	stdimage "image"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -40,12 +41,14 @@ import (
 type emitted struct {
 	Type string `json:"type"`
 	Size *size  `json:"size,omitempty"`
+	// Clip belongs beside the box it applies to, which is where the documents
+	// written by hand put it.
+	Clip bool `json:"clip,omitempty"`
 
 	// Children is a slice whose element type depends on Type: nodes under a
 	// stack, items under a row or column, cells under a grid, anchors under
 	// an anchored box.
-	Children any      `json:"children,omitempty"`
-	Child    *emitted `json:"child,omitempty"`
+	Children any `json:"children,omitempty"`
 
 	Insets *insets `json:"insets,omitempty"`
 
@@ -67,6 +70,25 @@ type emitted struct {
 	Source     string     `json:"source,omitempty"`
 	Processing string     `json:"processing,omitempty"`
 	Overrides  *overrides `json:"overrides,omitempty"`
+
+	// The drawing half. A page says none of these; they come from an svg
+	// element, where the vocabulary is geometry rather than boxes.
+	At       *point            `json:"at,omitempty"`
+	Ink      string            `json:"ink,omitempty"`
+	From     *point            `json:"from,omitempty"`
+	To       *point            `json:"to,omitempty"`
+	Points   []point           `json:"points,omitempty"`
+	Center   *point            `json:"center,omitempty"`
+	Start    float64           `json:"start,omitempty"`
+	Sweep    float64           `json:"sweep,omitempty"`
+	Inks     map[string]string `json:"inks,omitempty"`
+	Commands []command         `json:"commands,omitempty"`
+	Rect     *rect             `json:"rect,omitempty"`
+	Path     *pathValue        `json:"path,omitempty"`
+
+	// Last, so that a node that wraps another reads as what it does before
+	// what it does it to: a padding states its insets and then its child.
+	Child *emitted `json:"child,omitempty"`
 
 	Gap        int    `json:"gap,omitempty"`
 	MainAlign  string `json:"mainAlign,omitempty"`
@@ -151,6 +173,42 @@ func insetsOf(i compose.Insets) *insets {
 type point struct {
 	X any `json:"x"`
 	Y any `json:"y"`
+}
+
+// rect is where an absolutely placed child sits. Unlike a length it is always
+// a whole number of pixels: a drawing states where a thing is, and there is
+// nothing for it to be a percentage of.
+type rect struct {
+	X      int `json:"x"`
+	Y      int `json:"y"`
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
+// pathValue is the outline a clipPath clips to. It is not a node — nothing is
+// drawn — so it carries the commands and nothing else.
+type pathValue struct {
+	Commands []command `json:"commands"`
+}
+
+// placed is one child of an absolute box.
+type placed struct {
+	Bounds rect     `json:"bounds"`
+	Node   *emitted `json:"node"`
+}
+
+// pixels writes a coordinate. A drawing may state one as a fraction and the
+// panel has no fractions, so it rounds — which is what any renderer does with
+// a coordinate finer than the thing it is drawing on.
+func pixels(value float64) int { return int(math.Round(value)) }
+
+// at is a point in a drawing's own coordinates.
+func at(x, y float64) *point { return &point{X: pixels(x), Y: pixels(y)} }
+
+// atFrame is a point written in a group's coordinates, put into the drawing's.
+func atFrame(frame svgFrame, x, y float64) *point {
+	placed, alsoPlaced := frame.place(x, y)
+	return at(placed, alsoPlaced)
 }
 
 type shape struct {

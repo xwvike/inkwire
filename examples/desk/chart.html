@@ -4,8 +4,8 @@
   A stylesheet has no way to ask for a polyline of ninety-six points, and it
   should not: the points are not something anyone writes by hand, they are
   what a generator produced from a series. So the page keeps the layout and
-  the scene element hands the drawing over, which is the division that was
-  there from the start and now has something to say it with.
+  an img naming an svg hands the drawing over, which is the division that was
+  there from the start and now has standard tags to say it with.
 -->
 <div class="page">
   <header>
@@ -15,7 +15,7 @@
 
   <main>
     <div class="plot">
-      <div class="frame"><scene src="chart-plot.json"></scene></div>
+      <div class="frame"><img src="chart-plot.svg"></div>
       <div class="axis"><span>09:30</span><span class="mid">12:00</span><span class="end">16:00</span></div>
     </div>
 

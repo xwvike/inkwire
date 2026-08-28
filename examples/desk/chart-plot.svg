@@ -1,0 +1,11 @@
+<!--
+  The intraday series, which nobody writes by hand: whatever produced it
+  produced these points too. The layout around it is a stylesheet, and this
+  is the drawing it hands over.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="214" height="74">
+  <polyline fill="none" stroke="black" stroke-width="1" stroke-dasharray="2 3"
+    points="0,66 213,66"/>
+  <polyline fill="none" stroke="red" stroke-width="1"
+    points="0,66 2,66 4,63 7,65 9,63 11,61 13,59 16,62 18,50 20,52 22,53 25,54 27,59 29,60 31,62 34,57 36,56 38,48 40,48 43,45 45,49 47,46 49,49 52,46 54,40 56,42 58,47 61,41 63,39 65,36 67,30 70,34 72,37 74,39 76,37 78,39 81,42 83,40 85,39 87,43 90,47 92,38 94,34 96,36 99,35 101,38 103,32 105,28 108,34 110,34 112,34 114,31 117,29 119,32 121,37 123,34 126,31 128,28 130,27 132,25 135,23 137,19 139,19 141,21 143,26 146,17 148,18 150,21 152,21 155,21 157,23 159,19 161,19 164,19 166,17 168,17 170,13 173,18 175,16 177,15 179,15 182,18 184,17 186,15 188,15 191,16 193,13 195,12 197,13 200,17 202,12 204,9 206,11 209,7 211,9 213,14"/>
+</svg>

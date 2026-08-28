@@ -28,16 +28,23 @@
 //
 // It is not for geometry. CSS has no vocabulary for an arc, a polygon or a
 // repeating pattern, and giving it one would mean inventing a dialect that
-// looks like CSS and is not. Those are described by a scene document, and a
-// page embeds one with a scene element:
+// looks like CSS and is not. SVG is that vocabulary, already standard and
+// already what every drawing tool exports, and it goes in the page:
 //
-//	<scene src="plot.json"></scene>
+//	<svg viewBox="0 0 214 74"><polyline points="0,8 6,2 …"/></svg>
+//	<img src="plot.svg">
 //
 // which is how the intraday chart in examples/desk is written: a layout in
 // markup with ninety-six polyline points handed over, since nobody writes
-// those by hand and whatever produced the series produced them too. What the
-// element names is spliced in whole, so what leaves here is one self-contained
-// description rather than a description and a promise.
+// those by hand and whatever produced the series produced them too. An
+// external drawing is compiled in place, so what leaves here is one
+// self-contained description rather than a description and a promise.
+//
+// There was a scene element here once, which embedded a scene document in a
+// page. It was a tag nobody else has, describing geometry in a format nobody
+// else writes, and SVG turned out to reach every drawing node the schema has
+// — so it went, and with it the last thing in this package that a browser
+// would not recognise.
 //
 // The division is enforced rather than described. internal/compose carries a
 // table of which nodes belong to a page and which to a drawing, and a test

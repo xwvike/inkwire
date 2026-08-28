@@ -436,7 +436,7 @@ curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
 | `unsupported-ink` | 场景用了面板没有对应色层的墨水，已改画成黑色，每种墨水一条 |
 | `unsupported-declaration` | 页面用了本渲染器未实现的 CSS 属性或取值；直接忽略，不做近似 |
 | `unsupported-at-rule` | 页面用了 `@media` 之类的 at-rule；只有一块屏、一帧画面，没有可供选择的条件 |
-| `unresolved-scene` | `scene` 元素指向的图形读不出来；页面照常排版，那块留空 |
+| `unresolved-drawing` | `svg` 元素没说尺寸，或者里面没有本 build 画得出来的东西 |
 | `unresolved-image` | `img` 元素指向的图片读不出来 |
 | `no-stylesheet` | 这一页完全没有样式：没给样式表，页面里也没有 `style` 元素、`link` 和 `style` 属性 |
 | `unresolved-stylesheet` | `link` 元素指向的样式表读不出来 |
@@ -586,6 +586,7 @@ inkwire push -device 命令行墨水屏 examples/desk/tasks.html
 | 定位 | `position` `top` `right` `bottom` `left` `inset` `z-index` |
 | 绘制 | `background` `background-color` `color` `border` `border-width` `border-style` `border-color` `border-radius` `visibility` |
 | 裁剪与变换 | `overflow` `clip-path` `transform` `rotate` `scale` |
+| 绘制 | `fill` `stroke` `stroke-width` —— `svg` 元素里的形状用什么画；样式表压过呈现属性 |
 | 虚线 | `stroke-dasharray` `stroke-dashoffset` —— 用 SVG 的名字，因为虚线在别处就叫这个 |
 | 文本 | `font` `font-family` `font-size` `line-height` `text-align` `vertical-align` `white-space` |
 | 图片 | `object-fit` |
@@ -604,16 +605,35 @@ inkwire push -device 命令行墨水屏 examples/desk/tasks.html
 这些是直接没有，而不是拿别的东西凑。
 
 图形的缺席是另一回事。CSS 没有描述圆弧、多边形、图案、路径的词汇，硬给它造一套就是
-在造一门长得像 CSS 的方言。页面留住排版，把绘制交出去：
+在造一门长得像 CSS 的方言。SVG 就是这套词汇，本来就是标准，写进页面即可——内联，
+或者用 `img` 指过去：
 
 ```html
-<div class="frame"><scene src="chart-plot.json"></scene></div>
+<svg viewBox="0 0 214 74"><polyline points="0,8 6,2 12,8"/></svg>
+<div class="frame"><img src="chart-plot.svg"></div>
 ```
 
 `examples/desk/chart.html` 里那条九十六点的曲线就是这么画的：那些点本来就没人手写，
-生成序列的东西顺手就把它们生成了。`scene` 元素接受一个 `src`，或者写在标签里的描述，
-它指向的内容会被内联进页面编译出的文档——出来的是一份自包含的描述，也就是推给设备的
-那份东西。
+生成序列的东西顺手就把它们生成了。外部图形会就地编译进来，出来的是一份自包含的文档，
+也就是推给设备的那份东西。
+
+### 图形能说什么
+
+`rect` `circle` `ellipse` `line` `polyline` `polygon` `path` `g` `clipPath`
+`pattern` `defs` `title` `desc`，用 `fill` `stroke` `stroke-width`
+`stroke-dasharray` `stroke-dashoffset` 绘制，用 `clip-path` 裁剪。`path` 读完整的
+`d` 文法：`M L H V C S Q T A Z`、它们的相对形式、命令的隐式重复，以及平滑曲线
+省略掉的那个控制点。
+
+`transform` 被折进坐标里——`translate` 和整数 `scale` 可以，`rotate`、`skew`、
+`matrix` 不行，会被点名。`viewBox` 要么按整数倍放大，要么不放大。
+
+样式表压过呈现属性，跟 CSS 一致。这正是别人做的图能在这块屏上用起来的原因：形状原样
+保留，颜色用屏上有的墨重述。
+
+```css
+svg path { fill: black; }
+```
 
 没有什么会被悄悄丢掉。不认识的属性、不支持的取值、不属于三种墨的颜色、没有对应
 点阵的字号，每一样都会产生一条点名到元素和声明的警告。

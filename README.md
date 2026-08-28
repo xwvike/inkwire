@@ -468,7 +468,7 @@ Non-fatal.
 | `unsupported-ink` | The scene uses an ink the panel has no plane for; drawn black instead, one warning per ink |
 | `unsupported-declaration` | A page uses a CSS property or value this renderer does not implement; it was ignored, not approximated |
 | `unsupported-at-rule` | A page uses an at-rule such as `@media`; there is one panel and one frame, so there is nothing to select on |
-| `unresolved-scene` | A `scene` element named a drawing that could not be read; the page laid out with a hole where it was |
+| `unresolved-drawing` | An `svg` element that states no size, or has nothing in it this build can draw |
 | `unresolved-image` | An `img` element named a picture that could not be read |
 | `no-stylesheet` | The page has no style at all: no stylesheet was given, and it carries no `style` element, no `link` and no `style` attribute |
 | `unresolved-stylesheet` | A `link` element named a stylesheet that could not be read |
@@ -629,6 +629,7 @@ text once the ones a panel has no use for are taken out.
 | Position | `position` `top` `right` `bottom` `left` `inset` `z-index` |
 | Paint | `background` `background-color` `color` `border` `border-width` `border-style` `border-color` `border-radius` `visibility` |
 | Clipping and transform | `overflow` `clip-path` `transform` `rotate` `scale` |
+| Drawing | `fill` `stroke` `stroke-width` — what a shape in an `svg` element is painted with, and a stylesheet outranks the attribute |
 | Dashes | `stroke-dasharray` `stroke-dashoffset` — SVG's names, because a dashed line is called that everywhere else |
 | Text | `font` `font-family` `font-size` `line-height` `text-align` `vertical-align` `white-space` |
 | Image | `object-fit` |
@@ -650,19 +651,39 @@ overflow to scroll. Those are absent rather than approximated.
 
 Geometry is absent for a different reason. CSS has no vocabulary for an arc, a
 polygon, a pattern or a path, and giving it one would be inventing a dialect
-that looks like CSS and is not. A page keeps the layout and hands the drawing
-over:
+that looks like CSS and is not. SVG is that vocabulary, already standard, and
+it goes in the page — inline, or named by an `img`:
 
 ```html
-<div class="frame"><scene src="chart-plot.json"></scene></div>
+<svg viewBox="0 0 214 74"><polyline points="0,8 6,2 12,8"/></svg>
+<div class="frame"><img src="chart-plot.svg"></div>
 ```
 
 which is how `examples/desk/chart.html` draws a ninety-six point series: the
 points are not something anyone writes by hand, and whatever produced the
-series produced them too. A `scene` element takes a `src` or the description
-written inside it, and what it names is spliced into the document the page
-compiles to — so what comes out is one self-contained description, which is
-what a device is given.
+series produced them too. An external drawing is compiled in place, so what
+comes out is one self-contained document, which is what a device is given.
+
+### What a drawing can say
+
+`rect` `circle` `ellipse` `line` `polyline` `polygon` `path` `g` `clipPath`
+`pattern` `defs` `title` `desc`, painted with `fill` `stroke` `stroke-width`
+`stroke-dasharray` `stroke-dashoffset` and clipped with `clip-path`. A `path`
+reads the whole of the `d` grammar: `M L H V C S Q T A Z`, their relative
+forms, a command repeating without being written again, and the control point
+a smooth curve leaves out.
+
+A `transform` is folded into the coordinates, which a `translate` and a
+whole-number `scale` can be and a `rotate`, a `skew` or a `matrix` cannot —
+those are reported. A `viewBox` is magnified by a whole number or not at all.
+
+A stylesheet outranks a presentation attribute, as it does in CSS, which is
+what makes a drawing somebody else made usable: the shapes are kept and the
+colours are restated in terms the panel has.
+
+```css
+svg path { fill: black; }
+```
 
 Nothing is dropped quietly. An unknown property, an unsupported value, an ink
 that is not one of the three and a font size with no strike each produce a

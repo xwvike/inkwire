@@ -46,36 +46,25 @@ type compiler struct {
 	// once, and without this an element's unsupported declarations would be
 	// reported once per visit.
 	computedFor map[*html.Node]style
-	scenes      func(SceneRef) (json.RawMessage, error)
-}
-
-// SceneRef is what a scene element points at: a file, or the description
-// written inside it.
-type SceneRef struct {
-	// Src is the src attribute, empty when the description is inline.
-	Src string
-	// Inline is the element's own text, empty when Src is set.
-	Inline string
+	// clips are the clipPath elements the drawing being compiled defines,
+	// which is the one thing in a drawing that is named where it is written
+	// and used somewhere else.
+	clips map[string]*html.Node
+	// patterns are the same, for the element that says what a fill tiles with.
+	patterns map[string]*html.Node
+	drawings func(string) ([]byte, error)
 }
 
 // Compiler holds what compiling a page needs beyond the page itself.
 type Compiler struct {
-	// Scenes reads the description a scene element points at.
-	//
-	// A stylesheet can describe a box and put text or a picture in it; it has
-	// no vocabulary for an arc, a polygon or a pattern, and inventing one
-	// would be inventing a dialect. A scene document has that vocabulary
-	// already, so a page keeps the layout and hands the drawing over. The
-	// What it returns is the description as written, spliced into the
-	// document this compiler produces. Reading it is the caller's job rather
-	// than this package's, because which files may be read is a question
-	// about where the page came from and not about what it says.
-	Scenes func(reference SceneRef) (json.RawMessage, error)
 	// Stylesheets reads what a link element points at, for the same reason
-	// and on the same terms as Scenes. Without one a link is reported rather
+	// and on the same terms as Drawings. Without one a link is reported rather
 	// than ignored, because a page whose stylesheet did not arrive lays out
 	// as almost nothing and the reason has to be findable.
 	Stylesheets func(href string) ([]byte, error)
+	// Drawings reads the file an img element names when that file is an svg,
+	// on the same terms as the other two.
+	Drawings func(src string) ([]byte, error)
 }
 
 // Compile turns one HTML document and one stylesheet into a scene document.
@@ -88,7 +77,7 @@ func (options Compiler) Compile(markup, css string) (Document, error) {
 	if err != nil {
 		return Document{}, fmt.Errorf("parse markup: %w", err)
 	}
-	c := &compiler{computedFor: map[*html.Node]style{}, scenes: options.Scenes}
+	c := &compiler{computedFor: map[*html.Node]style{}, drawings: options.Drawings}
 	css, styled := c.gatherStyles(root, css, options.Stylesheets)
 	if strings.TrimSpace(css) == "" && !styled {
 		// Said here because here is where every source of style has been
@@ -335,10 +324,10 @@ func (c *compiler) element(node *html.Node, parent style, path string) (*emitted
 		return sized(&emitted{Type: "spacer"}, current), current
 	}
 
-	if node.Data == "scene" {
-		// Like an image, a scene is content rather than a container, and the
-		// element around it still sizes, clips and transforms it.
-		return sized(transformed(shaped(c.scene(node, path), current), current), current), current
+	if node.Namespace == svgNamespace && node.Data == "svg" {
+		// A drawing is content rather than a container, and the element around
+		// it still sizes, clips and transforms it.
+		return sized(transformed(shaped(c.svg(node, current, path), current), current), current), current
 	}
 	if node.Data == "img" {
 		// An image is content rather than a container, but it is still an
@@ -467,51 +456,6 @@ func sized(node *emitted, s style) *emitted {
 	return &emitted{Type: "stack", Size: sizeOf(size), Children: []*emitted{node}}
 }
 
-// scene splices in the drawing a scene element points at.
-//
-// What comes back is the description itself rather than anything built from
-// it, so a page that embeds a plot leaves here as one document. That is what
-// a device is given, and it is also what makes the geometry the resolver
-// returns subject to exactly the checks every other node is: it is read by
-// the same decoder, in the same pass, after this package has finished.
-func (c *compiler) scene(node *html.Node, path string) *emitted {
-	reference := SceneRef{Src: attribute(node, "src")}
-	if reference.Src == "" {
-		reference.Inline = strings.TrimSpace(textContent(node))
-	}
-	if reference.Src == "" && reference.Inline == "" {
-		c.warn(path, "unresolved-scene", "a scene element needs a src or a description inside it")
-		return nil
-	}
-	if c.scenes == nil {
-		c.warn(path, "unresolved-scene", fmt.Sprintf(
-			"scene %s was not drawn: this compiler was given no way to resolve one", reference.describe()))
-		return nil
-	}
-	resolved, err := c.scenes(reference)
-	if err != nil {
-		c.warn(path, "unresolved-scene", fmt.Sprintf("scene %s: %v", reference.describe(), err))
-		return nil
-	}
-	if len(resolved) == 0 {
-		c.warn(path, "unresolved-scene", fmt.Sprintf("scene %s resolved to nothing", reference.describe()))
-		return nil
-	}
-	if !json.Valid(resolved) {
-		c.warn(path, "unresolved-scene", fmt.Sprintf("scene %s is not a description: %s",
-			reference.describe(), "the resolver returned something that is not JSON"))
-		return nil
-	}
-	return &emitted{Raw: resolved}
-}
-
-func (r SceneRef) describe() string {
-	if r.Src != "" {
-		return fmt.Sprintf("src=%q", r.Src)
-	}
-	return "written inline"
-}
-
 // textContent gathers an element's text without any of the white-space
 // handling the layout needs, because a description is read rather than drawn.
 func textContent(node *html.Node) string {
@@ -541,11 +485,71 @@ func (c *compiler) image(node *html.Node, current style, path string) *emitted {
 		c.warn(path, "unsupported-declaration", "img has no src")
 		return nil
 	}
+	// An img naming a drawing is a drawing, which is what the tag means
+	// everywhere else. It is compiled here rather than left for the decoder
+	// because a drawing is markup and the decoder reads documents.
+	if strings.EqualFold(pathExtension(source), ".svg") {
+		return c.externalDrawing(source, current, path)
+	}
 	picture := &emitted{Type: "image", Source: source, Processing: "auto"}
 	if current.objectFit != nil {
 		picture.Overrides = &overrides{Fit: fitName(*current.objectFit)}
 	}
 	return picture
+}
+
+// externalDrawing compiles a drawing that sits in its own file.
+//
+// It is read through the same resolver a stylesheet is, and for the same
+// reason: which files may be read is a question about where the page came
+// from, and this package does not know that.
+func (c *compiler) externalDrawing(source string, current style, path string) *emitted {
+	if c.drawings == nil {
+		c.warn(path, "unresolved-drawing", fmt.Sprintf(
+			"img src=%q was not drawn: this compiler was given no way to read one", source))
+		return nil
+	}
+	read, err := c.drawings(source)
+	if err != nil {
+		c.warn(path, "unresolved-drawing", fmt.Sprintf("img src=%q: %v", source, err))
+		return nil
+	}
+	root, err := html.Parse(strings.NewReader(string(read)))
+	if err != nil {
+		c.warn(path, "unresolved-drawing", fmt.Sprintf("img src=%q: %v", source, err))
+		return nil
+	}
+	element := findSVG(root)
+	if element == nil {
+		c.warn(path, "unresolved-drawing", fmt.Sprintf("img src=%q holds no svg element", source))
+		return nil
+	}
+	return c.svg(element, current, fmt.Sprintf("%s<%s>", path, source))
+}
+
+// findSVG is the drawing inside a file that holds one, which the HTML parser
+// will have put in the body whatever the file looked like.
+func findSVG(node *html.Node) *html.Node {
+	if node.Type == html.ElementNode && node.Namespace == svgNamespace && node.Data == "svg" {
+		return node
+	}
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if found := findSVG(child); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+// pathExtension is the suffix of a src, without needing the file to exist or
+// this package to know what a path is.
+func pathExtension(source string) string {
+	dot := strings.LastIndexByte(source, '.')
+	slash := strings.LastIndexAny(source, "/\\")
+	if dot < 0 || dot < slash {
+		return ""
+	}
+	return source[dot:]
 }
 
 // children lays out an element's children, choosing between a run of text and

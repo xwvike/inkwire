@@ -30,7 +30,7 @@ func TestEveryFieldThisPackageWritesIsAFieldTheSchemaReads(t *testing.T) {
 	}
 	written := map[string]string{}
 	for _, emitted := range []any{document{}, emitted{}, size{}, insets{}, stroke{}, run{},
-		overrides{}, point{}, shape{}, layoutChild{}, gridChild{}, anchor{}} {
+		overrides{}, point{}, shape{}, rect{}, placed{}, pathValue{}, layoutChild{}, gridChild{}, anchor{}} {
 		structure := reflect.TypeOf(emitted)
 		for index := range structure.NumField() {
 			tag, ok := structure.Field(index).Tag.Lookup("json")

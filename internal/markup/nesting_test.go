@@ -1,8 +1,6 @@
 package markup
 
 import (
-	"encoding/json"
-	"fmt"
 	"image"
 	"os"
 	"strings"
@@ -152,16 +150,11 @@ func TestBareTextInAGridTakesACell(t *testing.T) {
 
 // A stylesheet has no way to ask for a polyline of ninety-six points, and it
 // should not: those points are not written by hand, they are what a generator
-// produced from a series. The scene element is where the page stops describing
-// and hands the drawing over.
-func TestASceneElementDrawsWhatCSSCannotDescribe(t *testing.T) {
+// produced from a series. An img naming a drawing is where the page stops
+// describing and hands it over.
+func TestADrawingBesideThePageIsDrawn(t *testing.T) {
 	const dir = "../../examples/desk/"
-	resolver := Compiler{Scenes: func(reference SceneRef) (json.RawMessage, error) {
-		if reference.Src == "" {
-			return json.RawMessage(reference.Inline), nil
-		}
-		return os.ReadFile(dir + reference.Src)
-	}}
+	resolver := Compiler{Drawings: func(src string) ([]byte, error) { return os.ReadFile(dir + src) }}
 	document, err := resolver.Compile(
 		string(readPage(t, dir, "chart", ".html")), string(readPage(t, dir, "chart", ".css")))
 	if err != nil {
@@ -182,36 +175,11 @@ func TestASceneElementDrawsWhatCSSCannotDescribe(t *testing.T) {
 	for _, warning := range plain.Warnings {
 		said += warning.Message
 	}
-	if !strings.Contains(said, "chart-plot.json") {
-		t.Errorf("an unresolvable scene was not reported by name: %q", said)
+	if !strings.Contains(said, "chart-plot.svg") {
+		t.Errorf("an unreadable drawing was not reported by name: %q", said)
 	}
 	if bare := inkOfIn(t, dir, plain); bare >= drawn {
 		t.Errorf("the page without its plot drew %d pixels and the one with it %d", bare, drawn)
-	}
-}
-
-// A description written inside the element works as well as one in a file,
-// which is what a generator emitting a whole page in one piece needs.
-func TestAnInlineSceneIsDrawn(t *testing.T) {
-	resolver := Compiler{Scenes: func(reference SceneRef) (json.RawMessage, error) {
-		if reference.Src != "" {
-			return nil, fmt.Errorf("expected the description inline, got src=%q", reference.Src)
-		}
-		return json.RawMessage(reference.Inline), nil
-	}}
-	document, err := resolver.Compile(
-		`<div class="page"><scene>{"type":"circle","center":{"x":25,"y":25},`+
-			`"radius":20,"fill":"black"}</scene></div>`,
-		`.page { display: flex; width: 60px; height: 60px; background: white; }
-		 scene { display: block; flex-grow: 1; }`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, warning := range document.Warnings {
-		t.Errorf("warning: %s", warning.Message)
-	}
-	if drawn := inkOf(t, document); drawn == 0 {
-		t.Error("the inline scene drew nothing")
 	}
 }
 

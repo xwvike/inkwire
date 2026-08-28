@@ -823,18 +823,17 @@ type payload struct {
 // which is the same rule the decoder applies to a picture: a request carries
 // what it needs, and reaches no further.
 func compilePage(sent payload) ([]byte, []compose.Warning, error) {
-	compiler := markup.Compiler{
-		Scenes: func(reference markup.SceneRef) (json.RawMessage, error) {
-			if reference.Src == "" {
-				return json.RawMessage(reference.Inline), nil
-			}
-			embedded, ok := sent.resources[reference.Src]
-			if !ok {
-				return nil, fmt.Errorf("no part named %q was sent with this page", reference.Src)
-			}
-			return embedded, nil
-		},
+	// A page reaches the parts sent with it and nothing else, which is the
+	// same rule the decoder applies to a picture: a request carries what it
+	// needs, and reaches no further.
+	sent_ := func(name string) ([]byte, error) {
+		part, ok := sent.resources[name]
+		if !ok {
+			return nil, fmt.Errorf("no part named %q was sent with this page", name)
+		}
+		return part, nil
 	}
+	compiler := markup.Compiler{Stylesheets: sent_, Drawings: sent_}
 	compiled, err := compiler.Compile(string(sent.page), string(sent.stylesheet))
 	warnings := make([]compose.Warning, 0, len(compiled.Warnings))
 	for _, warning := range compiled.Warnings {

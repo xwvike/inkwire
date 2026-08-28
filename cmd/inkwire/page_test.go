@@ -42,26 +42,40 @@ func TestRenderAndMeasureTakeAPageAsWellAsAScene(t *testing.T) {
 	}
 }
 
-// The geometry a stylesheet has no words for is handed to a scene element, and
-// the resolver that reads one is the CLI's job rather than the compiler's. It
-// is worth a test of its own because a page whose scene did not resolve still
+// The geometry a stylesheet has no words for is an svg, and reading one that
+// sits in its own file is the CLI's job rather than the compiler's. It is
+// worth a test of its own because a page whose drawing did not resolve still
 // renders, so the failure is a picture with a hole in it rather than an error.
-func TestAPageDrawsTheSceneItPointsAt(t *testing.T) {
+func TestAPageDrawsTheDrawingItPointsAt(t *testing.T) {
 	directory := t.TempDir()
 	page := filepath.Join(directory, "page.html")
-	write(t, page, `<div class="page"><scene src="dot.json"></scene></div>`)
+	write(t, page, `<div class="page"><img src="dot.svg"></div>`)
 	write(t, filepath.Join(directory, "page.css"),
 		`.page { display: flex; width: 40px; height: 40px; background: white; }
-		 scene { display: block; flex-grow: 1; }`)
-	write(t, filepath.Join(directory, "dot.json"),
-		`{"type":"circle","center":{"x":20,"y":20},"radius":15,"fill":"black"}`)
+		 img { display: block; flex-grow: 1; }`)
+	write(t, filepath.Join(directory, "dot.svg"),
+		`<svg width="40" height="40"><circle cx="20" cy="20" r="15" fill="black"/></svg>`)
 
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"render", "-o", filepath.Join(directory, "page.png"), page}, &stdout, &stderr); code != 0 {
 		t.Fatalf("render code = %d, stderr = %s", code, stderr.String())
 	}
-	if strings.Contains(stdout.String(), "unresolved-scene") {
-		t.Errorf("the scene element was not resolved: %s", stdout.String())
+	said := stdout.String() + stderr.String()
+	if strings.Contains(said, "unresolved-drawing") {
+		t.Errorf("the drawing was not read: %s", said)
+	}
+
+	// And a drawing that is not beside the page is named rather than left as
+	// a hole nobody can account for.
+	missing := filepath.Join(directory, "missing.html")
+	write(t, missing, `<div class="page"><img src="gone.svg"></div>`)
+	write(t, filepath.Join(directory, "missing.css"),
+		`.page { display: flex; width: 40px; height: 40px; background: white; }`)
+	stdout.Reset()
+	stderr.Reset()
+	run([]string{"render", "-o", filepath.Join(directory, "missing.png"), missing}, &stdout, &stderr)
+	if !strings.Contains(stdout.String()+stderr.String(), "gone.svg") {
+		t.Errorf("the missing drawing was not named: %s", stdout.String()+stderr.String())
 	}
 }
 

@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -71,24 +70,16 @@ func compilePage(source string) ([]byte, []compose.Warning, error) {
 	var warnings []compose.Warning
 
 	base := filepath.Dir(source)
+	// A page reaches the files beside it and no further, which is the rule the
+	// decoder applies to a picture and the reason this is here rather than in
+	// the compiler: where a file may be read from is a question about the
+	// page's origin, not its contents.
+	beside := func(name string) ([]byte, error) {
+		return os.ReadFile(filepath.Join(base, filepath.Clean("/"+name)))
+	}
 	compiler := markup.Compiler{
-		Stylesheets: func(href string) ([]byte, error) {
-			return os.ReadFile(filepath.Join(base, filepath.Clean("/"+href)))
-		},
-		Scenes: func(reference markup.SceneRef) (json.RawMessage, error) {
-			if reference.Src == "" {
-				return json.RawMessage(reference.Inline), nil
-			}
-			// A page reaches the drawings beside it and no further, which is
-			// the rule the decoder applies to a picture and the reason this
-			// is here rather than in the compiler: where a file may be read
-			// from is a question about the page's origin, not its contents.
-			embedded, err := os.ReadFile(filepath.Join(base, filepath.Clean("/"+reference.Src)))
-			if err != nil {
-				return nil, err
-			}
-			return embedded, nil
-		},
+		Stylesheets: beside,
+		Drawings:    beside,
 	}
 	page, err := compiler.Compile(string(markupSource), string(cssSource))
 	for _, warning := range page.Warnings {

@@ -2,7 +2,6 @@ package markup
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"image/color"
 	"os"
@@ -64,12 +63,10 @@ func render(t *testing.T, markupSource, cssSource string) (*display.Frame, []War
 // — there is a document, and the only way to draw one is to decode it.
 func renderIn(t *testing.T, dir, markupSource, cssSource string) (*display.Frame, []Warning, compose.Report) {
 	t.Helper()
-	pages := Compiler{Scenes: func(reference SceneRef) (json.RawMessage, error) {
-		if reference.Src == "" {
-			return json.RawMessage(reference.Inline), nil
-		}
-		return os.ReadFile(dir + reference.Src)
-	}}
+	pages := Compiler{
+		Stylesheets: func(href string) ([]byte, error) { return os.ReadFile(dir + href) },
+		Drawings:    func(src string) ([]byte, error) { return os.ReadFile(dir + src) },
+	}
 	page, err := pages.Compile(markupSource, cssSource)
 	if err != nil {
 		t.Fatal(err)

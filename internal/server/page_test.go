@@ -67,19 +67,19 @@ func TestRenderTakesAPageAndItsStylesheet(t *testing.T) {
 	}
 }
 
-// The drawing a page hands over travels with it, under the name the scene
-// element uses. A page that names a part nobody sent is refused rather than
-// rendered with a hole in it.
+// The drawing a page hands over travels with it, under the name the img names
+// it by. Nothing here reads a file, so a page sent over the wire cannot name
+// one that was not sent too.
 func TestAPageReachesTheDrawingSentWithIt(t *testing.T) {
-	const withPlot = `<div class="page"><scene src="dot.json"></scene></div>`
+	const withPlot = `<div class="page"><img src="dot.svg"></div>`
 	const css = `.page { display: flex; width: 40px; height: 40px; background: white; }
-	             scene { display: block; flex-grow: 1; }`
+	             img { display: block; flex-grow: 1; }`
 	handler := New(Config{Logf: func(string, ...any) {}})
 
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, pageRequest(t, "/v1/render",
 		map[string]string{"page": withPlot, "stylesheet": css},
-		map[string]string{"dot.json": `{"type":"circle","center":{"x":20,"y":20},"radius":15,"fill":"black"}`}))
+		map[string]string{"dot.svg": `<svg width="40" height="40"><circle cx="20" cy="20" r="15" fill="black"/></svg>`}))
 	if response.Code != http.StatusOK {
 		t.Fatalf("code = %d, body = %s", response.Code, response.Body.String())
 	}
@@ -95,10 +95,10 @@ func TestAPageReachesTheDrawingSentWithIt(t *testing.T) {
 	if missing.Code != http.StatusOK {
 		t.Fatalf("a page naming a part nobody sent got %d: %s", missing.Code, missing.Body.String())
 	}
-	if !strings.Contains(missing.Body.String(), "dot.json") {
+	if !strings.Contains(missing.Body.String(), "dot.svg") {
 		t.Errorf("the missing part was not named in the report: %s", missing.Body.String())
 	}
-	if !strings.Contains(missing.Body.String(), "unresolved-scene") {
+	if !strings.Contains(missing.Body.String(), "unresolved-drawing") {
 		t.Errorf("the report carries no warning about it: %s", missing.Body.String())
 	}
 }
