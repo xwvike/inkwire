@@ -269,6 +269,14 @@ func (c *compiler) computed(node *html.Node, parent style, path string) style {
 	// which is how they inherit: an ancestor's declaration is in scope here
 	// because that ancestor matched too.
 	declared := c.variablesFor(node)
+	// A style attribute the parser refuses loses everything the author wrote
+	// in it, and saying nothing about that leaves them looking for a rule that
+	// never ran.
+	if _, err := inlineDeclarations(node); err != nil {
+		c.warn(path, "unreadable-rule", fmt.Sprintf(
+			"%s: the style attribute was skipped: %v. Everything the stylesheet says still applies",
+			describe(node), err))
+	}
 	for _, applied := range c.sheet.declarationsFor(node) {
 		property, value := applied.property, applied.value
 		if strings.Contains(value, "var(") {
@@ -280,9 +288,29 @@ func (c *compiler) computed(node *html.Node, parent style, path string) style {
 			}
 			value = substituted
 		}
-		current.apply(property, value, inherited, func(message string) {
+		// The whole parent style, not the inheriting subset: inherit means
+		// "take the parent's value" for any property, and display: inherit
+		// has to be able to see a display.
+		current.apply(property, value, parent, func(message string) {
 			c.warn(path, "unsupported-declaration", fmt.Sprintf("%s: %s", describe(node), message))
 		})
+	}
+	// A line-height written as a number is a ratio, and the font size it is a
+	// ratio of is only settled now that every declaration is in. Working it
+	// out as each declaration arrived made the answer depend on the order the
+	// two were written in.
+	if current.lineHeightMultiple > 0 {
+		current.lineHeight = int(float64(current.fontSize)*current.lineHeightMultiple + 0.5)
+		if current.lineHeightResolvesHere {
+			current.lineHeightMultiple, current.lineHeightResolvesHere = 0, false
+		}
+	}
+	// Taking an element out of the flow blockifies it, as it does in CSS.
+	// Without this an absolutely positioned span was still inline, so its
+	// parent read it as a line of text and its position, size and turn went
+	// with the box that was never built.
+	if current.absolute {
+		current.inline = false
 	}
 	c.computedFor[node] = current
 	return current
@@ -290,22 +318,26 @@ func (c *compiler) computed(node *html.Node, parent style, path string) style {
 
 // variablesFor gathers the custom properties in scope for one element: those
 // declared on it, and those declared on anything it descends from.
+//
+// Two orders are at work and they are not the same one. Between elements the
+// nearest wins outright, because that is what inheriting means, and the walk
+// goes outward so a name already set is left alone. Within one element the
+// ordinary cascade decides, which is what customFor runs: an id beats a class,
+// a later rule beats an earlier one of equal weight, the style attribute beats
+// every selector, and important beats all of it.
 func (c *compiler) variablesFor(node *html.Node) map[string]string {
 	declared := map[string]string{}
 	for ancestor := node; ancestor != nil; ancestor = ancestor.Parent {
 		if ancestor.Type != html.ElementNode {
 			continue
 		}
-		for _, candidate := range c.sheet.variables {
-			if !candidate.selector.Match(ancestor) {
-				continue
-			}
-			for _, applied := range candidate.declaration {
-				// The nearest declaration wins, and the walk goes outward, so
-				// only fill what is still empty.
-				if _, taken := declared[applied.property]; !taken {
-					declared[applied.property] = applied.value
-				}
+		here := map[string]string{}
+		for _, applied := range c.sheet.customFor(ancestor) {
+			here[applied.property] = applied.value
+		}
+		for name, value := range here {
+			if _, taken := declared[name]; !taken {
+				declared[name] = value
 			}
 		}
 	}
@@ -336,7 +368,7 @@ func (c *compiler) element(node *html.Node, parent style, path string) (*emitted
 		// portrait come out square without a word about it.
 		return sized(transformed(shaped(c.image(node, current, path), current), current), current), current
 	}
-	inner := c.children(node, current, path)
+	inner, insetAlready := c.children(node, current, path)
 	if inner == nil && current.background == nil && current.border == nil {
 		// An element with nothing to paint still has a box. Dropping it
 		// shifted everything after it along, which in a grid meant a spacer
@@ -346,9 +378,11 @@ func (c *compiler) element(node *html.Node, parent style, path string) (*emitted
 		inner = &emitted{Type: "spacer"}
 	}
 
-	// Padding wraps whatever the children produced.
-	if inner != nil && current.padding != (compose.Insets{}) {
-		inner = &emitted{Type: "padding", Insets: insetsOf(current.padding), Child: inner}
+	// Padding wraps whatever the children produced, unless they wrapped it
+	// themselves: a container with an absolutely positioned child insets the
+	// line and leaves the child alone, which is what padded does there.
+	if !insetAlready {
+		inner = padded(inner, current)
 	}
 
 	// A background and a border are layers under the content, which is what a
@@ -578,7 +612,11 @@ func pathExtension(source string) string {
 
 // children lays out an element's children, choosing between a run of text and
 // a flex line by what the children are.
-func (c *compiler) children(node *html.Node, current style, path string) *emitted {
+// children also reports whether it has already applied the element's padding,
+// which it does when it has laid an anchored layer over the content: an
+// absolutely positioned child is placed against the padding box and not inside
+// it, so the padding has to go round the line rather than round both.
+func (c *compiler) children(node *html.Node, current style, path string) (*emitted, bool) {
 	// A flex container lays out boxes, never a line of text, so the inline
 	// path is not even attempted for one.
 	if current.display != displayFlex {
@@ -592,7 +630,7 @@ func (c *compiler) children(node *html.Node, current style, path string) *emitte
 			return &emitted{Type: "text", Runs: runs,
 				Align:         horizontalAlignName(current.textAlign),
 				VerticalAlign: verticalAlignName(current.textVAlign),
-				Wrap:          wrapName(current.wrap), LineHeight: current.lineHeight}
+				Wrap:          wrapName(current.wrap), LineHeight: current.lineHeight}, false
 		}
 	}
 
@@ -608,15 +646,16 @@ func (c *compiler) children(node *html.Node, current style, path string) *emitte
 			"gap has no effect on a block container; it spaces flex and grid children")
 	}
 
-	flow := func(line *emitted) *emitted {
+	flow := func(line *emitted) (*emitted, bool) {
+		line = padded(line, current)
 		if len(placed) == 0 {
-			return line
+			return line, line != nil
 		}
 		layered := &emitted{Type: "anchored", Children: placed}
 		if line == nil {
-			return layered
+			return layered, true
 		}
-		return &emitted{Type: "stack", Children: []*emitted{line, layered}}
+		return &emitted{Type: "stack", Children: []*emitted{line, layered}}, true
 	}
 
 	if current.display == displayGrid {
@@ -653,6 +692,15 @@ func (c *compiler) children(node *html.Node, current style, path string) *emitte
 	return flow(&emitted{Type: "column", Children: items})
 }
 
+// padded insets an element's content, and is where the padding is applied for
+// every element that has any.
+func padded(inner *emitted, current style) *emitted {
+	if inner == nil || current.padding == (compose.Insets{}) {
+		return inner
+	}
+	return &emitted{Type: "padding", Insets: insetsOf(current.padding), Child: inner}
+}
+
 // anchorFor describes where a positioned child sits without deciding it. The
 // container's rectangle is only known once the layout runs, so the insets go
 // through as they were written and are resolved there.
@@ -679,6 +727,14 @@ type childBoxes struct {
 // itself for an element with display: contents, whose children belong to this
 // container rather than to a box of its own.
 func (c *compiler) appendChildren(node *html.Node, current style, path string, into *childBoxes) {
+	// The axis the children actually run along. direction only means anything
+	// on a flex container; a block container stacks down the page whatever it
+	// says, and reading direction straight off it left every block at the row
+	// default, which sent a left margin into the gap above the box.
+	flow := current.direction
+	if current.display != displayFlex {
+		flow = axisColumn
+	}
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
 		if child.Type == html.TextNode {
 			// Text sitting directly among boxes becomes a box of its own, as
@@ -689,7 +745,7 @@ func (c *compiler) appendChildren(node *html.Node, current style, path string, i
 				continue
 			}
 			anonymous := &emitted{Type: "text",
-				Runs:          []run{c.runOf(text, current, path)},
+				Runs:          plainRuns([]run{c.runOf(text, current, path)}),
 				VerticalAlign: verticalAlignName(current.textVAlign),
 				Wrap:          wrapName(current.wrap),
 				LineHeight:    current.lineHeight,
@@ -727,11 +783,11 @@ func (c *compiler) appendChildren(node *html.Node, current style, path string, i
 		// margin-left:auto on a row, or margin-top:auto on a column, pushes
 		// this child and everything after it to the far end. A spacer that
 		// takes all the slack is how compose says the same thing.
-		if (current.direction == axisRow && childStyle.autoLeft) ||
-			(current.direction == axisColumn && childStyle.autoTop) {
+		if (flow == axisRow && childStyle.autoLeft) ||
+			(flow == axisColumn && childStyle.autoTop) {
 			into.items = append(into.items, grower())
 		}
-		before, after, across := marginsAlong(childStyle, current.direction)
+		before, after, across := marginsAlong(childStyle, flow)
 		if across != (compose.Insets{}) {
 			compiled = &emitted{Type: "padding", Insets: insetsOf(across), Child: compiled}
 		}
@@ -742,8 +798,8 @@ func (c *compiler) appendChildren(node *html.Node, current style, path string, i
 		if after > 0 {
 			into.items = append(into.items, layoutChild{Node: &emitted{Type: "spacer"}, Basis: after})
 		}
-		if (current.direction == axisRow && childStyle.autoRight) ||
-			(current.direction == axisColumn && childStyle.autoBottom) {
+		if (flow == axisRow && childStyle.autoRight) ||
+			(flow == axisColumn && childStyle.autoBottom) {
 			into.items = append(into.items, grower())
 		}
 	}
@@ -823,6 +879,13 @@ func (c *compiler) layoutChild(node *emitted, child, parent style, path string) 
 	if child.basis.set {
 		item.Basis = lengthValue(lengthOf(child.basis))
 	}
+	// The margins across the flow are wrapped round the node as padding, so
+	// the item has to be that much bigger across or the padding pushes the
+	// box out of the room the item was given. marginsAlong fills only the two
+	// sides across the flow, which are exactly the two that were wrapped.
+	if _, _, across := marginsAlong(child, along); crossSize.set {
+		crossSize.pixels += float64(across.Top + across.Right + across.Bottom + across.Left)
+	}
 	item.Cross = lengthValue(lengthOf(crossSize))
 	item.MinMain, item.MaxMain = lengthValue(lengthOf(minMain)), lengthValue(lengthOf(maxMain))
 	item.MinCross, item.MaxCross = lengthValue(lengthOf(minCross)), lengthValue(lengthOf(maxCross))
@@ -843,7 +906,7 @@ func lengthOf(size length) compose.Length {
 // with boxes inside it is told from a box with words inside it.
 func (c *compiler) textRuns(node *html.Node, current style, path string) []run {
 	started := false
-	return c.collectRuns(node, current, path, &started)
+	return plainRuns(c.collectRuns(node, current, path, &started))
 }
 
 // collectRuns walks the inline content of an element. started is shared across

@@ -496,13 +496,34 @@ func tracksOf(tracks []compose.Track) []any {
 //
 // Black is left out because it is the default ink and a page of plain text
 // would otherwise say so on every line of itself.
+//
+// Every run names its family here even when it is the default one. A run that
+// leaves it out takes the family of the run before it, so a line reading
+// "<span class=at>07:30 </span>walk the dog" set the Chinese in the monospace
+// face the time was in and lost every glyph. plainRuns puts the omission back
+// when the whole line is default, which is most lines and the only case where
+// leaving it out says what it means.
 func (c *compiler) runOf(text string, s style, path string) run {
-	written := run{Text: text}
-	if s.fontFamily != display.DefaultFontFamily || s.fontSize != display.DefaultFontSize {
-		written.Font, written.Size = s.fontFamily, c.strike(s.fontFamily, s.fontSize, path)
-	}
+	written := run{Text: text,
+		Font: s.fontFamily, Size: c.strike(s.fontFamily, s.fontSize, path)}
 	if ink := inkName(s.color); ink != "black" {
 		written.Ink = ink
 	}
 	return written
+}
+
+// plainRuns drops the family and size from a line that is entirely in the
+// document's default, so an ordinary paragraph does not say so on every run of
+// itself. A line where any run differs keeps them on all of them, because that
+// is the case where an omission would be read as "the one before".
+func plainRuns(runs []run) []run {
+	for _, written := range runs {
+		if written.Font != display.DefaultFontFamily || written.Size != display.DefaultFontSize {
+			return runs
+		}
+	}
+	for i := range runs {
+		runs[i].Font, runs[i].Size = "", 0
+	}
+	return runs
 }

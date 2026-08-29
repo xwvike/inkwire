@@ -236,9 +236,15 @@ func (c *compiler) svgShape(node *html.Node, box rect, inherited svgPaint, frame
 		if !c.painted(shape, paint, path) {
 			return placed{}, false
 		}
+		// The box is a pixel wider and taller than twice the radius, because
+		// the drawing model measures a radius as half of one less than the
+		// span: the ellipse touches the last pixel inside the box rather than
+		// the edge of it. Twice the radius draws one a pixel small on each
+		// axis, which is the kind of wrong that only shows when the same
+		// picture is drawn both ways and compared.
 		return placed{Bounds: rect{
 			X: pixels(centreX - radiusX), Y: pixels(centreY - radiusY),
-			Width: pixels(radiusX * 2), Height: pixels(radiusY * 2)}, Node: shape}, true
+			Width: pixels(radiusX*2) + 1, Height: pixels(radiusY*2) + 1}, Node: shape}, true
 
 	case "line":
 		if paint.edge() == nil {

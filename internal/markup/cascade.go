@@ -138,7 +138,8 @@ func parseStylesheet(source string, report func(string, string)) (*stylesheet, e
 				continue
 			}
 			if len(custom) != 0 {
-				sheet.variables = append(sheet.variables, rule{selector: selector, declaration: custom})
+				sheet.variables = append(sheet.variables, rule{
+					selector: selector, order: len(sheet.variables), declaration: custom})
 			}
 			sheet.rules = append(sheet.rules, rule{
 				selector:    selector,
@@ -226,9 +227,33 @@ func atRules(source string) []string {
 // declarationsFor collects everything that applies to one element, in the
 // order it should be applied: matching rules weakest first, then the element's
 // own style attribute, which beats any selector.
+//
+// Custom properties are not here. They are declared with the same cascade and
+// read at a different time — a var() is resolved against the whole chain of
+// ancestors, not just this element — so they live in their own table and come
+// back through customFor.
 func (s *stylesheet) declarationsFor(node *html.Node) []declaration {
+	inline, _ := inlineDeclarations(node)
+	return cascade(s.rules, node, ordinary(inline))
+}
+
+// customFor collects the custom properties declared on one element, cascaded
+// the same way everything else is. Without this the first rule in the file won
+// whatever its selector was, so an id could not override a class and a second
+// declaration of the same name did nothing.
+func (s *stylesheet) customFor(node *html.Node) []declaration {
+	inline, _ := inlineDeclarations(node)
+	return cascade(s.variables, node, custom(inline))
+}
+
+// cascade puts the declarations that apply to one element in the order they
+// should be applied: matching rules weakest first, then the style attribute,
+// then everything marked important in the same order again. The last write for
+// a property is the one that counts, which is what makes this an order rather
+// than a choice.
+func cascade(rules []rule, node *html.Node, inline []declaration) []declaration {
 	var matched []rule
-	for _, candidate := range s.rules {
+	for _, candidate := range rules {
 		if candidate.selector.Match(node) {
 			matched = append(matched, candidate)
 		}
@@ -248,31 +273,64 @@ func (s *stylesheet) declarationsFor(node *html.Node) []declaration {
 			}
 		}
 	}
-	declarations := normal
-	if inline := attribute(node, "style"); inline != "" {
-		// The parser drops the value of a final declaration that has no
-		// terminating semicolon, and a style attribute is usually written
-		// without one.
-		if !strings.HasSuffix(strings.TrimSpace(inline), ";") {
-			inline += ";"
+	for _, applied := range inline {
+		if applied.important {
+			important = append(important, applied)
+			continue
 		}
-		parsed, err := parser.ParseDeclarations(inline)
-		if err == nil {
-			for _, parsedDeclaration := range parsed {
-				inlineDeclaration := declaration{
-					property:  strings.ToLower(strings.TrimSpace(parsedDeclaration.Property)),
-					value:     strings.TrimSpace(parsedDeclaration.Value),
-					important: parsedDeclaration.Important,
-				}
-				if inlineDeclaration.important {
-					important = append(important, inlineDeclaration)
-					continue
-				}
-				declarations = append(declarations, inlineDeclaration)
-			}
+		normal = append(normal, applied)
+	}
+	return append(normal, important...)
+}
+
+// inlineDeclarations reads an element's style attribute. It returns what it
+// read and what stopped it, because a style attribute the parser refuses is a
+// silent loss of everything the author wrote in it.
+func inlineDeclarations(node *html.Node) ([]declaration, error) {
+	inline := attribute(node, "style")
+	if inline == "" {
+		return nil, nil
+	}
+	// The parser drops the value of a final declaration that has no
+	// terminating semicolon, and a style attribute is usually written
+	// without one.
+	if !strings.HasSuffix(strings.TrimSpace(inline), ";") {
+		inline += ";"
+	}
+	parsed, err := parser.ParseDeclarations(inline)
+	if err != nil {
+		return nil, err
+	}
+	declarations := make([]declaration, 0, len(parsed))
+	for _, parsedDeclaration := range parsed {
+		declarations = append(declarations, declaration{
+			property:  strings.ToLower(strings.TrimSpace(parsedDeclaration.Property)),
+			value:     strings.TrimSpace(parsedDeclaration.Value),
+			important: parsedDeclaration.Important,
+		})
+	}
+	return declarations, nil
+}
+
+// ordinary and custom split a run of declarations the way the stylesheet is
+// split: a name beginning with two dashes is a custom property and is read by
+// var(), everything else is a property this package implements or reports.
+func ordinary(declarations []declaration) []declaration {
+	return withNames(declarations, false)
+}
+
+func custom(declarations []declaration) []declaration {
+	return withNames(declarations, true)
+}
+
+func withNames(declarations []declaration, wantCustom bool) []declaration {
+	var kept []declaration
+	for _, applied := range declarations {
+		if strings.HasPrefix(applied.property, "--") == wantCustom {
+			kept = append(kept, applied)
 		}
 	}
-	return append(declarations, important...)
+	return kept
 }
 
 func attribute(node *html.Node, name string) string {

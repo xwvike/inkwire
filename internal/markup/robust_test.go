@@ -1,6 +1,7 @@
 package markup
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -137,5 +138,62 @@ func TestExtremeButWellFormedInputIsCompiled(t *testing.T) {
 				t.Errorf("did not compile: %v", err)
 			}
 		})
+	}
+}
+
+// Nothing an author can write in a declaration may bring the process down.
+// This matters more here than in most parsers: the server compiles a page it
+// was handed over HTTP, so a declaration is untrusted input and a panic is a
+// way to stop the machine from a stylesheet.
+//
+// "gap:;" was that. Several properties read the first word of their value, and
+// a value with no words at all reached them as an empty slice. The fix is a
+// single refusal at the top of apply, and this is what says so stays true for
+// whatever is added to the switch next.
+func TestNoDeclarationCanPanic(t *testing.T) {
+	properties := strings.Fields(`display width height min-width max-width min-height max-height
+		aspect-ratio box-sizing padding padding-top padding-right padding-bottom padding-left
+		margin margin-top margin-right margin-bottom margin-left flex flex-direction flex-basis
+		flex-grow gap row-gap column-gap align-items align-self justify-content justify-items
+		justify-self grid-template-columns grid-template-rows grid-column grid-row position top
+		right bottom left inset z-index background background-color color border border-width
+		border-style border-color border-radius visibility overflow clip-path transform rotate
+		transform-origin scale fill stroke stroke-width stroke-dasharray stroke-dashoffset font
+		font-family font-size line-height text-align vertical-align white-space object-fit`)
+	values := []string{"", " ", "/", "(", ")", "()", "calc(", "calc()", "calc(1px +", "-",
+		"0", "1", "-1", "px", "1px 2px 3px 4px 5px", ",", "a,b", "url(", "url(#)", "var(--x)",
+		"inset(", "circle(", "polygon(1px)", "rotate(", "repeat(", "repeat(1)", "span",
+		"span 0", "1 /", "/ 2", "1 / span", "auto auto auto auto auto", "\t\n", "'", "\"",
+		"1e999", "99999999999999999999", "NaN", "Inf", "#", "#0", "#00000000000"}
+	for _, property := range properties {
+		for _, value := range values {
+			func() {
+				defer func() {
+					if problem := recover(); problem != nil {
+						t.Errorf("%s: %q panicked: %v", property, value, problem)
+					}
+				}()
+				_, _ = Compile(`<div class="page"><span class="a">x</span></div>`,
+					fmt.Sprintf(`.page { display: flex; width: 40px; height: 20px; }
+					 .a { %s: %s }`, property, value))
+			}()
+		}
+	}
+}
+
+// An empty value is refused by name rather than ignored, so an author who left
+// a value out is told which property they left it out of.
+func TestAnEmptyValueIsReportedByName(t *testing.T) {
+	document, err := Compile(`<div class="page"><span>x</span></div>`,
+		`.page { display: flex; width: 40px; height: 20px; gap: ; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var said string
+	for _, warning := range document.Warnings {
+		said += warning.Message
+	}
+	if !strings.Contains(said, "gap") || !strings.Contains(said, "no value") {
+		t.Errorf("the empty gap was not reported: %q", said)
 	}
 }

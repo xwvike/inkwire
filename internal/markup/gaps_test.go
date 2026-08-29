@@ -745,3 +745,222 @@ func TestAnImageIsClippedAndTransformedLikeAnythingElse(t *testing.T) {
 		t.Errorf("the circle covers %.2f of the square, which is not a circle", ratio)
 	}
 }
+
+// A custom property is declared with the same cascade as everything else, and
+// read with the inheritance a var() needs. Both were wrong: the table was
+// searched in source order and the first match won, so an id could not beat a
+// class, a second declaration of a name did nothing, and a name set in a style
+// attribute was not in the table at all — it came back as an unknown property.
+func TestACustomPropertyCascadesLikeEveryOtherDeclaration(t *testing.T) {
+	tests := []struct {
+		name  string
+		body  string
+		css   string
+		want  display.Ink
+		other display.Ink
+	}{
+		{"an id beats a class",
+			`<i class="a" id="it"></i>`,
+			`.a { --x: red } #it { --x: black }`, display.InkBlack, display.InkRed},
+		{"the later of two equal rules wins",
+			`<i class="a"></i>`,
+			`.a { --x: red } .a { --x: black }`, display.InkBlack, display.InkRed},
+		{"a style attribute beats every selector",
+			`<i class="a" style="--x: black"></i>`,
+			`.a { --x: red }`, display.InkBlack, display.InkRed},
+		{"important beats a later declaration",
+			`<i class="a"></i>`,
+			`.a { --x: black !important } .a { --x: red }`, display.InkBlack, display.InkRed},
+		{"the nearer element beats the further one",
+			`<i class="a"></i>`,
+			`.page { --x: red } .a { --x: black }`, display.InkBlack, display.InkRed},
+		{"and it still inherits from an ancestor",
+			`<i class="a"></i>`,
+			`.page { --x: black }`, display.InkBlack, display.InkRed},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := boxes(t, test.body,
+				test.css+` .a { display: block; flex-grow: 1; background: var(--x); }`)
+			if got[test.want].Empty() {
+				t.Errorf("nothing was painted in the ink the cascade settles on")
+			}
+			if !got[test.other].Empty() {
+				t.Errorf("the box came out in the ink that should have been overridden")
+			}
+		})
+	}
+}
+
+// A style attribute the parser refuses loses every declaration in it, which is
+// exactly the case the package's own rule is about: applied or reported, never
+// neither.
+func TestAnUnreadableStyleAttributeIsReported(t *testing.T) {
+	document, err := Compile(`<div class="page"><span style="color: red; {{{ ">x</span></div>`,
+		`.page { display: flex; width: 60px; height: 20px; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var said string
+	for _, warning := range document.Warnings {
+		said += warning.Code + " " + warning.Message
+	}
+	if !strings.Contains(said, "style attribute") {
+		t.Errorf("the unreadable style attribute was not reported: %q", said)
+	}
+}
+
+// Yellow is the fourth ink, and three of the panels this drives are BWRY
+// parts. The stylesheet refused it while the schema, the drawing model and the
+// encoders all had it, so the only way to reach a colour the hardware has was
+// to stop writing pages and write a scene document.
+func TestYellowReachesEveryPlaceAnInkCanGo(t *testing.T) {
+	document, err := Compile(
+		`<div class="page"><span class="a">x</span>`+
+			`<svg width="10" height="10"><rect x="0" y="0" width="10" height="10"/></svg></div>`,
+		`.page { display: flex; width: 60px; height: 20px; background: yellow; }
+		 .a { flex-grow: 1; color: #ff0; font-family: monaco; font-size: 12px; }
+		 svg { display: block; }
+		 svg rect { fill: #ffff00; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, warning := range document.Warnings {
+		t.Errorf("yellow was reported: %s", warning.Message)
+	}
+	// A background fill, a text ink and a shape fill: the three places an ink
+	// is named, each spelled a different one of the three ways.
+	if count := strings.Count(string(document.JSON), `"yellow"`); count != 3 {
+		t.Errorf("the document names yellow %d times, want 3:\n%s", count, document.JSON)
+	}
+}
+
+// inherit and initial work on every property, not on the handful somebody had
+// needed. The rest did nothing at all and said nothing, which is the failure
+// this package exists to avoid: the author sees the earlier value still in
+// place and has no way to learn why.
+func TestInheritAndInitialWorkOnPropertiesThatDoNotInherit(t *testing.T) {
+	t.Run("initial clears a longhand the shorthand set", func(t *testing.T) {
+		document, err := Compile(`<div class="page"><i class="a"><b>x</b></i></div>`,
+			`.page { display: flex; width: 100px; height: 40px; }
+			 .a { flex-grow: 1; padding: 5px; padding-top: initial; }`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(strings.Join(strings.Fields(string(document.JSON)), ""),
+			`"top":0,"right":5,"bottom":5,"left":5`) {
+			t.Errorf("padding-top: initial left the padding alone:\n%s", document.JSON)
+		}
+	})
+
+	t.Run("inherit takes a display from the parent", func(t *testing.T) {
+		got := boxes(t, `<i class="outer"><i class="a"></i><i class="b"></i></i>`,
+			`.outer { display: flex; flex-grow: 1; }
+			 .a { display: block; display: inherit; flex-grow: 1; background: red; }
+			 .b { flex-grow: 1; background: black; }`)
+		// A flex row puts them side by side; a block would stack them.
+		if red, black := got[display.InkRed], got[display.InkBlack]; red.Max.X > black.Min.X {
+			t.Errorf("red %v and black %v overlap; the parent's display was not taken", red, black)
+		}
+	})
+
+	t.Run("initial shows a hidden box again", func(t *testing.T) {
+		got := boxes(t, `<i class="a"></i>`,
+			`.a { display: block; flex-grow: 1; background: red; visibility: hidden; visibility: initial; }`)
+		if got[display.InkRed].Empty() {
+			t.Error("visibility: initial left the box hidden")
+		}
+	})
+
+	// And a property this renderer does not implement says so rather than
+	// quietly accepting the keyword.
+	said := warningsFor(t, `<i class="a">x</i>`, ` .a { letter-spacing: inherit; }`)
+	if !strings.Contains(said, "letter-spacing") {
+		t.Errorf("inherit on an unimplemented property was accepted silently: %q", said)
+	}
+}
+
+// A length that has to be a whole number of pixels refuses a share of the box
+// by name. It used to take the pixel half of what it parsed, so "padding: 50%"
+// was padding: 0 and nothing said so.
+//
+// The paren-aware split that came with it is why "padding: calc(10px + 2px)"
+// works: a shorthand used to come apart on the spaces inside calc as well as
+// the ones between its sides.
+func TestASpacingLengthRefusesAShareAndAcceptsCalc(t *testing.T) {
+	for _, declaration := range []string{
+		"padding: 50%", "margin: 25%", "gap: 10%", "row-gap: 10%", "column-gap: 10%",
+		"border-radius: 50%", "border-width: 10%", "font-size: 50%", "padding-top: 50%",
+	} {
+		t.Run(declaration, func(t *testing.T) {
+			said := warningsFor(t, `<i class="a">x</i>`, ` .a { display: block; `+declaration+`; }`)
+			if !strings.Contains(said, "share of the box") {
+				t.Errorf("%q was taken silently: %q", declaration, said)
+			}
+		})
+	}
+
+	document, err := Compile(`<div class="page"><i class="a"><b>x</b></i></div>`,
+		`.page { display: flex; width: 100px; height: 40px; }
+		 .a { flex-grow: 1; padding: calc(10px + 2px); }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, warning := range document.Warnings {
+		t.Errorf("calc in a shorthand was reported: %s", warning.Message)
+	}
+	if !strings.Contains(strings.Join(strings.Fields(string(document.JSON)), ""),
+		`"top":12,"right":12,"bottom":12,"left":12`) {
+		t.Errorf("calc(10px + 2px) did not come to 12:\n%s", document.JSON)
+	}
+}
+
+// A line-height written as a number is a ratio, and a ratio is resolved
+// against the font size of the element it lands on. Resolved as each
+// declaration arrived, the answer depended on which of the two was written
+// first, and a child inherited its parent's pixels instead of its parent's
+// ratio.
+func TestLineHeightIsARatioUntilTheFontSizeIsSettled(t *testing.T) {
+	lineOf := func(t *testing.T, css string) string {
+		t.Helper()
+		document, err := Compile(`<div class="page"><i class="a">one<br>two</i></div>`,
+			`.page { display: flex; width: 120px; height: 60px; font-family: monaco; }`+css)
+		if err != nil {
+			t.Fatal(err)
+		}
+		written := strings.Join(strings.Fields(string(document.JSON)), "")
+		start := strings.Index(written, `"lineHeight":`)
+		if start < 0 {
+			t.Fatalf("no line height in\n%s", document.JSON)
+		}
+		end := start + len(`"lineHeight":`)
+		for end < len(written) && written[end] >= '0' && written[end] <= '9' {
+			end++
+		}
+		return written[start:end]
+	}
+	before := lineOf(t, ` .a { flex-grow: 1; line-height: 1.5; font-size: 20px; }`)
+	after := lineOf(t, ` .a { flex-grow: 1; font-size: 20px; line-height: 1.5; }`)
+	if before != after {
+		t.Errorf("the order changed the line: %s against %s", before, after)
+	}
+	if before != `"lineHeight":30` {
+		t.Errorf("1.5 of 20px came to %s, want 30", before)
+	}
+	// A percentage is the same ratio, said the way that stops being a ratio.
+	if shared := lineOf(t, ` .a { flex-grow: 1; line-height: 150%; font-size: 20px; }`); shared != before {
+		t.Errorf("150%% came to %s and 1.5 to %s", shared, before)
+	}
+
+	// The ratio travels; the pixels it came to do not.
+	if inherited := lineOf(t,
+		` .page { font-size: 10px; line-height: 2; } .a { flex-grow: 1; font-size: 20px; }`); inherited != `"lineHeight":40` {
+		t.Errorf("a child at 20px inheriting a ratio of 2 got %s, want 40", inherited)
+	}
+	// A percentage becomes a length where it is written, so the child gets
+	// the parent's pixels rather than the parent's ratio.
+	if inherited := lineOf(t,
+		` .page { font-size: 10px; line-height: 200%; } .a { flex-grow: 1; font-size: 20px; }`); inherited != `"lineHeight":20` {
+		t.Errorf("a child inheriting a resolved percentage got %s, want 20", inherited)
+	}
+}

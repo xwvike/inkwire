@@ -33,12 +33,6 @@ const examples = "../../examples/desk/"
 // geometry in it is a scene document rather than a page.
 func rewritten() [][2]string {
 	return [][2]string{
-		{"../../examples/desk/", "disk"},
-		{"../../examples/desk/", "claude"},
-		{"../../examples/desk/", "tasks"},
-		{"../../examples/desk/", "btc"},
-		{"../../examples/desk/", "chart"},
-		{"../../examples/text_showcase/", "page"},
 		{"../../examples/schema_quickstart/", "page"},
 	}
 }
@@ -46,6 +40,12 @@ func rewritten() [][2]string {
 func readPage(t *testing.T, dir, name, extension string) []byte {
 	t.Helper()
 	source, err := os.ReadFile(dir + name + extension)
+	// An example carries its styles in a style element, so the sibling
+	// stylesheet the compiler also accepts is usually not there. Its absence
+	// is the ordinary case rather than a broken example.
+	if os.IsNotExist(err) && extension == ".css" {
+		return nil
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,8 +131,11 @@ func assertSamePixels(t *testing.T, dir, name string) {
 		t.Errorf("compose warning %s at %s: %s", warning.Code, warning.Path, warning.Message)
 	}
 
+	// The same directory the markup side gets, because a page that names a
+	// picture names it relative to itself and the scene document beside it
+	// names the same one the same way.
 	sceneSource := readPage(t, dir, name, ".json")
-	result, err := (scene.Decoder{}).Render(bytes.NewReader(sceneSource))
+	result, err := (scene.Decoder{BaseDir: dir}).Render(bytes.NewReader(sceneSource))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -32,8 +32,14 @@ func TestTheShapesSVGAndTheSchemaBothHave(t *testing.T) {
 			`"type":"rectangle","radius":3,"fill":"red"`},
 		{"circle", `<circle cx="30" cy="20" r="8" fill="black"/>`,
 			`"type":"circle","radius":8,"fill":"black","center":{"x":30,"y":20}`},
+		// The box is a pixel wider and taller than twice the radius: the
+		// drawing model measures a radius as half of one less than the span,
+		// so an ellipse touches the last pixel inside its box rather than the
+		// edge of it. Twice the radius draws one a pixel small on each axis,
+		// which is what this used to do and what only showed when the same
+		// page was drawn both ways and the two were compared.
 		{"ellipse", `<ellipse cx="30" cy="20" rx="10" ry="5" fill="red"/>`,
-			`"bounds":{"x":20,"y":15,"width":20,"height":10},"node":{"type":"ellipse","fill":"red"}`},
+			`"bounds":{"x":20,"y":15,"width":21,"height":11},"node":{"type":"ellipse","fill":"red"}`},
 		{"line", `<line x1="0" y1="0" x2="60" y2="40" stroke="black"/>`,
 			`"type":"line","stroke":{"ink":"black","width":1},"from":{"x":0,"y":0},"to":{"x":60,"y":40}`},
 		{"polyline", `<polyline points="0,0 10,20 20,0" fill="none" stroke="red"/>`,
@@ -708,5 +714,27 @@ func TestAPatternThisCannotReadIsReported(t *testing.T) {
 				t.Errorf("nothing said %q; it said %q", want, said)
 			}
 		})
+	}
+}
+
+// SVG writes stroke-width without a unit, and a stylesheet that paints a shape
+// is usually one somebody moved out of the shape's own attributes. Refusing
+// the bare number made every rule copied across a file stop working with a
+// message about pixels, which is the shape of a front end that is technically
+// right and useless.
+func TestAUnitlessStrokeWidthIsPixels(t *testing.T) {
+	page, err := Compile(
+		`<div class="page"><svg width="60" height="40"><rect x="4" y="6" width="20" height="10"/></svg></div>`,
+		`.page { display: flex; width: 60px; height: 40px; }
+		 svg { display: block; flex-grow: 1; }
+		 rect { fill: none; stroke: black; stroke-width: 3; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, warning := range page.Warnings {
+		t.Errorf("stroke-width: 3 was reported: %s", warning.Message)
+	}
+	if written := strings.Join(strings.Fields(string(page.JSON)), ""); !strings.Contains(written, `"width":3`) {
+		t.Errorf("the stroke is not three pixels:\n%s", page.JSON)
 	}
 }

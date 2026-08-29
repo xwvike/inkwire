@@ -71,12 +71,24 @@ type style struct {
 	textAlign  display.HorizontalAlign
 	textVAlign display.VerticalAlign
 	lineHeight int
-	wrap       display.WrapMode
-	preserve   bool
-	clip       bool
-	clipShape  compose.Shape
-	hidden     bool
-	dashed     bool
+	// lineHeightMultiple is a line-height written as a bare number. CSS keeps
+	// the number rather than the length it comes to, because it is resolved
+	// against each element's own font size — so it survives here as the number
+	// and is worked out once the declarations are all in. Written as pixels
+	// straight away, "line-height: 1.5; font-size: 20px" and the same two the
+	// other way round gave different lines, and a child inherited its parent's
+	// pixels rather than its parent's ratio.
+	lineHeightMultiple float64
+	// A percentage is a multiple that is resolved on this element and inherits
+	// as the length it came to, which is where CSS parts company with the bare
+	// number.
+	lineHeightResolvesHere bool
+	wrap                   display.WrapMode
+	preserve               bool
+	clip                   bool
+	clipShape              compose.Shape
+	hidden                 bool
+	dashed                 bool
 	// dash is the pattern a stylesheet stated. Empty means the one a dashed
 	// border gets when nobody says: a mark three times the border's width
 	// and a gap twice it, which reads as dashes at any width.
@@ -151,8 +163,11 @@ func (s style) inherited() style {
 		textAlign:   s.textAlign,
 		textVAlign:  s.textVAlign,
 		lineHeight:  s.lineHeight,
-		wrap:        s.wrap,
-		preserve:    s.preserve,
+		// The ratio travels, not the pixels it came to: a child with its own
+		// font size gets its own line from the same ratio.
+		lineHeightMultiple: s.lineHeightMultiple,
+		wrap:               s.wrap,
+		preserve:           s.preserve,
 	}
 }
 
@@ -170,17 +185,25 @@ func rootStyle() style {
 
 // apply folds one declaration into the style, reporting anything it cannot
 // honour rather than dropping it.
-func (s *style) apply(property, value string, inherited style, report func(string)) {
+func (s *style) apply(property, value string, parent style, report func(string)) {
 	value = strings.TrimSpace(value)
+	// A declaration with nothing after the colon says nothing, and no property
+	// here has a meaning for it. Refusing it once is also what keeps the
+	// parsers below from having to: several of them read the first word of the
+	// value, and "gap:;" reached them as no words at all.
+	if value == "" {
+		report(fmt.Sprintf("%s: there is no value after the colon", property))
+		return
+	}
 	// inherit takes the parent's value, which is not the same as leaving the
 	// field alone: an earlier declaration on this element may already have
 	// changed it. initial and unset return the property to its own default.
 	switch value {
 	case "inherit":
-		s.inheritOne(property, inherited)
+		s.inheritOne(property, parent, report)
 		return
 	case "initial", "unset", "revert":
-		s.reset(property)
+		s.reset(property, report)
 		return
 	}
 	switch property {
@@ -227,19 +250,39 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 		s.grow = parseNumber(value, property, report)
 	case "gap":
 		fields := strings.Fields(value)
-		s.rowGap = parseLength(fields[0], property, report).px()
+		if len(fields) == 0 {
+			report(fmt.Sprintf("gap: %q is not a length", value))
+			return
+		}
+		rowGap, ok := wholeLength(fields[0], property, report)
+		if !ok {
+			return
+		}
+		s.rowGap = rowGap
 		s.columnGap = s.rowGap
 		if len(fields) > 1 {
-			s.columnGap = parseLength(fields[1], property, report).px()
+			columnGap, ok := wholeLength(fields[1], property, report)
+			if !ok {
+				return
+			}
+			s.columnGap = columnGap
 		}
 		s.gap = s.rowGap
 		s.gapSet = true
 	case "row-gap":
-		s.rowGap = parseLength(value, property, report).px()
+		rowGap, ok := wholeLength(value, property, report)
+		if !ok {
+			return
+		}
+		s.rowGap = rowGap
 		s.gap = s.rowGap
 		s.gapSet = true
 	case "column-gap":
-		s.columnGap = parseLength(value, property, report).px()
+		columnGap, ok := wholeLength(value, property, report)
+		if !ok {
+			return
+		}
+		s.columnGap = columnGap
 		s.gapSet = true
 	case "grid-template-columns":
 		s.columns = parseTracks(value, property, report)
@@ -274,10 +317,26 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 				report(fmt.Sprintf("line-height: %s must be more than zero", value))
 				return
 			}
-			s.lineHeight = int(float64(s.fontSize)*multiple + 0.5)
+			s.lineHeightMultiple, s.lineHeightResolvesHere = multiple, false
 			return
 		}
-		s.lineHeight = parseLength(value, property, report).px()
+		// A percentage is the same ratio said differently, and is the one
+		// spelling of it that stops being a ratio on the element it is on.
+		if size := parseLength(value, property, report); size.set && size.percent != 0 {
+			if size.pixels != 0 {
+				report(fmt.Sprintf("line-height: %s must be a share or a length, not both", value))
+				return
+			}
+			if size.percent <= 0 {
+				report(fmt.Sprintf("line-height: %s must be more than zero", value))
+				return
+			}
+			s.lineHeightMultiple, s.lineHeightResolvesHere = size.percent/100, true
+			return
+		}
+		if pixels, ok := wholeLength(value, property, report); ok {
+			s.lineHeight, s.lineHeightMultiple = pixels, 0
+		}
 	case "white-space":
 		// The two questions white-space answers are whether runs of spaces
 		// survive and whether a long line wraps, and the values are the four
@@ -336,7 +395,9 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 			s.alignSelf = &cross
 		}
 	case "border-width":
-		s.borderStyle().width = parseLength(value, property, report).px()
+		if width, ok := wholeLength(value, property, report); ok {
+			s.borderStyle().width = width
+		}
 	case "border-style":
 		switch value {
 		case "solid":
@@ -366,7 +427,10 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 		}
 		s.setPaint(property, &paint{ink: ink})
 	case "stroke-width":
-		width := parseLength(value, property, report)
+		// SVG writes this one without a unit, and a stylesheet that names a
+		// shape is usually a stylesheet somebody moved out of the shape's own
+		// attributes. A bare number means pixels here as it does there.
+		width := parseLength(bareNumberInPixels(value), property, report)
 		if !width.fixed() {
 			return
 		}
@@ -423,6 +487,10 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 		// Only a whole number: half a pixel has no meaning on a panel with
 		// nothing between set and unset.
 		fields := strings.Fields(value)
+		if len(fields) == 0 {
+			report(fmt.Sprintf("scale: %q is not a number", value))
+			return
+		}
 		factor, err := strconv.Atoi(fields[0])
 		if err != nil || factor < 1 {
 			report(fmt.Sprintf(
@@ -509,7 +577,7 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 	case "left":
 		s.inset[3] = parseLength(value, property, report)
 	case "inset":
-		sides := parseInsets(value, report)
+		sides := parseInsets(value, property, report)
 		s.inset = [4]length{
 			{set: true, pixels: float64(sides.Top)},
 			{set: true, pixels: float64(sides.Right)},
@@ -541,43 +609,59 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 			}
 		}
 	case "padding":
-		s.padding = parseInsets(value, report)
+		s.padding = parseInsets(value, property, report)
 	case "padding-top":
-		s.padding.Top = parseLength(value, property, report).px()
+		if pixels, ok := wholeLength(value, property, report); ok {
+			s.padding.Top = pixels
+		}
 	case "padding-right":
-		s.padding.Right = parseLength(value, property, report).px()
+		if pixels, ok := wholeLength(value, property, report); ok {
+			s.padding.Right = pixels
+		}
 	case "padding-bottom":
-		s.padding.Bottom = parseLength(value, property, report).px()
+		if pixels, ok := wholeLength(value, property, report); ok {
+			s.padding.Bottom = pixels
+		}
 	case "padding-left":
-		s.padding.Left = parseLength(value, property, report).px()
+		if pixels, ok := wholeLength(value, property, report); ok {
+			s.padding.Left = pixels
+		}
 	case "margin":
 		// The shorthand cannot express auto alignment, which is what the
 		// longhands are for; this is spacing only.
-		s.margin = parseInsets(value, report)
+		s.margin = parseInsets(value, property, report)
 	case "margin-left":
 		if value == "auto" {
 			s.autoLeft = true
 			return
 		}
-		s.margin.Left = parseLength(value, property, report).px()
+		if pixels, ok := wholeLength(value, property, report); ok {
+			s.margin.Left = pixels
+		}
 	case "margin-right":
 		if value == "auto" {
 			s.autoRight = true
 			return
 		}
-		s.margin.Right = parseLength(value, property, report).px()
+		if pixels, ok := wholeLength(value, property, report); ok {
+			s.margin.Right = pixels
+		}
 	case "margin-top":
 		if value == "auto" {
 			s.autoTop = true
 			return
 		}
-		s.margin.Top = parseLength(value, property, report).px()
+		if pixels, ok := wholeLength(value, property, report); ok {
+			s.margin.Top = pixels
+		}
 	case "margin-bottom":
 		if value == "auto" {
 			s.autoBottom = true
 			return
 		}
-		s.margin.Bottom = parseLength(value, property, report).px()
+		if pixels, ok := wholeLength(value, property, report); ok {
+			s.margin.Bottom = pixels
+		}
 	case "min-width":
 		s.minSize[0] = parseLength(value, property, report)
 	case "max-width":
@@ -601,7 +685,10 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 	case "border":
 		s.border = parseBorder(value, s.border, report)
 	case "border-radius":
-		radius := parseLength(value, property, report).px()
+		radius, ok := wholeLength(value, property, report)
+		if !ok {
+			return
+		}
 		if s.border == nil {
 			s.border = &border{}
 		}
@@ -613,7 +700,7 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 		// line is taken apart for them rather than refused whole. Refusing it
 		// dropped a size and a family this renderer has, on account of a
 		// weight it does not.
-		s.applyFontShorthand(value, property, inherited, report)
+		s.applyFontShorthand(value, property, parent, report)
 	case "font-family":
 		// A stack, as CSS writes one, and the first name this build has wins
 		// — which is what a browser does with it. An author writing
@@ -635,7 +722,9 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 		}
 		s.fontFamily = chosen
 	case "font-size":
-		s.fontSize = parseLength(value, property, report).px()
+		if pixels, ok := wholeLength(value, property, report); ok {
+			s.fontSize = pixels
+		}
 	case "vertical-align":
 		// CSS gives this meaning inside a table cell: where the content sits
 		// in a box taller than itself. A fixed-height row here is the same
@@ -673,7 +762,7 @@ func (s *style) apply(property, value string, inherited style, report func(strin
 // the size, so the first field that reads as a length is the size and whatever
 // follows it is the family. A line height may be attached to the size with a
 // slash, which is where the one in "13px/1.4" is.
-func (s *style) applyFontShorthand(value, property string, inherited style, report func(string)) {
+func (s *style) applyFontShorthand(value, property string, parent style, report func(string)) {
 	fields := strings.Fields(value)
 	for index, field := range fields {
 		size, height, _ := strings.Cut(field, "/")
@@ -688,11 +777,11 @@ func (s *style) applyFontShorthand(value, property string, inherited style, repo
 		if dropped := strings.Join(fields[:index], " "); dropped != "" {
 			report(fmt.Sprintf("font: %s was ignored; this renderer has one weight and one slant", dropped))
 		}
-		s.apply("font-size", size, inherited, report)
+		s.apply("font-size", size, parent, report)
 		if height != "" {
-			s.apply("line-height", height, inherited, report)
+			s.apply("line-height", height, parent, report)
 		}
-		s.apply("font-family", strings.Join(fields[index+1:], " "), inherited, report)
+		s.apply("font-family", strings.Join(fields[index+1:], " "), parent, report)
 		return
 	}
 	report(fmt.Sprintf("font: %s states no size; a size and a family are the whole of what this reads", value))
@@ -802,6 +891,17 @@ func wholePixels(field string) (int, bool) {
 	return pixels, true
 }
 
+// bareNumberInPixels spells a unitless number as pixels, so that the SVG
+// geometry properties keep accepting what SVG writes them as. Anything else
+// is handed on untouched for the length parser to accept or refuse.
+func bareNumberInPixels(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if _, err := strconv.ParseFloat(trimmed, 64); err != nil {
+		return value
+	}
+	return trimmed + "px"
+}
+
 // borderStyle returns the border being built, creating it with the CSS
 // defaults for anything not yet stated.
 func (s *style) borderStyle() *border {
@@ -836,62 +936,304 @@ func crossOfMain(main compose.MainAlignment) compose.CrossAlignment {
 }
 
 // inheritOne copies one property from the value the parent passed down.
-func (s *style) inheritOne(property string, inherited style) {
+// inheritOne takes one property's value from the parent, which is what the
+// inherit keyword means for any property and not only the ones CSS passes down
+// on their own. It reads the parent's whole computed style for that reason:
+// display: inherit has to be able to see a display.
+//
+// Every property the switch in apply implements is here, and anything else
+// reports. Left as a short list of the inheriting ones, this did nothing at
+// all for the rest — silently, which is the one thing this package must never
+// do with a declaration.
+func (s *style) inheritOne(property string, parent style, report func(string)) {
 	switch property {
+	case "display":
+		s.display, s.inline = parent.display, parent.inline
+	case "flex-direction":
+		s.direction = parent.direction
+	case "flex-basis":
+		s.basis = parent.basis
+	case "flex", "flex-grow":
+		s.grow = parent.grow
+	case "gap":
+		s.rowGap, s.columnGap, s.gap, s.gapSet = parent.rowGap, parent.columnGap, parent.gap, parent.gapSet
+	case "row-gap":
+		s.rowGap, s.gap, s.gapSet = parent.rowGap, parent.gap, parent.gapSet
+	case "column-gap":
+		s.columnGap, s.gapSet = parent.columnGap, parent.gapSet
+	case "grid-template-columns":
+		s.columns = parent.columns
+	case "grid-template-rows":
+		s.rows = parent.rows
+	case "grid-column":
+		s.cellColumn = parent.cellColumn
+	case "grid-row":
+		s.cellRow = parent.cellRow
+	case "justify-content":
+		s.justify, s.spaceEvenly = parent.justify, parent.spaceEvenly
+	case "justify-items":
+		s.justify = parent.justify
+	case "justify-self":
+		s.justifySelf = parent.justifySelf
+	case "align-items":
+		s.alignItems = parent.alignItems
+	case "align-self":
+		s.alignSelf = parent.alignSelf
+	case "padding":
+		s.padding = parent.padding
+	case "padding-top":
+		s.padding.Top = parent.padding.Top
+	case "padding-right":
+		s.padding.Right = parent.padding.Right
+	case "padding-bottom":
+		s.padding.Bottom = parent.padding.Bottom
+	case "padding-left":
+		s.padding.Left = parent.padding.Left
+	case "margin":
+		s.margin = parent.margin
+		s.autoTop, s.autoRight, s.autoBottom, s.autoLeft =
+			parent.autoTop, parent.autoRight, parent.autoBottom, parent.autoLeft
+	case "margin-top":
+		s.margin.Top, s.autoTop = parent.margin.Top, parent.autoTop
+	case "margin-right":
+		s.margin.Right, s.autoRight = parent.margin.Right, parent.autoRight
+	case "margin-bottom":
+		s.margin.Bottom, s.autoBottom = parent.margin.Bottom, parent.autoBottom
+	case "margin-left":
+		s.margin.Left, s.autoLeft = parent.margin.Left, parent.autoLeft
+	case "width":
+		s.width = parent.width
+	case "height":
+		s.height = parent.height
+	case "min-width":
+		s.minSize[0] = parent.minSize[0]
+	case "max-width":
+		s.maxSize[0] = parent.maxSize[0]
+	case "min-height":
+		s.minSize[1] = parent.minSize[1]
+	case "max-height":
+		s.maxSize[1] = parent.maxSize[1]
+	case "aspect-ratio":
+		s.ratio = parent.ratio
+	case "box-sizing":
+		// Nothing to carry: a width here always includes padding and border,
+		// and box-sizing only ever says so or is refused.
+	case "position":
+		s.absolute = parent.absolute
+	case "top":
+		s.inset[0] = parent.inset[0]
+	case "right":
+		s.inset[1] = parent.inset[1]
+	case "bottom":
+		s.inset[2] = parent.inset[2]
+	case "left":
+		s.inset[3] = parent.inset[3]
+	case "inset":
+		s.inset = parent.inset
+	case "z-index":
+		s.layer = parent.layer
+	case "background", "background-color":
+		s.background = parent.background
 	case "color":
-		s.color = inherited.color
-	case "font-family":
-		s.fontFamily = inherited.fontFamily
-	case "font-size":
-		s.fontSize = inherited.fontSize
-	case "text-align":
-		s.textAlign = inherited.textAlign
-	case "vertical-align":
-		s.textVAlign = inherited.textVAlign
+		s.color = parent.color
+	case "border", "border-width", "border-style", "border-color", "border-radius":
+		s.border, s.dashed, s.dash, s.dashOffset =
+			parent.border, parent.dashed, parent.dash, parent.dashOffset
+	case "visibility":
+		s.hidden = parent.hidden
+	case "overflow":
+		s.clip = parent.clip
+	case "clip-path":
+		s.clipShape = parent.clipShape
+	case "transform":
+		s.transform, s.rotate, s.rotateOrigin = parent.transform, parent.rotate, parent.rotateOrigin
+	case "rotate":
+		s.rotate = parent.rotate
+	case "transform-origin":
+		s.rotateOrigin = parent.rotateOrigin
+	case "scale":
+		s.transform = parent.transform
 	case "fill":
-		s.fill = inherited.fill
+		s.fill = parent.fill
 	case "stroke":
-		s.stroke = inherited.stroke
+		s.stroke = parent.stroke
 	case "stroke-width":
-		s.strokeWidth = inherited.strokeWidth
+		s.strokeWidth = parent.strokeWidth
+	case "stroke-dasharray":
+		s.dashed, s.dash = parent.dashed, parent.dash
+	case "stroke-dashoffset":
+		s.dashOffset = parent.dashOffset
+	case "font":
+		s.fontFamily, s.fontSize = parent.fontFamily, parent.fontSize
+		s.lineHeight, s.lineHeightMultiple = parent.lineHeight, parent.lineHeightMultiple
+	case "font-family":
+		s.fontFamily = parent.fontFamily
+	case "font-size":
+		s.fontSize = parent.fontSize
 	case "line-height":
-		s.lineHeight = inherited.lineHeight
+		s.lineHeight, s.lineHeightMultiple = parent.lineHeight, parent.lineHeightMultiple
+	case "text-align":
+		s.textAlign = parent.textAlign
+	case "vertical-align":
+		s.textVAlign = parent.textVAlign
 	case "white-space":
-		s.wrap, s.preserve = inherited.wrap, inherited.preserve
+		s.wrap, s.preserve = parent.wrap, parent.preserve
+	case "object-fit":
+		s.objectFit = parent.objectFit
+	default:
+		report(fmt.Sprintf("%s: inherit has no meaning for a property this renderer does not implement", property))
 	}
 }
 
 // reset returns one property to the value it would have had with no
 // declaration at all.
-func (s *style) reset(property string) {
+// reset returns one property to its initial value, which is what initial,
+// unset and revert all ask for here. Most of them are the zero value of a
+// fresh style; the handful that are not are the ones with a default the panel
+// chose rather than the struct.
+//
+// Every property apply implements is here, for the same reason as inheritOne:
+// the ones that were missing did nothing and said nothing.
+func (s *style) reset(property string, report func(string)) {
 	fresh := style{}
 	switch property {
-	case "color":
-		s.color = display.InkBlack
+	case "display":
+		// CSS's initial value, which is inline rather than the element's own
+		// default: revert is the one that would mean the element's default,
+		// and it is treated as initial here.
+		s.display, s.inline = displayBlock, true
+	case "flex-direction":
+		s.direction = fresh.direction
+	case "flex-basis":
+		s.basis = fresh.basis
+	case "flex", "flex-grow":
+		s.grow = fresh.grow
+	case "gap":
+		s.rowGap, s.columnGap, s.gap, s.gapSet = 0, 0, 0, false
+	case "row-gap":
+		s.rowGap, s.gap, s.gapSet = 0, 0, false
+	case "column-gap":
+		s.columnGap, s.gapSet = 0, false
+	case "grid-template-columns":
+		s.columns = nil
+	case "grid-template-rows":
+		s.rows = nil
+	case "grid-column":
+		s.cellColumn = fresh.cellColumn
+	case "grid-row":
+		s.cellRow = fresh.cellRow
+	case "justify-content":
+		s.justify, s.spaceEvenly = fresh.justify, false
+	case "justify-items":
+		s.justify = fresh.justify
+	case "justify-self":
+		s.justifySelf = nil
+	case "align-items":
+		s.alignItems = fresh.alignItems
+	case "align-self":
+		s.alignSelf = nil
+	case "padding":
+		s.padding = fresh.padding
+	case "padding-top":
+		s.padding.Top = 0
+	case "padding-right":
+		s.padding.Right = 0
+	case "padding-bottom":
+		s.padding.Bottom = 0
+	case "padding-left":
+		s.padding.Left = 0
+	case "margin":
+		s.margin = fresh.margin
+		s.autoTop, s.autoRight, s.autoBottom, s.autoLeft = false, false, false, false
+	case "margin-top":
+		s.margin.Top, s.autoTop = 0, false
+	case "margin-right":
+		s.margin.Right, s.autoRight = 0, false
+	case "margin-bottom":
+		s.margin.Bottom, s.autoBottom = 0, false
+	case "margin-left":
+		s.margin.Left, s.autoLeft = 0, false
+	case "width":
+		s.width = fresh.width
+	case "height":
+		s.height = fresh.height
+	case "min-width":
+		s.minSize[0] = fresh.minSize[0]
+	case "max-width":
+		s.maxSize[0] = fresh.maxSize[0]
+	case "min-height":
+		s.minSize[1] = fresh.minSize[1]
+	case "max-height":
+		s.maxSize[1] = fresh.maxSize[1]
+	case "aspect-ratio":
+		s.ratio = 0
+	case "box-sizing":
+		// Nothing to return: see inheritOne.
+	case "position":
+		s.absolute = false
+	case "top":
+		s.inset[0] = fresh.inset[0]
+	case "right":
+		s.inset[1] = fresh.inset[1]
+	case "bottom":
+		s.inset[2] = fresh.inset[2]
+	case "left":
+		s.inset[3] = fresh.inset[3]
+	case "inset":
+		s.inset = fresh.inset
+	case "z-index":
+		s.layer = 0
 	case "background", "background-color":
 		s.background = nil
+	case "color":
+		s.color = display.InkBlack
 	case "border", "border-width", "border-style", "border-color", "border-radius":
 		s.border, s.dashed, s.dash, s.dashOffset = nil, false, nil, 0
+	case "visibility":
+		s.hidden = false
+	case "overflow":
+		s.clip = false
+	case "clip-path":
+		s.clipShape = compose.Shape{}
+	case "transform":
+		s.transform, s.rotate, s.rotateOrigin = display.Transform{}, 0, nil
+	case "rotate":
+		s.rotate = 0
+	case "transform-origin":
+		s.rotateOrigin = nil
+	case "scale":
+		s.transform = display.Transform{}
 	case "fill":
 		s.fill = nil
 	case "stroke":
 		s.stroke = nil
 	case "stroke-width":
 		s.strokeWidth = nil
-	case "padding":
-		s.padding = fresh.padding
-	case "margin":
-		s.margin = fresh.margin
-	case "width":
-		s.width = fresh.width
-	case "height":
-		s.height = fresh.height
-	case "font-size":
-		s.fontSize = display.DefaultFontSize
+	case "stroke-dasharray":
+		s.dashed, s.dash = false, nil
+	case "stroke-dashoffset":
+		s.dashOffset = 0
+	case "font":
+		s.fontFamily, s.fontSize = display.DefaultFontFamily, display.DefaultFontSize
+		s.lineHeight, s.lineHeightMultiple, s.lineHeightResolvesHere = 0, 0, false
 	case "font-family":
 		s.fontFamily = display.DefaultFontFamily
-	case "display":
-		s.display = displayBlock
+	case "font-size":
+		s.fontSize = display.DefaultFontSize
+	case "line-height":
+		s.lineHeight, s.lineHeightMultiple, s.lineHeightResolvesHere = 0, 0, false
+	case "text-align":
+		s.textAlign = display.AlignStart
+	case "vertical-align":
+		s.textVAlign = display.AlignTop
+	case "white-space":
+		// CSS wraps by default, and WrapRunes is not the zero value, so this
+		// is one of the few that cannot be taken from a fresh style.
+		s.wrap, s.preserve = display.WrapRunes, false
+	case "object-fit":
+		s.objectFit = nil
+	default:
+		report(fmt.Sprintf("%s: initial has no meaning for a property this renderer does not implement", property))
 	}
 }
 
@@ -969,7 +1311,9 @@ func expandRepeats(value, property string, report func(string)) []string {
 	return fields
 }
 
-// parseGridLine reads "3", "span 2" or "2 / 4" into a line and a span.
+// parseGridLine reads "3", "span 2", "2 / 4" or "2 / span 2" into a line and a
+// span. The last two say the same thing and an author uses whichever they were
+// thinking in — where the cell ends, or how many tracks it covers.
 func parseGridLine(value, property string, report func(string)) [2]int {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "auto" {
@@ -977,6 +1321,14 @@ func parseGridLine(value, property string, report func(string)) [2]int {
 	}
 	if start, end, ok := strings.Cut(trimmed, "/"); ok {
 		from, errFrom := strconv.Atoi(strings.TrimSpace(start))
+		if counted, spans := strings.CutPrefix(strings.TrimSpace(end), "span "); spans {
+			count, errCount := strconv.Atoi(strings.TrimSpace(counted))
+			if errFrom != nil || errCount != nil || from < 1 || count < 1 {
+				report(fmt.Sprintf("%s: %s needs a line number and a span of at least one", property, value))
+				return [2]int{}
+			}
+			return [2]int{from, count}
+		}
 		to, errTo := strconv.Atoi(strings.TrimSpace(end))
 		if errFrom != nil || errTo != nil || from < 1 || to <= from {
 			report(fmt.Sprintf("%s: %s must be two increasing line numbers", property, value))
@@ -1192,7 +1544,12 @@ func parseCalc(value, property string, report func(string)) length {
 }
 
 func parseNumber(value, property string, report func(string)) int {
-	number, err := strconv.ParseFloat(strings.Fields(value)[0], 64)
+	fields := strings.Fields(value)
+	if len(fields) == 0 {
+		report(fmt.Sprintf("%s: %q is not a number", property, value))
+		return 0
+	}
+	number, err := strconv.ParseFloat(fields[0], 64)
 	if err != nil {
 		report(fmt.Sprintf("%s: %s is not a number", property, value))
 		return 0
@@ -1200,11 +1557,68 @@ func parseNumber(value, property string, report func(string)) int {
 	return int(number)
 }
 
-func parseInsets(value string, report func(string)) compose.Insets {
-	fields := strings.Fields(value)
+// wholeLength reads a length for one of the fields that is counted in whole
+// pixels and cannot hold anything else: a gap, an inset, a border, a strike.
+//
+// A percentage there is not a smaller number, it is a number that cannot be
+// worked out until the layout runs, and the layout takes an int. So it is
+// refused by name. It used to be taken as its pixel half, which made
+// "padding: 50%" mean padding: 0 with nothing said about it.
+func wholeLength(value, property string, report func(string)) (int, bool) {
+	size := parseLength(value, property, report)
+	if !size.set {
+		return 0, false
+	}
+	if size.percent != 0 {
+		report(fmt.Sprintf(
+			"%s: %s cannot be a share of the box here; %s is counted in whole pixels",
+			property, value, property))
+		return 0, false
+	}
+	return int(size.pixels), true
+}
+
+// splitSides splits a shorthand into its one to four values. It splits on the
+// spaces between them and not on the spaces inside them, because calc() is
+// written with spaces around its operator and "padding: calc(10px + 2px)" came
+// apart into three sides, one of which was a plus sign.
+func splitSides(value string) []string {
+	var sides []string
+	depth, start := 0, -1
+	for index, letter := range value {
+		switch {
+		case letter == '(':
+			depth++
+		case letter == ')':
+			depth--
+		}
+		space := depth == 0 && (letter == ' ' || letter == '\t' || letter == '\n')
+		if space {
+			if start >= 0 {
+				sides = append(sides, value[start:index])
+				start = -1
+			}
+			continue
+		}
+		if start < 0 {
+			start = index
+		}
+	}
+	if start >= 0 {
+		sides = append(sides, value[start:])
+	}
+	return sides
+}
+
+func parseInsets(value, property string, report func(string)) compose.Insets {
+	fields := splitSides(value)
 	sides := make([]int, 0, 4)
 	for _, field := range fields {
-		sides = append(sides, parseLength(field, "padding", report).px())
+		pixels, ok := wholeLength(field, property, report)
+		if !ok {
+			return compose.Insets{}
+		}
+		sides = append(sides, pixels)
 	}
 	switch len(sides) {
 	case 1:
@@ -1216,7 +1630,7 @@ func parseInsets(value string, report func(string)) compose.Insets {
 	case 4:
 		return compose.Insets{Top: sides[0], Right: sides[1], Bottom: sides[2], Left: sides[3]}
 	}
-	report(fmt.Sprintf("padding: %q needs one to four lengths", value))
+	report(fmt.Sprintf("%s: %q needs one to four lengths", property, value))
 	return compose.Insets{}
 }
 
@@ -1228,12 +1642,18 @@ func parseInk(value, property string, report func(string)) (display.Ink, bool) {
 		return display.InkWhite, true
 	case "red", "#f00", "#ff0000":
 		return display.InkRed, true
+	case "yellow", "#ff0", "#ffff00":
+		// The fourth ink. Three of the panels this drives are BWRY parts, and
+		// leaving yellow out of the stylesheet meant the only way to reach a
+		// colour the hardware has was to write the scene document by hand.
+		return display.InkYellow, true
 	case "transparent", "none":
 		return 0, false
 	}
 	// Anything else would have to be approximated, and approximating a colour
-	// on a panel with three of them is how a design silently stops matching.
-	report(fmt.Sprintf("%s: %s is not one of the panel's inks (black, white, red)", property, value))
+	// on a panel with four of them is how a design silently stops matching.
+	report(fmt.Sprintf(
+		"%s: %s is not one of the panel's inks (black, white, red, yellow)", property, value))
 	return 0, false
 }
 
@@ -1250,7 +1670,11 @@ func parseBorder(value string, existing *border, report func(string)) *border {
 		switch {
 		case field == "solid":
 		case strings.HasSuffix(field, "px"):
-			result.width = parseLength(field, "border", report).px()
+			width, ok := wholeLength(field, "border", report)
+			if !ok {
+				return result
+			}
+			result.width = width
 		default:
 			if ink, ok := parseInk(field, "border", report); ok {
 				result.ink = ink

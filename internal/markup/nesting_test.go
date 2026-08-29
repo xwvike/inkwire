@@ -201,3 +201,42 @@ func inkOfIn(t *testing.T, dir string, document Document) int {
 	}
 	return count
 }
+
+// A run that names no family takes the family of the run before it, because
+// that is what the schema does with an omitted one. So the moment any run on a
+// line names a family, every run has to — and the run that does not is the
+// ordinary one, the words either side of a <span>.
+//
+// examples/fridge is where this showed: "<span class=at>07:30 </span>晨起遛狗"
+// set the Chinese in the monospace face the time was in, and every glyph of it
+// came back missing.
+func TestARunAfterAStyledOneKeepsItsOwnFamily(t *testing.T) {
+	document, err := Compile(
+		`<div class="page"><p>plain <span class="at">07:30</span> plain</p></div>`,
+		`.page { display: flex; width: 200px; height: 40px; font-family: ui; font-size: 12px; }
+		 .at { font-family: monaco; font-size: 10px; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	written := strings.Join(strings.Fields(string(document.JSON)), "")
+	for _, want := range []string{
+		`{"text":"plain","font":"ui","size":12}`,
+		`{"text":"07:30","font":"monaco","size":10}`,
+		`{"text":"plain","font":"ui","size":12}`,
+	} {
+		if !strings.Contains(written, want) {
+			t.Errorf("no run %s in\n%s", want, document.JSON)
+		}
+	}
+
+	// A line that is entirely in the document's default still says nothing,
+	// because there is no run before it to be mistaken for.
+	plain, err := Compile(`<div class="page"><p>all of it plain</p></div>`,
+		`.page { display: flex; width: 200px; height: 40px; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(plain.JSON), `"font"`) {
+		t.Errorf("a plain line named its family:\n%s", plain.JSON)
+	}
+}

@@ -200,3 +200,76 @@ func TestPercentHeightOfABlockParent(t *testing.T) {
 		inks+` .a { display: block; flex-grow: 1; } .b { height: 40%; }`)
 	expect(t, got, display.InkRed, image.Rect(0, 0, 100, 20), "b at two fifths of its parent")
 }
+
+// A margin on a child of a block container has to be split along the axis the
+// children actually run down, which for a block is always the page. Read off
+// the container's flex direction instead, a block container answered "row",
+// and a left margin became a gap above the box rather than beside it.
+//
+// The example that found it wrote "margin: 1px 0 0 2px" on a caption and got
+// three pixels of space above it and none at the side.
+func TestAMarginOnABlockChildGoesTheWayTheChildrenStack(t *testing.T) {
+	got := boxes(t, `<div class="outer"><div class="mark"></div></div>`,
+		`.outer { display: block; flex-grow: 1; }
+		 .mark { width: 10px; height: 10px; background: red; margin: 4px 0 0 20px; }`)
+	mark := got[display.InkRed]
+	if mark.Min.X != 20 {
+		t.Errorf("the left margin put the box at x=%d, want 20", mark.Min.X)
+	}
+	if mark.Min.Y != 4 {
+		t.Errorf("the top margin put the box at y=%d, want 4", mark.Min.Y)
+	}
+}
+
+// Taking an element out of the flow blockifies it, as it does in CSS. Left
+// inline, an absolutely positioned span was read by its parent as a line of
+// text: the box was never built, and its position, its size and its turn went
+// with it. The strip down the side of examples/layout_showcase is exactly
+// that element, and it came out as unturned text lying across the page.
+func TestAnAbsolutelyPositionedInlineElementStillGetsItsBox(t *testing.T) {
+	got := boxes(t, `<div class="frame"><span class="pin"></span></div>`,
+		`.frame { display: block; flex-grow: 1; position: relative; }
+		 .pin { position: absolute; top: 6px; left: 40px; width: 12px; height: 8px; background: red; }`)
+	if pin := got[display.InkRed]; pin != image.Rect(40, 6, 52, 14) {
+		t.Errorf("the pin is at %v, want (40,6)-(52,14)", pin)
+	}
+}
+
+// An absolutely positioned child is placed against its container's padding
+// box, so the container's padding does not push it inwards. Applying the
+// padding around the anchored layer as well moved the badge in
+// examples/layout_showcase by the whole of a padding-right that was there to
+// keep the grid clear of it.
+func TestPaddingDoesNotInsetAnAbsolutelyPositionedChild(t *testing.T) {
+	got := boxes(t, `<div class="frame"><span class="pin"></span><b class="in"></b></div>`,
+		`.frame { display: block; flex-grow: 1; position: relative; padding: 0 30px 0 10px; }
+		 .pin { position: absolute; top: 0; right: 4px; width: 6px; height: 6px; background: red; }
+		 .in { display: block; width: 6px; height: 6px; background: black; }`)
+	// The page is 100 wide, so four from its right edge is x 90.
+	if pin := got[display.InkRed]; pin.Min.X != 90 {
+		t.Errorf("the pin starts at x=%d, want 90: the padding moved it", pin.Min.X)
+	}
+	// The child that is in the flow does get inset, which is what padding is.
+	if in := got[display.InkBlack]; in.Min.X != 10 {
+		t.Errorf("the ordinary child starts at x=%d, want 10", in.Min.X)
+	}
+}
+
+// grid-column: 1 / span 3 and grid-column: 1 / 4 say the same thing, and an
+// author writes whichever they were thinking in — where the cell ends, or how
+// many tracks it covers. Only the first was read.
+func TestAGridCellMaySayItsSpanAfterTheSlash(t *testing.T) {
+	const sheet = `.grid { display: grid; flex-grow: 1;
+		   grid-template-columns: 20px 20px 20px; grid-template-rows: 10px; }
+		 .wide { background: red; }`
+	spanned := boxes(t, `<div class="grid"><div class="wide"></div></div>`,
+		sheet+` .wide { grid-column: 1 / span 3; }`)
+	counted := boxes(t, `<div class="grid"><div class="wide"></div></div>`,
+		sheet+` .wide { grid-column: 1 / 4; }`)
+	if spanned[display.InkRed] != counted[display.InkRed] {
+		t.Errorf("span 3 covered %v, 1 / 4 covered %v", spanned[display.InkRed], counted[display.InkRed])
+	}
+	if width := spanned[display.InkRed].Dx(); width != 60 {
+		t.Errorf("the cell is %d wide, want the 60 of three tracks", width)
+	}
+}

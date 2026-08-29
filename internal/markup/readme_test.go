@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -95,4 +96,70 @@ func reportsAnUnimplementedProperty(statement *ast.SwitchStmt) bool {
 		return found
 	}
 	return false
+}
+
+// inherit, initial, unset and revert are accepted for any property, so every
+// property has to be handled by the two switches that carry them out. The
+// switches were a short list of the ones somebody had needed, and a property
+// that was not on it did nothing and said nothing — "padding-top: initial"
+// left the padding where it was.
+//
+// This reads the same switch the README test reads, so the three cannot drift.
+func TestInheritAndInitialCoverEveryImplementedProperty(t *testing.T) {
+	implemented := supportedProperties(t)
+	for _, function := range []string{"inheritOne", "reset"} {
+		handled := propertiesHandledBy(t, function)
+		for _, property := range implemented {
+			if !handled[property] {
+				t.Errorf("%s does not handle %s, so inherit/initial on it would do nothing",
+					function, property)
+			}
+		}
+		// The other direction as well: a case for a property that no longer
+		// exists is a case nobody will ever reach.
+		for property := range handled {
+			if !slices.Contains(implemented, property) {
+				t.Errorf("%s handles %s, which apply does not implement", function, property)
+			}
+		}
+	}
+}
+
+// propertiesHandledBy collects the case names of the switch inside one
+// function, which for these two is the whole of what they do.
+func propertiesHandledBy(t *testing.T, name string) map[string]bool {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), "style.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handled := map[string]bool{}
+	for _, declared := range file.Decls {
+		function, ok := declared.(*ast.FuncDecl)
+		if !ok || function.Name.Name != name {
+			continue
+		}
+		ast.Inspect(function, func(node ast.Node) bool {
+			clause, ok := node.(*ast.CaseClause)
+			if !ok {
+				return true
+			}
+			for _, expression := range clause.List {
+				literal, ok := expression.(*ast.BasicLit)
+				if !ok || literal.Kind != token.STRING {
+					continue
+				}
+				property, err := strconv.Unquote(literal.Value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				handled[property] = true
+			}
+			return true
+		})
+	}
+	if len(handled) == 0 {
+		t.Fatalf("no switch found in %s", name)
+	}
+	return handled
 }
