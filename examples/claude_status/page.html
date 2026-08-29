@@ -1,0 +1,130 @@
+<!--
+  A usage meter for the tag on the desk: how long until the window resets, and
+  how much of it has gone.
+
+  Two bars, both drawn rather than laid out. A bar is a length that means a
+  number, so it is geometry: the fill is 62% of the track because 62 is the
+  number, and no amount of flex would make that relationship any clearer.
+-->
+
+<style>
+.page {
+  display: flex;
+  flex-direction: column;
+  width: 400px;
+  height: 300px;
+  background: white;
+  color: black;
+  font-family: ui;
+}
+
+header, footer { flex-basis: 44px; background: black; color: white; }
+header { display: flex; align-items: center; padding: 0 14px; vertical-align: middle; }
+header b { font-size: 24px; }
+header .plan { margin-left: auto; font-family: monaco; font-size: 16px; }
+
+main {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 14px 14px;
+}
+
+/* How long is left, and when it ends: the same fact twice, sized by how often
+   it is the one being read. */
+.countdown { flex-basis: 76px; display: flex; }
+.countdown > div { display: flex; flex-direction: column; }
+.until { flex-grow: 1; }
+.reset { flex-basis: 136px; padding-top: 4px; text-align: right; }
+.countdown .label { flex-basis: 20px; font-size: 16px; color: red; }
+.until .clock { flex-basis: 56px; font-family: monaco; font-size: 48px; }
+.reset .at { flex-basis: 42px; font-family: monaco; font-size: 32px; }
+
+.window { flex-basis: 18px; margin-top: 4px; }
+.window-labels {
+  flex-basis: 18px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.meters { flex-basis: 64px; margin-top: 8px; display: flex; flex-direction: column; gap: 12px; }
+.meter { flex-basis: 26px; display: flex; }
+.chip {
+  flex-basis: 66px;
+  margin-right: 12px;
+  background: black;
+  color: white;
+  font-size: 16px;
+  text-align: center;
+  vertical-align: middle;
+}
+.gauge { margin-right: 10px; }
+.pct { flex-grow: 1; text-align: right; font-family: monaco; font-size: 24px; vertical-align: middle; }
+
+footer { display: flex; align-items: center; padding: 0 14px; vertical-align: middle; }
+.lines { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.lines span { flex-basis: 16px; }
+footer .now { margin-left: auto; font-family: monaco; font-size: 24px; }
+</style>
+
+<div class="page">
+  <header>
+    <b>CLAUDE</b>
+    <span class="plan">MAX 20x</span>
+  </header>
+
+  <main>
+    <div class="countdown">
+      <div class="until">
+        <p class="label">距下次刷新</p>
+        <p class="clock">1:47</p>
+      </div>
+      <div class="reset">
+        <p class="label">重置</p>
+        <p class="at">14:30</p>
+      </div>
+    </div>
+
+    <!-- The five-hour window, with an hour mark every 75 pixels. -->
+    <svg class="window" width="372" height="18">
+      <rect x="0" y="0" width="372" height="10" fill="none" stroke="black" stroke-width="2"/>
+      <rect x="2" y="2" width="237" height="6" fill="black"/>
+      <rect x="74" y="12" width="2" height="6" fill="black"/>
+      <rect x="149" y="12" width="2" height="6" fill="black"/>
+      <rect x="223" y="12" width="2" height="6" fill="black"/>
+      <rect x="298" y="12" width="2" height="6" fill="black"/>
+    </svg>
+    <div class="window-labels">
+      <span>09:30 开始</span>
+      <span>5 小时窗口</span>
+    </div>
+
+    <div class="meters">
+      <div class="meter">
+        <span class="chip">会话</span>
+        <svg class="gauge" width="208" height="26">
+          <rect x="0" y="3" width="208" height="20" fill="none" stroke="black" stroke-width="2"/>
+          <rect x="2" y="5" width="125" height="16" fill="black"/>
+        </svg>
+        <b class="pct">62%</b>
+      </div>
+      <div class="meter">
+        <span class="chip">本周</span>
+        <svg class="gauge" width="208" height="26">
+          <rect x="0" y="3" width="208" height="20" fill="none" stroke="black" stroke-width="2"/>
+          <rect x="2" y="5" width="67" height="16" fill="red"/>
+        </svg>
+        <b class="pct">34%</b>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="lines">
+      <span>剩余 3 次完整会话</span>
+      <span>Opus 5 · Sonnet 5 共用额度</span>
+    </div>
+    <b class="now">12:43</b>
+  </footer>
+</div>

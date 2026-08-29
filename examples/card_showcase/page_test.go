@@ -5,17 +5,12 @@
 package card_showcase
 
 import (
-	"bytes"
-	_ "embed"
 	"testing"
 
 	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/scene"
 	"github.com/xwvike/inkwire/internal/testscene"
 )
-
-//go:embed page.json
-var pageJSON []byte
 
 func TestPageMatchesReference(t *testing.T) {
 	result := renderPage(t)
@@ -52,10 +47,7 @@ func TestPageUsesAllThreeInksWithoutRedInPortrait(t *testing.T) {
 
 func renderPage(t *testing.T) scene.Result {
 	t.Helper()
-	result, err := (scene.Decoder{BaseDir: "."}).Render(bytes.NewReader(pageJSON))
-	if err != nil {
-		t.Fatal(err)
-	}
+	result := testscene.RenderPage(t, ".", "page")
 	if len(result.Report.MissingRunes) != 0 || len(result.Report.Warnings) != 0 {
 		t.Fatalf("report: missing=%q warnings=%v", string(result.Report.MissingRunes), result.Report.Warnings)
 	}

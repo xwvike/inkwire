@@ -1,3 +1,88 @@
+<style>
+.page {
+  display: flex;
+  flex-direction: column;
+  width: 296px;
+  height: 128px;
+  background: white;
+  color: black;
+}
+
+header {
+  vertical-align: middle;
+  flex-basis: 18px;
+  display: flex;
+  align-items: center;
+  padding: 0 5px;
+  background: black;
+  color: white;
+  font-family: ui;
+  font-size: 12px;
+}
+header .right {
+  margin-left: auto;
+  text-align: right;
+}
+
+main {
+  vertical-align: middle;
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 3px 4px;
+  font-family: ui;
+  font-size: 12px;
+}
+
+.task {
+  flex-basis: 15px;
+  display: flex;
+}
+
+/* The box is inset from the line above and below, which is a margin across the
+   row's axis, and separated from the label by a margin along it. */
+.box {
+  display: block;
+  flex-basis: 10px;
+  margin: 2px 5px 2px 0;
+  border: 1px solid black;
+}
+.box.done { padding: 2px; }
+.box .tick {
+  display: block;
+  height: 100%;
+  background: black;
+}
+
+.what { flex-grow: 1; }
+
+.when {
+  flex-basis: 44px;
+  text-align: right;
+  font-family: monaco;
+  font-size: 10px;
+}
+.when.cn {
+  font-family: ui;
+  font-size: 12px;
+}
+.hot { color: red; }
+
+footer {
+  margin-top: auto;
+  flex-basis: 13px;
+  display: flex;
+  align-items: center;
+}
+footer .rule {
+  display: block;
+  flex-basis: 34px;
+  margin-right: 5px;
+  background: black;
+}
+</style>
+
 <div class="page">
   <header>
     <span>今日 4/7</span>

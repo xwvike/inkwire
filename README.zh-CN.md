@@ -539,7 +539,7 @@ curl -F 'scene=@page.json;type=application/json' \
 ## 用 HTML 和 CSS 写页面
 
 场景文档说的是每个节点摆在哪；样式表说的是这页是什么，排版随之而来。同一张页面
-两种写法，markup 版短 2 到 7 倍，`examples/desk/` 里的页面两种格式都在，可以对着读。
+两种写法，markup 版短 2 到 7 倍。`examples/` 下的页面现在都是 HTML 写的。
 
 **页面会被编译成场景文档。** 前端做的就只有这一件事——它不排版、不量字、不打开
 图片、不画任何像素。编译之后走的是场景文档一直以来的那一条路，所以页面受的限制、
@@ -566,8 +566,9 @@ inkwire push -device 命令行墨水屏 examples/desk/tasks.html
 根元素的 `width` 和 `height` 就是这一页的尺寸。它的 `orientation` 属性取
 `landscape`、`portrait-cw` 或 `portrait-ccw`，不写就是 landscape，跟场景文档一样。
 
-有一个测试会把每张两种写法都存在的页面各渲一遍，逐像素比对——这是防止两种写法
-变成两个渲染器的东西。
+`examples/` 下每个示例就是一张页面加一张图，别的没有。`examples/schema_quickstart/`
+是唯一的例外，页面旁边还留着它编译出的场景文档：有一个测试会把两者各渲一遍逐像素
+比对——这是防止两种写法变成两个渲染器的东西。
 
 ### 走 HTTP
 
@@ -595,12 +596,23 @@ inkwire push -device 命令行墨水屏 examples/desk/tasks.html
 `vertical-align` 会继承，其余不继承，与 CSS 一致。`inherit`、`initial`、`unset`、
 `revert` 对以上任意属性都有效。
 
-长度可以是像素、百分比，以及两者之间的 `calc`。`margin: auto` 把元素推到容器的另一头。
-`white-space: pre` 保留页面用来对齐列的连续空格。
+长度可以是像素、百分比，以及两者之间的 `calc`——尺寸、位置和 flex basis 都能取盒子的
+一个比例。
+
+盒子之间的间距不行。`padding`、`margin`、`gap`、边框宽度和圆角、字号，都是按整像素
+算的，写百分比会被点名拒绝，而不是悄悄取它的像素部分。这是 schema 比 CSS 窄的唯一
+一处：排版里的 inset 是整数，比例没有可以换算的对象。
+
+`line-height` 是其中的例外，因为无单位数字和百分比都是字号的比例，而比例这件事它是
+知道的。两种写法都按比例存着，等字号定下来才换算——所以两条声明谁先谁后不影响行高，
+子元素有自己的字号时也会用同一个比例算出自己的行高。
+
+`margin: auto` 把元素推到容器的另一头。`white-space: pre` 保留页面用来对齐列的连续
+空格。
 
 ### 不能说什么，以及为什么
 
-一块只有三种墨、没有灰阶的屏，`opacity`、渐变、阴影、抗锯齿都无事可做；点阵字库
+一块只有四种墨、没有灰阶的屏，`opacity`、渐变、阴影、抗锯齿都无事可做；点阵字库
 没有字重和斜体；一帧静态画面没有东西可动；不滚动的页面也没有地方给 overflow 溢。
 这些是直接没有，而不是拿别的东西凑。
 
@@ -635,51 +647,51 @@ inkwire push -device 命令行墨水屏 examples/desk/tasks.html
 svg path { fill: black; }
 ```
 
-没有什么会被悄悄丢掉。不认识的属性、不支持的取值、不属于三种墨的颜色、没有对应
+没有什么会被悄悄丢掉。不认识的属性、不支持的取值、不属于四种墨的颜色、没有对应
 点阵的字号，每一样都会产生一条点名到元素和声明的警告。
 
 ## 示例
 
 | 页面 | 尺寸 |
 |---|---|
-| [desk](examples/desk/)：[claude](examples/desk/claude.json) [disk](examples/desk/disk.json) [tasks](examples/desk/tasks.json) [btc](examples/desk/btc.json) [chart](examples/desk/chart.json) | 296x128 |
-| [panel_check](examples/panel_check/)：[primitives](examples/panel_check/primitives.json) [polarity](examples/panel_check/polarity.json) | 400x300 |
-| [layout_showcase](examples/layout_showcase/page.json) —— `grid` `anchored` `transformed` `clip` `clipShape` | 296x128 |
-| [fridge](examples/fridge/page.json) | 400x300 |
-| [compose_showcase](examples/compose_showcase/page.json) | 296x128 |
-| [showcase](examples/showcase/page.json) —— 图元与文字 | 296x128 |
-| [paint_showcase](examples/paint_showcase/page.json) —— 裁剪、图案、虚线 | 296x128 |
-| [state_showcase](examples/state_showcase/page.json) | 296x128 |
-| [card_showcase](examples/card_showcase/page.json) | 296x128 |
-| [text_showcase](examples/text_showcase/page.json) | 296x128 |
+| [desk](examples/desk/)：[claude](examples/desk/claude.html) [disk](examples/desk/disk.html) [tasks](examples/desk/tasks.html) [btc](examples/desk/btc.html) [chart](examples/desk/chart.html) | 296x128 |
+| [panel_check](examples/panel_check/)：[primitives](examples/panel_check/primitives.html) [polarity](examples/panel_check/polarity.html) | 400x300 |
+| [layout_showcase](examples/layout_showcase/page.html) —— `grid` `anchored` `transformed` `clip` `clipShape` | 296x128 |
+| [fridge](examples/fridge/page.html) | 400x300 |
+| [compose_showcase](examples/compose_showcase/page.html) | 296x128 |
+| [showcase](examples/showcase/page.html) —— 图元与文字 | 296x128 |
+| [paint_showcase](examples/paint_showcase/page.html) —— 裁剪、图案、虚线 | 296x128 |
+| [state_showcase](examples/state_showcase/page.html) | 296x128 |
+| [card_showcase](examples/card_showcase/page.html) | 296x128 |
+| [text_showcase](examples/text_showcase/page.html) | 296x128 |
 | [cookbook](examples/cookbook/main.go) —— display API | 296x128 |
 
 重新生成参考图：`INKWIRE_UPDATE_REFERENCES=1 go test ./...`
 
 <table>
   <tr>
-    <td><a href="examples/desk/btc.json"><img src="examples/desk/btc.png" alt="btc"></a></td>
-    <td><a href="examples/desk/chart.json"><img src="examples/desk/chart.png" alt="chart"></a></td>
+    <td><a href="examples/desk/btc.html"><img src="examples/desk/btc.png" alt="btc"></a></td>
+    <td><a href="examples/desk/chart.html"><img src="examples/desk/chart.png" alt="chart"></a></td>
   </tr>
   <tr>
-    <td><a href="examples/desk/disk.json"><img src="examples/desk/disk.png" alt="disk"></a></td>
-    <td><a href="examples/desk/tasks.json"><img src="examples/desk/tasks.png" alt="tasks"></a></td>
+    <td><a href="examples/desk/disk.html"><img src="examples/desk/disk.png" alt="disk"></a></td>
+    <td><a href="examples/desk/tasks.html"><img src="examples/desk/tasks.png" alt="tasks"></a></td>
   </tr>
   <tr>
-    <td><a href="examples/layout_showcase/page.json"><img src="examples/layout_showcase/layout_showcase.png" alt="layout"></a></td>
-    <td><a href="examples/compose_showcase/page.json"><img src="examples/compose_showcase/compose_showcase.png" alt="compose"></a></td>
+    <td><a href="examples/layout_showcase/page.html"><img src="examples/layout_showcase/layout_showcase.png" alt="layout"></a></td>
+    <td><a href="examples/compose_showcase/page.html"><img src="examples/compose_showcase/compose_showcase.png" alt="compose"></a></td>
   </tr>
   <tr>
-    <td><a href="examples/card_showcase/page.json"><img src="examples/card_showcase/card_showcase.png" alt="card"></a></td>
-    <td><a href="examples/showcase/page.json"><img src="examples/showcase/showcase.png" alt="showcase"></a></td>
+    <td><a href="examples/card_showcase/page.html"><img src="examples/card_showcase/card_showcase.png" alt="card"></a></td>
+    <td><a href="examples/showcase/page.html"><img src="examples/showcase/showcase.png" alt="showcase"></a></td>
   </tr>
   <tr>
-    <td><a href="examples/paint_showcase/page.json"><img src="examples/paint_showcase/paint_showcase.png" alt="paint"></a></td>
-    <td><a href="examples/state_showcase/page.json"><img src="examples/state_showcase/state_showcase.png" alt="state"></a></td>
+    <td><a href="examples/paint_showcase/page.html"><img src="examples/paint_showcase/paint_showcase.png" alt="paint"></a></td>
+    <td><a href="examples/state_showcase/page.html"><img src="examples/state_showcase/state_showcase.png" alt="state"></a></td>
   </tr>
   <tr>
-    <td><a href="examples/text_showcase/page.json"><img src="examples/text_showcase/text_showcase.png" alt="text"></a></td>
-    <td><a href="examples/fridge/page.json"><img src="examples/fridge/fridge.png" alt="fridge" width="400"></a></td>
+    <td><a href="examples/text_showcase/page.html"><img src="examples/text_showcase/text_showcase.png" alt="text"></a></td>
+    <td><a href="examples/fridge/page.html"><img src="examples/fridge/fridge.png" alt="fridge" width="400"></a></td>
   </tr>
 </table>
 

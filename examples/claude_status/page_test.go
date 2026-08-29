@@ -19,11 +19,7 @@ import (
 
 func renderPage(t *testing.T) scene.Result {
 	t.Helper()
-	result, err := (scene.Decoder{BaseDir: "."}).RenderFile("page.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return result
+	return testscene.RenderPage(t, ".", "page")
 }
 
 func TestPageMatchesReference(t *testing.T) {

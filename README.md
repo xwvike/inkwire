@@ -607,9 +607,10 @@ The root element's `width` and `height` are the page. Its `orientation`
 attribute is `landscape`, `portrait-cw` or `portrait-ccw`, and absent means
 landscape, as it does in a scene document.
 
-A test renders every page that exists in both formats and compares them pixel
-for pixel, which is what keeps two ways of writing a page from becoming two
-renderers.
+Every example under `examples/` is a page and its picture, and nothing else.
+`examples/schema_quickstart/` is the exception, and keeps the scene document
+beside the page: a test renders both and compares them pixel for pixel, which
+is what keeps the two ways of writing a page from becoming two renderers.
 
 ### Over HTTP
 
@@ -638,14 +639,28 @@ text once the ones a panel has no use for are taken out.
 `vertical-align` inherit; everything else does not, which matches CSS.
 `inherit`, `initial`, `unset` and `revert` work on any of them.
 
-Lengths are pixels, percentages, and `calc` between the two. `margin: auto`
-pushes an item to the other end of its container. `white-space: pre` keeps the
-runs of spaces a page lines its columns up with.
+Lengths are pixels, percentages, and `calc` between the two — a size, a
+position and a flex basis all take a share of the box.
+
+The spacing between boxes does not: `padding`, `margin`, `gap`, a border width
+and a radius, and a font size are counted in whole pixels, and a percentage
+there is refused by name rather than taken as the pixel half of itself. That is
+the one place the schema is narrower than CSS: the layout holds an inset as an
+integer, so there is nothing for a share to resolve against.
+
+`line-height` is the exception among them, because a bare number and a
+percentage are both ratios of the font size and that is a number this does
+know. Both are kept as the ratio and worked out once the font size is settled,
+so the order the two are written in does not change the line, and a child with
+its own size gets its own line from the same ratio.
+
+`margin: auto` pushes an item to the other end of its container.
+`white-space: pre` keeps the runs of spaces a page lines its columns up with.
 
 ### What it cannot, and why
 
 There is nothing for `opacity`, gradients, shadows or antialiasing to do on a
-panel with three inks and no greys; nothing for font weight or italic with
+panel with four inks and no greys; nothing for font weight or italic with
 bitmap strikes; nothing to animate in one static frame; and nowhere for
 overflow to scroll. Those are absent rather than approximated.
 
@@ -693,44 +708,44 @@ warning that names the element and the declaration.
 
 | Page | Size |
 |---|---|
-| [desk](examples/desk/): [claude](examples/desk/claude.json) [disk](examples/desk/disk.json) [tasks](examples/desk/tasks.json) [btc](examples/desk/btc.json) [chart](examples/desk/chart.json) | 296x128 |
-| [panel_check](examples/panel_check/): [primitives](examples/panel_check/primitives.json) [polarity](examples/panel_check/polarity.json) | 400x300 |
-| [layout_showcase](examples/layout_showcase/page.json) — `grid` `anchored` `transformed` `clip` `clipShape` | 296x128 |
-| [fridge](examples/fridge/page.json) | 400x300 |
-| [compose_showcase](examples/compose_showcase/page.json) | 296x128 |
-| [showcase](examples/showcase/page.json) — shapes and text | 296x128 |
-| [paint_showcase](examples/paint_showcase/page.json) — clipping, patterns, dashes | 296x128 |
-| [state_showcase](examples/state_showcase/page.json) | 296x128 |
-| [card_showcase](examples/card_showcase/page.json) | 296x128 |
-| [text_showcase](examples/text_showcase/page.json) | 296x128 |
+| [desk](examples/desk/): [claude](examples/desk/claude.html) [disk](examples/desk/disk.html) [tasks](examples/desk/tasks.html) [btc](examples/desk/btc.html) [chart](examples/desk/chart.html) | 296x128 |
+| [panel_check](examples/panel_check/): [primitives](examples/panel_check/primitives.html) [polarity](examples/panel_check/polarity.html) | 400x300 |
+| [layout_showcase](examples/layout_showcase/page.html) — `grid` `anchored` `transformed` `clip` `clipShape` | 296x128 |
+| [fridge](examples/fridge/page.html) | 400x300 |
+| [compose_showcase](examples/compose_showcase/page.html) | 296x128 |
+| [showcase](examples/showcase/page.html) — shapes and text | 296x128 |
+| [paint_showcase](examples/paint_showcase/page.html) — clipping, patterns, dashes | 296x128 |
+| [state_showcase](examples/state_showcase/page.html) | 296x128 |
+| [card_showcase](examples/card_showcase/page.html) | 296x128 |
+| [text_showcase](examples/text_showcase/page.html) | 296x128 |
 | [cookbook](examples/cookbook/main.go) — display API | 296x128 |
 
 Regenerate reference images: `INKWIRE_UPDATE_REFERENCES=1 go test ./...`
 
 <table>
   <tr>
-    <td><a href="examples/desk/btc.json"><img src="examples/desk/btc.png" alt="btc"></a></td>
-    <td><a href="examples/desk/chart.json"><img src="examples/desk/chart.png" alt="chart"></a></td>
+    <td><a href="examples/desk/btc.html"><img src="examples/desk/btc.png" alt="btc"></a></td>
+    <td><a href="examples/desk/chart.html"><img src="examples/desk/chart.png" alt="chart"></a></td>
   </tr>
   <tr>
-    <td><a href="examples/desk/disk.json"><img src="examples/desk/disk.png" alt="disk"></a></td>
-    <td><a href="examples/desk/tasks.json"><img src="examples/desk/tasks.png" alt="tasks"></a></td>
+    <td><a href="examples/desk/disk.html"><img src="examples/desk/disk.png" alt="disk"></a></td>
+    <td><a href="examples/desk/tasks.html"><img src="examples/desk/tasks.png" alt="tasks"></a></td>
   </tr>
   <tr>
-    <td><a href="examples/layout_showcase/page.json"><img src="examples/layout_showcase/layout_showcase.png" alt="layout"></a></td>
-    <td><a href="examples/compose_showcase/page.json"><img src="examples/compose_showcase/compose_showcase.png" alt="compose"></a></td>
+    <td><a href="examples/layout_showcase/page.html"><img src="examples/layout_showcase/layout_showcase.png" alt="layout"></a></td>
+    <td><a href="examples/compose_showcase/page.html"><img src="examples/compose_showcase/compose_showcase.png" alt="compose"></a></td>
   </tr>
   <tr>
-    <td><a href="examples/card_showcase/page.json"><img src="examples/card_showcase/card_showcase.png" alt="card"></a></td>
-    <td><a href="examples/showcase/page.json"><img src="examples/showcase/showcase.png" alt="showcase"></a></td>
+    <td><a href="examples/card_showcase/page.html"><img src="examples/card_showcase/card_showcase.png" alt="card"></a></td>
+    <td><a href="examples/showcase/page.html"><img src="examples/showcase/showcase.png" alt="showcase"></a></td>
   </tr>
   <tr>
-    <td><a href="examples/paint_showcase/page.json"><img src="examples/paint_showcase/paint_showcase.png" alt="paint"></a></td>
-    <td><a href="examples/state_showcase/page.json"><img src="examples/state_showcase/state_showcase.png" alt="state"></a></td>
+    <td><a href="examples/paint_showcase/page.html"><img src="examples/paint_showcase/paint_showcase.png" alt="paint"></a></td>
+    <td><a href="examples/state_showcase/page.html"><img src="examples/state_showcase/state_showcase.png" alt="state"></a></td>
   </tr>
   <tr>
-    <td><a href="examples/text_showcase/page.json"><img src="examples/text_showcase/text_showcase.png" alt="text"></a></td>
-    <td><a href="examples/fridge/page.json"><img src="examples/fridge/fridge.png" alt="fridge" width="400"></a></td>
+    <td><a href="examples/text_showcase/page.html"><img src="examples/text_showcase/text_showcase.png" alt="text"></a></td>
+    <td><a href="examples/fridge/page.html"><img src="examples/fridge/fridge.png" alt="fridge" width="400"></a></td>
   </tr>
 </table>
 

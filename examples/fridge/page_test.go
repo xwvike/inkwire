@@ -1,27 +1,21 @@
-// Package fridge is a dense page written by somebody using this schema for the
-// first time, laid out again with the nodes that were meant for it.
+// Package fridge is the densest page here: a to-do list, a menu, a note and a
+// water counter, on the panel a family would actually put on a fridge door.
 //
-// The original placed everything by hand. Six to-do rows were six separate row
-// nodes, each repeating the same four measurements for the checkbox, the gap,
-// the task and the member badge; the five water slots were five blocks with
-// four spacers threaded between them; the second magnet clip sat at x 356
-// because 400 minus 356 minus 20 is 24; the tape on the note card sat at x 45
-// because 134 minus 44 over 2 is 45. Every one of those numbers is a sum
-// somebody did and then wrote down.
+// It is worth having because of the numbers it does not contain. An earlier
+// version of this page placed everything by hand. Six to-do rows were six
+// separate rows, each repeating the same four measurements for the checkbox,
+// the gap, the task and the member badge; the five water slots were five
+// blocks with four spacers threaded between them; the second magnet clip sat
+// at x 356 because 400 minus 356 minus 20 is 24; the tape on the note card sat
+// at x 45 because 134 minus 44 over 2 is 45. Every one of those numbers is a
+// sum somebody did and then wrote down.
 //
-// The rewrite says the sums instead. One grid holds the to-do rows and states
-// its four columns once. One grid holds the water slots with a gap of two. An
-// anchored strip holds both clips at left 24 and right 24. The tape is
-// left: calc(50% - 22px).
-//
-//	                nodes   basis   cross
-//	by hand           124      50      19
-//	with the nodes    111      19       3
-//
-// Not one pixel moved, which is the part that matters: these nodes are a way
-// of saying the same drawing, not a different drawing with a shorter name. The
-// line count barely changed either. What changed is that the checkbox width
-// now appears once instead of six times.
+// The page says the sums instead. One grid holds the to-do rows and states its
+// four columns once. One grid holds the water slots with a gap of two. The two
+// clips are both drawn 24 in from their own edge. The tape is
+// left: calc(50% - 22px). The tests below check exactly those four, because a
+// number that is worked out can go wrong in a way a number that is written
+// down cannot: silently, and only on the next page that reuses it.
 //
 // # This page is 400x300
 //
@@ -43,11 +37,7 @@ import (
 
 func renderPage(t *testing.T) scene.Result {
 	t.Helper()
-	result, err := (scene.Decoder{BaseDir: "."}).RenderFile("page.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return result
+	return testscene.RenderPage(t, ".", "page")
 }
 
 func TestPageMatchesReference(t *testing.T) {

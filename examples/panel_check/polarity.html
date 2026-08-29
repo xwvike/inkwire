@@ -1,0 +1,77 @@
+<!--
+  What a panel can actually be read at, which no model table says.
+
+  The same string at four sizes, light on dark beside dark on light, then the
+  three ink pairings a red panel adds. This is a ruler rather than a layout
+  worth copying: every sample is the same width on purpose, because a sample
+  that is wider reads as more legible whatever ink it is in.
+-->
+
+<style>
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 400px;
+  height: 300px;
+  background: white;
+  color: black;
+  font-family: ui;
+}
+
+header {
+  flex-basis: 22px;
+  padding: 2px 8px;
+  background: black;
+  color: white;
+  font-size: 16px;
+  /* The header lines its three labels up with runs of spaces. Anywhere else
+     this would turn the newlines between elements into text of their own,
+     which is what pre means and why it is only here. */
+  white-space: pre;
+}
+
+.samples { display: flex; flex-direction: column; gap: 5px; }
+
+/* Height and size live on the row so the two halves cannot disagree about
+   either, which is the whole point of putting them side by side. */
+.row { display: flex; }
+.row > div { flex-basis: 198px; padding: 4px 6px; }
+.row > .bar { flex-basis: 4px; padding: 0; background: red; }
+
+.s12 { flex-basis: 26px; font-size: 12px; }
+.s14 { flex-basis: 28px; font-size: 14px; }
+.s16 { flex-basis: 30px; font-size: 16px; }
+.s24 { flex-basis: 38px; font-size: 24px; }
+
+.reversed     { background: black; color: white; }
+.on-red       { background: red;   color: white; }
+.red-reversed { background: black; color: red; }
+.red          { color: red; }
+</style>
+
+<div class="page">
+  <header>极性对照  左=反白  右=正常</header>
+
+  <div class="samples">
+    <div class="row s12">
+      <div class="reversed">电子纸标签 0123</div><div class="bar"></div><div>电子纸标签 0123</div>
+    </div>
+    <div class="row s14">
+      <div class="reversed">电子纸标签 0123</div><div class="bar"></div><div>电子纸标签 0123</div>
+    </div>
+    <div class="row s16">
+      <div class="reversed">电子纸标签 0123</div><div class="bar"></div><div>电子纸标签 0123</div>
+    </div>
+    <div class="row s24">
+      <div class="reversed">电子纸标签 0123</div><div class="bar"></div><div>电子纸标签 0123</div>
+    </div>
+
+    <div class="row s16">
+      <div class="on-red">红底白字 16</div><div class="bar"></div><div class="red">白底红字 16</div>
+    </div>
+    <div class="row s16">
+      <div class="red-reversed">黑底红字 16</div><div class="bar"></div><div>白底黑字 16</div>
+    </div>
+  </div>
+</div>

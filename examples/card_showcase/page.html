@@ -1,0 +1,152 @@
+<!--
+  A name card for the tag itself: a photo, a few fields, and a ring showing how
+  much of the battery is left.
+
+  The ring is the reason this page exists. It is one arc with a sweep of 259.2
+  degrees, which is 72 percent of a turn — the same 72 the figure beside the bar
+  says. A number that appears twice on a page should be the same number both
+  times, and here it is arithmetic rather than a coincidence somebody has to
+  keep true by hand.
+-->
+
+<style>
+.page {
+  display: flex;
+  flex-direction: column;
+  width: 296px;
+  height: 128px;
+  background: white;
+  color: black;
+  font-family: monaco;
+  font-size: 10px;
+}
+.cjk { font-family: hzk; font-size: 12px; }
+
+header {
+  flex-basis: 20px;
+  display: flex;
+  align-items: center;
+  padding: 0 4px 0 6px;
+  background: black;
+  color: white;
+}
+header .name { flex-grow: 1; font-size: 12px; }
+header .name .cjk { font-size: 14px; }
+header .panel { flex-basis: 70px; margin-left: 2px; text-align: right; color: red; }
+
+.body { flex-basis: 104px; margin-top: 4px; display: flex; gap: 3px; padding-left: 4px; }
+
+/* The portrait ---------------------------------------------------------- */
+.who { flex-basis: 94px; position: relative; }
+.who img { position: absolute; top: 1px; left: 5px; width: 85px; height: 85px; object-fit: cover; clip-path: circle(41.5px at 42.5px 42.5px); }
+/* Two pixels taller than the panel and hung two above it, because the outer
+   ring is wider than the box the photo sits in and an svg clips to itself. */
+.who .rings { position: absolute; top: -2px; left: 0; }
+.who figcaption { position: absolute; top: 90px; left: 0; width: 94px; text-align: center; }
+
+/* The fields ------------------------------------------------------------ */
+.card { flex-basis: 195px; position: relative; overflow: hidden; }
+.card .rule { position: absolute; top: 0; left: 0; width: 1px; height: 98px; background: black; }
+.card .fields { display: flex; flex-direction: column; padding-left: 7px; padding-right: 4px; }
+
+.title { flex-basis: 20px; display: flex; align-items: center; }
+.title .pet { flex-basis: 38px; font-family: hzk; font-size: 16px; }
+.title .tier { flex-basis: 30px; height: 14px; border-radius: 3px; background: red; color: white; text-align: center; vertical-align: middle; }
+.title .id { flex-grow: 1; height: 14px; text-align: right; vertical-align: middle; }
+
+.divider { flex-basis: 2px; margin-top: 2px; }
+
+.field { flex-basis: 17px; margin-top: 1px; display: flex; }
+/* The row under the rule stands a little further off it. */
+.field.charge { margin-top: 4px; }
+.field .what { flex-basis: 32px; height: 14px; font-family: hzk; font-size: 12px; }
+.field .reading { flex-grow: 1; margin-left: 4px; height: 14px; font-size: 12px; }
+.field .bar { flex-basis: 92px; margin: 2px 4px 0; }
+.field .pct { flex-grow: 1; height: 14px; font-size: 12px; color: red; text-align: right; }
+
+.link { flex-basis: 15px; margin-top: 3px; position: relative; }
+.link span { position: absolute; top: 2px; left: 26px; width: 132px; height: 12px; text-align: center; }
+.link .cjk { color: red; }
+</style>
+
+<div class="page">
+  <header>
+    <span class="name">INKWIRE <span class="cjk">墨水屏名片</span></span>
+    <svg width="15" height="15"><polygon points="7,0 9,5 14,5 10,8 11,13 7,10 3,13 4,8 0,5 5,5" fill="red"/></svg>
+    <span class="panel">296x128 BWR</span>
+  </header>
+
+  <div class="body">
+    <figure class="who">
+      <img src="prepared_portrait.png">
+      <svg class="rings" width="94" height="106">
+        <circle cx="47" cy="45" r="41" fill="none" stroke="black" stroke-width="1"/>
+        <circle cx="47" cy="45" r="45" fill="none" stroke="black" stroke-width="1" stroke-dasharray="2 4"/>
+        <!-- 259.2 degrees, clockwise from twelve o'clock: 72% of the turn. -->
+        <path d="M 47 0 A 45 45 0 1 1 2.7971 53.4321" fill="none" stroke="red" stroke-width="2"/>
+      </svg>
+      <figcaption>PET <span class="cjk">宠物</span></figcaption>
+    </figure>
+
+    <section class="card">
+      <div class="rule"></div>
+
+      <div class="fields">
+        <div class="title">
+          <span class="pet">小黑</span>
+          <b class="tier">PRO</b>
+          <span class="id">ID 92943861</span>
+        </div>
+
+        <svg class="divider" width="184" height="2">
+          <line x1="0" y1="1" x2="184" y2="1" stroke="black" stroke-width="1" stroke-dasharray="3 3"/>
+        </svg>
+
+        <div class="field charge">
+          <span class="what">电量</span>
+          <svg class="bar" width="92" height="11">
+            <defs>
+              <clipPath id="filled"><rect x="0" y="0" width="66" height="11" rx="3"/></clipPath>
+              <!-- A diagonal weave, so a full cell and an empty one differ in
+                   texture as well as in where the fill stops. -->
+              <pattern id="charge" width="4" height="4" patternUnits="userSpaceOnUse">
+                <rect x="0" y="0" width="2" height="1" fill="black"/>
+                <rect x="1" y="1" width="2" height="1" fill="black"/>
+                <rect x="2" y="2" width="2" height="1" fill="black"/>
+                <rect x="0" y="3" width="1" height="1" fill="black"/>
+                <rect x="3" y="3" width="1" height="1" fill="black"/>
+              </pattern>
+            </defs>
+            <rect x="0" y="0" width="66" height="11" fill="url(#charge)" clip-path="url(#filled)"/>
+            <rect x="0" y="0" width="92" height="11" rx="3" fill="none" stroke="black" stroke-width="1"/>
+          </svg>
+          <span class="pct">72%</span>
+        </div>
+
+        <div class="field">
+          <span class="what">温度</span>
+          <span class="reading">23.5<span class="cjk" style="color: red">℃</span></span>
+        </div>
+
+        <div class="field">
+          <span class="what">更新</span>
+          <span class="reading">08-12 15:52</span>
+        </div>
+
+        <div class="link">
+          <svg width="184" height="15">
+            <defs>
+              <pattern id="mesh" width="2" height="2" patternUnits="userSpaceOnUse">
+                <rect x="0" y="0" width="1" height="1" fill="black"/>
+              </pattern>
+            </defs>
+            <rect x="0" y="0" width="184" height="15" fill="url(#mesh)"/>
+            <rect x="0" y="0" width="184" height="15" fill="none" stroke="black" stroke-width="1"/>
+            <rect x="26" y="2" width="132" height="12" fill="white"/>
+          </svg>
+          <span>BLUETOOTH <span class="cjk">蓝牙远程屏</span></span>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>

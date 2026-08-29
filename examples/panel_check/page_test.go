@@ -25,7 +25,7 @@
 // through the EPD-nRF5 driver, which asks the panel what it is and builds the
 // page for the answer:
 //
-//	./inkwire push -device NRF_EPD_C1F8 examples/panel_check/polarity.json
+//	./inkwire push -device NRF_EPD_C1F8 examples/panel_check/polarity.html
 package panel_check
 
 import (
@@ -34,7 +34,6 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/xwvike/inkwire/internal/scene"
 	"github.com/xwvike/inkwire/internal/testscene"
 )
 
@@ -43,10 +42,7 @@ func pages() []string { return []string{"primitives", "polarity"} }
 func TestPagesMatchTheirReferences(t *testing.T) {
 	for _, name := range pages() {
 		t.Run(name, func(t *testing.T) {
-			result, err := (scene.Decoder{BaseDir: "."}).RenderFile(name + ".json")
-			if err != nil {
-				t.Fatal(err)
-			}
+			result := testscene.RenderPage(t, ".", name)
 			if size := result.Frame.Bounds().Size(); size != image.Pt(400, 300) {
 				t.Fatalf("frame is %v, want 400x300", size)
 			}
@@ -68,22 +64,24 @@ func TestPagesMatchTheirReferences(t *testing.T) {
 // panel it was written for needs. A one pixel stroke slipping back in would
 // make the page quietly stop testing the thing it exists to test, and the one
 // place a single pixel belongs is the cell that compares the two.
+//
+// The arc is the third width, at three, because a curve a pixel thinner than
+// the straight edges beside it reads as thinner still.
 func TestEveryStrokeIsTwoPixelsExceptWhereTheComparisonNeedsOne(t *testing.T) {
-	document, err := os.ReadFile("primitives.json")
+	page, err := os.ReadFile("primitives.html")
 	if err != nil {
 		t.Fatal(err)
 	}
-	widths := regexp.MustCompile(`"width":\s*(\d+)`).FindAllStringSubmatch(string(document), -1)
+	widths := regexp.MustCompile(`stroke-width="(\d+)"`).FindAllStringSubmatch(string(page), -1)
 	if len(widths) < 10 {
 		t.Fatalf("found %d strokes, which cannot be right", len(widths))
 	}
 	ones := 0
 	for _, match := range widths {
-		if match[1] == "1" {
+		switch match[1] {
+		case "1":
 			ones++
-			continue
-		}
-		if match[1] == "0" {
+		case "0":
 			t.Errorf("a stroke of width %s", match[1])
 		}
 	}

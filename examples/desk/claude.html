@@ -1,3 +1,97 @@
+<style>
+.page {
+  display: flex;
+  flex-direction: column;
+  width: 296px;
+  height: 128px;
+  background: white;
+  color: black;
+}
+
+header {
+  vertical-align: middle;
+  flex-basis: 18px;
+  display: flex;
+  align-items: center;
+  padding: 0 5px;
+  background: black;
+  color: white;
+  font-family: ui;
+  font-size: 12px;
+}
+header .mono {
+  margin-left: auto;
+  font-family: monaco;
+  text-align: right;
+}
+
+main {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 3px 4px;
+  font-family: ui;
+  font-size: 12px;
+}
+
+.row {
+  flex-basis: 16px;
+  display: flex;
+}
+.label {
+  vertical-align: middle; flex-basis: 32px; }
+.bar {
+  flex-grow: 1;
+  border: 1px solid black;
+  padding: 2px;
+}
+.bar > i {
+  display: block;
+  height: 100%;
+  background: black;
+}
+.pct {
+  vertical-align: middle;
+  flex-basis: 38px;
+  text-align: right;
+  font-family: monaco;
+  font-size: 14px;
+}
+.pct small { font-size: 10px; }
+
+/* A rule is a one pixel band, which is what a filled box of that height is. */
+hr {
+  flex-basis: 1px;
+  background: black;
+}
+
+.next {
+  align-items: center;
+  flex-grow: 1;
+  display: flex;
+  align-items: center;
+}
+.what {
+  vertical-align: middle; flex-basis: 62px; }
+.at {
+  vertical-align: middle;
+  flex-basis: 70px;
+  font-family: monaco;
+  font-size: 24px;
+  color: red;
+}
+.left {
+  vertical-align: middle;
+  flex-grow: 1;
+  text-align: right;
+}
+.left b {
+  font-family: monaco;
+  color: red;
+}
+</style>
+
 <div class="page">
   <header>
     <span>CLAUDE 用量</span>

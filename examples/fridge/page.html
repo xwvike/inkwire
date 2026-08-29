@@ -1,0 +1,228 @@
+<!--
+  The page a fridge magnet holds up: what has to happen today, what is for
+  dinner, and a note for whoever reads it next.
+
+  Everything here is a list, which is why it is worth having as an example. The
+  six rows are one grid rather than six rows, so the tick column and the name
+  column are measured once across all of them and a longer task cannot push a
+  row out of line with the one under it.
+-->
+
+<style>
+.page {
+  position: relative;
+  width: 400px;
+  height: 300px;
+  background: white;
+  color: black;
+  font-family: ui;
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+/* The case, and the two magnets holding it on. Drawn once, under everything. */
+.case { position: absolute; top: 0; left: 0; }
+
+.sheet {
+  position: absolute;
+  top: 14px; left: 10px;
+  width: 380px; height: 278px;
+  display: flex;
+  flex-direction: column;
+}
+
+.mono { font-family: monaco; font-size: 10px; }
+.red { color: red; }
+
+/* The day ---------------------------------------------------------------- */
+header {
+  flex-basis: 36px;
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 5px;
+  background: black;
+  color: white;
+}
+header .today {
+  flex-basis: 36px; height: 20px;
+  border-radius: 3px;
+  background: red;
+  text-align: center;
+}
+header .title { margin-left: 6px; font-size: 16px; }
+header .when { margin-left: auto; text-align: right; }
+
+.cards { flex-basis: 210px; margin-top: 4px; display: flex; gap: 4px; }
+.card { border: 1px solid black; border-radius: 5px; background: white; }
+
+/* The list --------------------------------------------------------------- */
+.agenda { flex-basis: 242px; display: flex; flex-direction: column; gap: 3px; padding: 6px 8px; }
+.agenda .head { flex-basis: 20px; display: flex; align-items: center; }
+.agenda .flag { flex-basis: 4px; height: 14px; border-radius: 1px; background: red; }
+.agenda .head h2 { margin-left: 5px; font-size: 14px; }
+.agenda .head .count { margin-left: auto; text-align: right; }
+.agenda .head .count b { font-family: monaco; color: red; }
+
+/* Four columns: the tick, the space after it, the task, and who it is for.
+   Every cell names its own column, because the second one holds nothing. */
+.agenda .list {
+  flex-basis: 159px;
+  display: grid;
+  grid-template-columns: 14px 6px 1fr 20px;
+  grid-template-rows: repeat(6, 24px);
+  row-gap: 3px;
+  align-items: center;
+}
+.agenda .box { grid-column: 1; }
+.agenda .what { grid-column: 3; }
+.agenda .who { grid-column: 4; height: 16px; border-radius: 2px; text-align: center; }
+.agenda .at { font-family: monaco; font-size: 10px; }
+.outline-black { border: 1px solid black; }
+.outline-red { border: 1px solid red; color: red; }
+.filled-red { background: red; color: white; }
+
+/* Dinner ----------------------------------------------------------------- */
+.side { flex-basis: 134px; display: flex; flex-direction: column; gap: 4px; }
+.menu { flex-basis: 102px; display: flex; flex-direction: column; gap: 3px; padding: 6px 6px 5px; }
+.menu h2 { flex-basis: 16px; color: red; }
+.menu h2 .mono { color: black; }
+.menu .meal { flex-basis: 15px; }
+.menu .short {
+  flex-basis: 22px;
+  border-radius: 3px;
+  background: red;
+  color: white;
+  text-align: center;
+}
+
+/* The note --------------------------------------------------------------- */
+.note { flex-basis: 104px; position: relative; }
+.note .tape {
+  position: absolute;
+  top: 0; left: calc(50% - 22px);
+  width: 44px; height: 6px;
+  border-radius: 1px;
+  background: black;
+}
+.note .paper { display: flex; flex-direction: column; gap: 3px; padding: 8px 6px 5px; }
+.note h2 { flex-basis: 15px; }
+.note h2 .mono { color: red; }
+.note .body { flex-basis: 44px; line-height: 14px; }
+.note .sign { flex-basis: 14px; text-align: right; color: red; }
+
+/* Water ------------------------------------------------------------------ */
+footer {
+  flex-basis: 24px;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: black;
+  color: white;
+}
+footer .glasses {
+  margin-left: 4px;
+  display: grid;
+  grid-template-columns: repeat(5, 8px);
+  grid-template-rows: 8px;
+  column-gap: 2px;
+}
+footer .glasses div { border-radius: 1px; }
+footer .drunk { background: red; }
+footer .empty { border: 1px solid white; }
+footer .ml { margin-left: 4px; }
+footer .wish { margin-left: auto; text-align: right; }
+</style>
+
+<div class="page">
+  <svg class="case" width="400" height="300">
+    <rect x="2" y="2" width="396" height="296" rx="8" fill="none" stroke="black" stroke-width="2"/>
+    <rect x="5" y="5" width="390" height="290" rx="6" fill="none" stroke="black" stroke-width="1" stroke-dasharray="3 2"/>
+    <rect x="24" y="3" width="20" height="10" rx="3" fill="black"/>
+    <rect x="26" y="5" width="16" height="6" rx="2" fill="red"/>
+    <rect x="356" y="3" width="20" height="10" rx="3" fill="black"/>
+    <rect x="358" y="5" width="16" height="6" rx="2" fill="red"/>
+  </svg>
+
+  <div class="sheet">
+    <header>
+      <b class="today">今日</b>
+      <span class="title">家庭当日待办<span class="mono red"> DAILY AGENDA</span></span>
+      <span class="when">08-14 星期五 | <span class="red">晴 28℃</span></span>
+    </header>
+
+    <div class="cards">
+      <section class="card agenda">
+        <div class="head">
+          <div class="flag"></div>
+          <h2>重点事项清单</h2>
+          <span class="count">已完成 <b>3/6</b></span>
+        </div>
+
+        <svg class="rule" width="226" height="1">
+          <line x1="0" y1="0" x2="226" y2="0" stroke="black" stroke-width="1" stroke-dasharray="2 2"/>
+        </svg>
+
+        <div class="list">
+          <svg class="box" width="14" height="14"><rect x="0" y="0" width="14" height="14" rx="2" fill="black"/><path d="M 2 7 L 5 10 L 11 3" fill="none" stroke="white" stroke-width="2"/></svg>
+          <p class="what"><span class="at">07:30 </span>晨起遛狗与喂猫</p>
+          <b class="who outline-black">爸</b>
+
+          <svg class="box" width="14" height="14"><rect x="0" y="0" width="14" height="14" rx="2" fill="black"/><path d="M 2 7 L 5 10 L 11 3" fill="none" stroke="white" stroke-width="2"/></svg>
+          <p class="what"><span class="at">08:15 </span>阳台绿植浇水通风</p>
+          <b class="who outline-black">妈</b>
+
+          <svg class="box" width="14" height="14"><rect x="0" y="0" width="14" height="14" rx="2" fill="black"/><path d="M 2 7 L 5 10 L 11 3" fill="none" stroke="white" stroke-width="2"/></svg>
+          <p class="what"><span class="at">11:30 </span>生鲜超市采购食材</p>
+          <b class="who outline-black">爸</b>
+
+          <svg class="box" width="14" height="14"><rect x="0" y="0" width="14" height="14" rx="2" fill="none" stroke="red" stroke-width="1"/></svg>
+          <p class="what"><span class="at red">16:00 </span>辅导小宝暑假作业</p>
+          <b class="who outline-red">妈</b>
+
+          <svg class="box" width="14" height="14"><rect x="0" y="0" width="14" height="14" rx="2" fill="none" stroke="red" stroke-width="1"/></svg>
+          <p class="what"><span class="at red">19:00 </span>缴纳本月燃气水电</p>
+          <b class="who filled-red">急</b>
+
+          <svg class="box" width="14" height="14"><rect x="0" y="0" width="14" height="14" rx="2" fill="none" stroke="black" stroke-width="1"/></svg>
+          <p class="what"><span class="at">20:30 </span>全家饭后散步垃圾</p>
+          <b class="who outline-black">全</b>
+        </div>
+      </section>
+
+      <div class="side">
+        <section class="card menu">
+          <h2>今日餐单<span class="mono"> MENU</span></h2>
+          <svg width="122" height="1"><line x1="0" y1="0" x2="122" y2="0" stroke="black" stroke-width="1"/></svg>
+          <p class="meal"><span class="red">午: </span>番茄牛腩 时蔬</p>
+          <p class="meal"><span class="red">晚: </span>清蒸鲈鱼 鸡汤</p>
+          <p class="short">需补: 鲜牛奶 鸡蛋</p>
+        </section>
+
+        <section class="card note">
+          <div class="tape"></div>
+          <div class="paper">
+            <h2>留言便签<span class="mono"> NOTE</span></h2>
+            <svg width="122" height="1">
+              <line x1="0" y1="0" x2="122" y2="0" stroke="black" stroke-width="1" stroke-dasharray="2 2"/>
+            </svg>
+            <p class="body">爸爸今晚加班稍晚回，留好热汤。晚间记得给净水器更换滤芯！</p>
+            <p class="sign">祝好心情 ~</p>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <footer>
+      <span>饮水打卡</span>
+      <div class="glasses">
+        <div class="drunk"></div><div class="drunk"></div><div class="drunk"></div>
+        <div class="empty"></div><div class="empty"></div>
+      </div>
+      <b class="mono red ml">1500ml</b>
+      <span class="wish">愿今天充满欢声与笑语</span>
+    </footer>
+  </div>
+</div>

@@ -1,0 +1,142 @@
+<!--
+  Every shape the drawing model has, once each, at the size a 4.2" panel draws
+  it, so a panel nobody here has driven can be asked what it actually renders.
+
+  Every stroke is two pixels because that is what the panel this was written
+  against needs; the last cell is the exception, putting one beside two so the
+  difference has somewhere to show.
+
+  The arc, the sector and the segment are paths here rather than shapes of
+  their own: SVG spells all three with an A command, and the compiler turns
+  that back into the arc the drawing model has.
+-->
+
+<style>
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 400px;
+  height: 300px;
+  background: white;
+  color: black;
+  font-family: ui;
+}
+
+header {
+  flex-basis: 24px;
+  padding: 3px 8px 1px;
+  background: black;
+  color: white;
+  font-size: 16px;
+}
+
+/* Sixteen cells of the same size, because a shape drawn in a wider box would
+   be answering a different question from the one beside it. */
+.shapes {
+  display: grid;
+  grid-template-columns: repeat(4, 92px);
+  column-gap: 7px;
+  row-gap: 2px;
+  padding-left: 4px;
+}
+
+figure { display: flex; flex-direction: column; gap: 2px; }
+figure svg { flex-basis: 44px; }
+figcaption { flex-basis: 18px; font-size: 16px; text-align: center; }
+.mono { font-family: monaco; font-size: 14px; }
+
+/* Nothing here paints a shape. A presentation attribute is a rule of no
+   specificity, so a blanket selector would win over every shape that wanted
+   something else, and each shape says what it is painted with itself. */
+</style>
+
+<div class="page">
+  <header>图元能力 400x300 描边一律 2px</header>
+
+  <div class="shapes">
+    <figure>
+      <svg width="92" height="44"><rect x="0" y="0" width="92" height="44" rx="8" fill="none" stroke="black" stroke-width="2"/></svg>
+      <figcaption>圆角描边</figcaption>
+    </figure>
+    <figure>
+      <svg width="92" height="44"><rect x="0" y="0" width="92" height="44" rx="4" fill="red"/></svg>
+      <figcaption>矩形填充</figcaption>
+    </figure>
+    <figure>
+      <svg width="92" height="44"><circle cx="46" cy="22" r="19" fill="none" stroke="black" stroke-width="2"/></svg>
+      <figcaption>圆描边</figcaption>
+    </figure>
+    <figure>
+      <svg width="92" height="44"><circle cx="46" cy="22" r="19" fill="red"/></svg>
+      <figcaption>圆填充</figcaption>
+    </figure>
+
+    <figure>
+      <svg width="92" height="44"><ellipse cx="45.5" cy="21.5" rx="45.5" ry="21.5" fill="red" stroke="black" stroke-width="2"/></svg>
+      <figcaption>椭圆</figcaption>
+    </figure>
+    <figure>
+      <!-- Three quarters of the ellipse, from twelve o'clock, going clockwise. -->
+      <svg width="92" height="44"><path d="M 45.5 0 A 45.5 21.5 0 1 1 0 21.5" fill="none" stroke="black" stroke-width="3"/></svg>
+      <figcaption>圆弧</figcaption>
+    </figure>
+    <figure>
+      <!-- A sector is the arc plus the two radii, which is what Z closes. -->
+      <svg width="92" height="44"><path d="M 45.5 21.5 L 45.5 0 A 45.5 21.5 0 0 1 84.9045 32.25 Z" fill="red"/></svg>
+      <figcaption>扇形</figcaption>
+    </figure>
+    <figure>
+      <!-- A segment is the same arc closed straight across instead. -->
+      <svg width="92" height="44"><path d="M 88.2546 28.8532 A 45.5 21.5 0 1 1 22.75 2.8806 Z" fill="black"/></svg>
+      <figcaption>弓形</figcaption>
+    </figure>
+
+    <figure>
+      <svg width="92" height="44"><line x1="2" y1="40" x2="90" y2="4" stroke="red" stroke-width="2" stroke-dasharray="6 4"/></svg>
+      <figcaption>虚线</figcaption>
+    </figure>
+    <figure>
+      <svg width="92" height="44"><polyline points="2,36 20,10 38,30 56,6 74,26 90,14" fill="none" stroke="black" stroke-width="2"/></svg>
+      <figcaption>折线</figcaption>
+    </figure>
+    <figure>
+      <svg width="92" height="44"><polygon points="46,2 90,22 68,42 24,42 2,22" fill="black"/></svg>
+      <figcaption>多边形填充</figcaption>
+    </figure>
+    <figure>
+      <svg width="92" height="44"><polygon points="46,3 89,22 68,41 24,41 3,22" fill="none" stroke="red" stroke-width="2"/></svg>
+      <figcaption>多边形描边</figcaption>
+    </figure>
+
+    <figure>
+      <svg width="92" height="44"><path d="M 3 38 Q 24 -6 46 24 C 60 44 74 0 89 20" fill="none" stroke="black" stroke-width="2"/></svg>
+      <figcaption>曲线路径</figcaption>
+    </figure>
+    <figure>
+      <svg width="92" height="44"><path d="M 8 40 L 30 6 L 30 22.5 A 16.5 16.5 0 0 0 63 22.5 L 84 40 Z" fill="red" stroke="black" stroke-width="2"/></svg>
+      <figcaption>路径填充</figcaption>
+    </figure>
+    <figure>
+      <svg width="92" height="44">
+        <defs>
+          <pattern id="checks" width="4" height="4" patternUnits="userSpaceOnUse">
+            <rect x="0" y="0" width="2" height="2" fill="black"/>
+            <rect x="2" y="2" width="2" height="2" fill="red"/>
+          </pattern>
+        </defs>
+        <rect x="0" y="0" width="92" height="44" fill="url(#checks)"/>
+      </svg>
+      <figcaption>图案</figcaption>
+    </figure>
+    <figure>
+      <svg width="92" height="44">
+        <line x1="2" y1="8" x2="90" y2="8" stroke="black" stroke-width="1"/>
+        <line x1="2" y1="20" x2="90" y2="20" stroke="black" stroke-width="2"/>
+        <line x1="2" y1="32" x2="90" y2="32" stroke="red" stroke-width="1"/>
+        <line x1="2" y1="41" x2="90" y2="41" stroke="red" stroke-width="2"/>
+      </svg>
+      <figcaption class="mono">1px vs 2px</figcaption>
+    </figure>
+  </div>
+</div>

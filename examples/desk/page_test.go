@@ -5,12 +5,13 @@
 // tag here has a fixed job, so the size it renders at is known when the page is
 // written, and the layout can be tuned to it rather than negotiated at runtime.
 //
-// chart.json is the interesting one: it contains no chart. The series was
-// turned into polyline coordinates by whatever produced the file, which is the
-// dividing line worth keeping. Mapping values to pixels needs to know the axis,
-// the range and the padding; drawing a line does not.
+// chart is the interesting one: the page contains no chart. The series was
+// turned into a polyline by whatever produced chart-plot.svg, and the page
+// names that file the way a page names a picture. That is the dividing line
+// worth keeping: mapping values to pixels needs to know the axis, the range
+// and the padding; drawing a line does not.
 //
-// disk.json is the one that shows what a grid is for. It was four rows, each
+// disk is the one that shows what a grid is for. It was four rows, each
 // holding a label, a bar and a figure, and four separate rows cannot agree on
 // how wide the label should be: the width was written into each of them as 50,
 // a number somebody arrived at by measuring the font. One grid with an
@@ -20,53 +21,18 @@
 package desk
 
 import (
-	"bytes"
-	_ "embed"
 	"testing"
 
 	"github.com/xwvike/inkwire/internal/display"
-	"github.com/xwvike/inkwire/internal/scene"
 	"github.com/xwvike/inkwire/internal/testscene"
 )
 
-//go:embed claude.json
-var claudeJSON []byte
-
-//go:embed disk.json
-var diskJSON []byte
-
-//go:embed tasks.json
-var tasksJSON []byte
-
-//go:embed btc.json
-var btcJSON []byte
-
-//go:embed chart.json
-var chartJSON []byte
-
-func pages() []struct {
-	name string
-	body []byte
-} {
-	return []struct {
-		name string
-		body []byte
-	}{
-		{"claude", claudeJSON},
-		{"disk", diskJSON},
-		{"tasks", tasksJSON},
-		{"btc", btcJSON},
-		{"chart", chartJSON},
-	}
-}
+func pages() []string { return []string{"claude", "disk", "tasks", "btc", "chart"} }
 
 func TestPagesMatchTheirReferences(t *testing.T) {
 	for _, page := range pages() {
-		t.Run(page.name, func(t *testing.T) {
-			result, err := (scene.Decoder{BaseDir: "."}).Render(bytes.NewReader(page.body))
-			if err != nil {
-				t.Fatal(err)
-			}
+		t.Run(page, func(t *testing.T) {
+			result := testscene.RenderPage(t, ".", page)
 			// A page for a panel of known size has no excuse for a warning:
 			// nothing about its layout is being negotiated at runtime.
 			if len(result.Report.Warnings) != 0 {
@@ -76,7 +42,7 @@ func TestPagesMatchTheirReferences(t *testing.T) {
 				t.Errorf("missing runes: %q", string(result.Report.MissingRunes))
 			}
 			testscene.AssertEncodesFor(t, 0x0033, result.Frame, result.Orientation)
-			testscene.AssertMatchesPNG(t, page.name+".png", result.Frame)
+			testscene.AssertMatchesPNG(t, page+".png", result.Frame)
 		})
 	}
 }

@@ -1,27 +1,23 @@
 // Package compose_showcase is one page carrying an image through the automatic
-// adaptations a document does not ask for: the tone decision, the contrast
-// enhancement, the dither. Its test holds the report to exactly one image
-// decision, so an adaptation that silently stops happening is a failure rather
-// than a slightly different picture.
+// adaptations a document does not ask for: the tone decision, the fit, the
+// dither. Its test holds the report to exactly one image decision, so an
+// adaptation that silently stops happening is a failure rather than a slightly
+// different picture.
+//
+// The page used to ask for a local contrast pass as well, which it no longer
+// can: a stylesheet has no word for it. That is the one thing the scene schema
+// offers a picture that CSS does not reach, and it is written down here rather
+// than in a comment nobody would find, because the page is the evidence.
 package compose_showcase
 
 import (
-	"bytes"
-	_ "embed"
 	"testing"
 
-	"github.com/xwvike/inkwire/internal/scene"
 	"github.com/xwvike/inkwire/internal/testscene"
 )
 
-//go:embed page.json
-var pageJSON []byte
-
 func TestPageMatchesReference(t *testing.T) {
-	result, err := (scene.Decoder{BaseDir: "."}).Render(bytes.NewReader(pageJSON))
-	if err != nil {
-		t.Fatal(err)
-	}
+	result := testscene.RenderPage(t, ".", "page")
 	if len(result.Report.MissingRunes) != 0 || len(result.Report.Warnings) != 0 {
 		t.Fatalf("report: missing=%q warnings=%v", string(result.Report.MissingRunes), result.Report.Warnings)
 	}

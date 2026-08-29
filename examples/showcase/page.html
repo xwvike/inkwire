@@ -1,0 +1,151 @@
+<!--
+  The same page as page.json, written as markup.
+
+  It is the sheet that shows every primitive, so it is also the page that says
+  whether a stylesheet and an svg element between them can reach everything a
+  scene document can. They render identically, which is the answer.
+-->
+
+<style>
+/* The same page as page.json, written as markup. Both render identically,
+   which is what keeps the two authoring formats from drifting apart.
+
+   Everything here is placed rather than laid out, because the scene document
+   places everything: it is a sheet of samples and no two of them are the same
+   size. The shapes go in svg elements, which is where a page keeps geometry. */
+
+.page {
+  display: block;
+  position: relative;
+  width: 296px;
+  height: 128px;
+  background: white;
+  overflow: hidden;
+}
+
+/* The border round the whole sheet, and the bar across the top. */
+.frame {
+  display: block;
+  position: absolute;
+  top: 1px; left: 1px; width: 294px; height: 126px;
+  border: 1px solid black;
+  border-radius: 6px;
+}
+.bar {
+  display: block;
+  position: absolute;
+  top: 3px; left: 3px; width: 290px; height: 23px;
+  background: black;
+  border-radius: 5px;
+}
+.title {
+  position: absolute;
+  top: 5px; left: 8px; width: 280px; height: 19px;
+  font-family: monaco; font-size: 14px; color: white;
+  white-space: pre;
+}
+.title .cn { font-family: ui; }
+.title .hot { color: red; }
+
+/* The three panels.
+
+   The rounded border and the clip are two things here, as they are in the
+   scene document: overflow on a rounded box rounds the clip, which is what CSS
+   says and not what this page wants. The border is drawn by the panel's own
+   svg and the clip is square. */
+.panel {
+  display: block;
+  position: absolute;
+  top: 29px;
+  overflow: hidden;
+}
+.shapes { left: 4px;   width: 95px; height: 95px; }
+.paths  { left: 101px; width: 97px; height: 95px; }
+.type   { left: 200px; width: 92px; height: 95px; }
+.type svg { width: 92px; height: 95px; }
+
+.panel h2 {
+  position: absolute;
+  top: 3px; left: 5px; height: 12px;
+  font-family: monaco; font-size: 10px; color: black;
+}
+.shapes h2 { width: 85px; }
+.paths h2  { width: 87px; }
+.type h2   { width: 82px; }
+
+.panel svg { display: block; position: absolute; top: 0; left: 0; }
+.shapes svg { width: 95px; height: 95px; }
+.paths svg  { width: 97px; height: 95px; }
+
+/* The type panel is text, so it is text and not a drawing.
+
+   Each line states its own place. A rule for all of them would be a class and
+   an element, which outranks a class on its own — so the shared rule would win
+   over the specific ones, which is how CSS works and not what anybody means. */
+.t16, .t14, .t12, .t10, .chiptext { position: absolute; color: black; }
+.t16 { top: 15px; left: 5px; width: 82px; height: 19px; font-family: hzk; font-size: 16px; }
+.t14 { top: 34px; left: 5px; width: 82px; height: 16px; font-family: hzk; font-size: 14px; }
+.t12 { top: 50px; left: 5px; width: 83px; height: 15px; font-family: ui; font-size: 12px; }
+.t10 { top: 66px; left: 5px; width: 82px; height: 14px; font-family: monaco; font-size: 10px;
+       text-align: center; }
+.t16 .hot, .t14 .hot, .t12 .hot { color: red; font-family: monaco; }
+.t12 .hot { font-size: 12px; }
+
+.chiptext {
+  top: 81px; left: 7px; width: 78px; height: 12px;
+  font-family: monaco; font-size: 10px; color: white;
+  text-align: center;
+}
+.chiptext .hot { color: red; }
+</style>
+
+<div class="page">
+  <i class="frame"></i>
+  <i class="bar"></i>
+  <p class="title">INKWIRE  <span class="cn">图元与文字展示</span><span class="hot">  RBW</span></p>
+
+  <div class="panel shapes">
+    <h2>BASIC / SHAPES</h2>
+    <svg width="95" height="95">
+      <rect x="0" y="0" width="95" height="95" rx="5" fill="none" stroke="black" stroke-width="1"/>
+      <line x1="5" y1="19" x2="40" y2="19" stroke="black" stroke-width="1"/>
+      <line x1="48" y1="20" x2="90" y2="20" stroke="red" stroke-width="2" stroke-dasharray="3 2" stroke-dashoffset="1"/>
+      <rect x="5" y="25" width="25" height="20" fill="none" stroke="black" stroke-width="1"/>
+      <rect x="35" y="25" width="23" height="20" fill="red"/>
+      <rect x="63" y="25" width="27" height="20" rx="4" fill="none" stroke="black" stroke-width="2"/>
+      <circle cx="14" cy="58" r="7" fill="none" stroke="black" stroke-width="1"/>
+      <circle cx="36" cy="58" r="7" fill="red"/>
+      <ellipse cx="58.5" cy="57" rx="9.5" ry="10" fill="none" stroke="red" stroke-width="1"/>
+      <ellipse cx="83.5" cy="57" rx="9.5" ry="10" fill="black"/>
+      <polyline points="5,87 14,78 23,87 32,78 41,87" fill="none" stroke="red" stroke-width="1"/>
+      <polygon points="52,94 58,74 68,70 77,82 70,94" fill="none" stroke="black" stroke-width="1"/>
+      <polygon points="77,94 86,72 94,94" fill="red"/>
+    </svg>
+  </div>
+
+  <div class="panel paths">
+    <h2>PATH / ARC</h2>
+    <svg width="97" height="95">
+      <rect x="0" y="0" width="97" height="95" rx="5" fill="none" stroke="black" stroke-width="1"/>
+      <path d="M 10 41 C 27 24 46 56 62 40 Q 79 27 95 41" fill="none" stroke="black" stroke-width="1"/>
+      <path d="M 8.626 69.8204 A 15.5 14.5 0 1 1 32.374 69.8204" fill="none" stroke="red" stroke-width="2" stroke-dasharray="4 2"/>
+      <path d="M 53 60 L 53 48 A 12 12 0 0 1 62.83 66.8829 Z" fill="red"/>
+      <path d="M 92.306 63.7753 A 11.5 12.5 0 1 1 74.108 49.9244 Z" fill="black"/>
+      <path d="M 9 155 L 19 135 L 30 147 Q 42 125 54 147 C 65 139 76 128 86 155 Z" fill="black"/>
+      <circle cx="87" cy="81" r="10" fill="none" stroke="red" stroke-width="3"/>
+    </svg>
+  </div>
+
+  <div class="panel type">
+    <svg width="92" height="95">
+      <rect x="0" y="0" width="92" height="95" rx="5" fill="none" stroke="black" stroke-width="1"/>
+      <rect x="4" y="81" width="84" height="12" rx="3" fill="black"/>
+    </svg>
+    <h2>TYPE / COLOR</h2>
+    <p class="t16">中文<span class="hot">16</span></p>
+    <p class="t14">图元<span class="hot">14</span></p>
+    <p class="t12">中文12 <span class="hot">ABC</span></p>
+    <p class="t10">MONACO10 23.5</p>
+    <p class="chiptext">WHITE<span class="hot"> / RED</span></p>
+  </div>
+</div>
