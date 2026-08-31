@@ -651,12 +651,8 @@ func (c *compiler) children(node *html.Node, current style, path string, contain
 	// path is not even attempted for one.
 	if current.display != displayFlex {
 		if runs := c.textRuns(node, current, path); len(runs) > 0 {
-			// Text sits at the top of its box, as it does in CSS. Centring it
-			// vertically is the container's job, through align-items, not a
-			// property of the text itself.
-			// Text sits at the top of its box unless vertical-align says
-			// otherwise, which is what CSS does everywhere except a table
-			// cell, and a fixed-height row here is the same situation.
+			// Text is centred in its box by default. Explicit vertical-align
+			// values still opt into top or bottom when a label needs an edge.
 			return &emitted{Type: "text", Runs: runs,
 				Align:         horizontalAlignName(current.textAlign),
 				VerticalAlign: verticalAlignName(current.textVAlign),

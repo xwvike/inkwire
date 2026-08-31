@@ -1,6 +1,6 @@
 <!--
-  One page for the layout nodes: a grid, an anchored badge, two transforms, and
-  a note cut off where its cell ends.
+  One page for the layout nodes: a grid, an anchored badge, a relative offset
+  inside a transform, and a note cut off where its cell ends.
 
   Every number here that could be a sum is a sum. The three bars start at the
   same x because one automatic column measures the three labels, not because
@@ -99,11 +99,15 @@ header .when { margin-left: auto; text-align: right; }
 /* Twice the strike, which on a panel with no greys is a copy rather than a
    resampling: whole-number scaling moves pixels onto pixels. The scale is on
    the figure and not on the badge, because scaling the badge would scale the
-   circle with it. */
+   circle with it. Relative positioning keeps the figure in its flow slot
+   while nudging the transformed figure inside the clipped badge. */
 .badge b {
   display: block;
   width: 42px;
   height: 42px;
+  position: relative;
+  top: 2px;
+  left: 4px;
   scale: 2;
   text-align: center;
   vertical-align: middle;

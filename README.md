@@ -639,6 +639,11 @@ text once the ones a panel has no use for are taken out.
 `vertical-align` inherit; everything else does not, which matches CSS.
 `inherit`, `initial`, `unset` and `revert` work on any of them.
 
+Markup text defaults to `vertical-align: middle`, which keeps labels centred in
+fixed-size boxes the way a panel UI normally expects. Use `top` or `bottom` when
+an edge is intentional; the explicit value is preserved through the scene
+document the page compiles to.
+
 Lengths are pixels, percentages, and `calc` between the two — a size, a
 position and a flex basis all take a share of the box.
 

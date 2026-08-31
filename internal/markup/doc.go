@@ -97,5 +97,6 @@
 // vertical-align is the one property used slightly outside its CSS meaning.
 // There it applies to inline boxes and table cells; here it says where text
 // sits inside a box taller than itself, which is the table-cell case and the
-// property an author reaches for. Text sits at the top without it, as in CSS.
+// property an author reaches for. Text is centred by default on a fixed panel;
+// top and bottom remain available when an edge alignment is intentional.
 package markup

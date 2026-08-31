@@ -65,7 +65,16 @@ header .panel { flex-basis: 70px; margin-left: 2px; text-align: right; color: re
 .field .pct { flex-grow: 1; height: 14px; font-size: 12px; color: red; text-align: right; }
 
 .link { flex-basis: 15px; margin-top: 3px; position: relative; }
-.link span { position: absolute; top: 2px; left: 26px; width: 132px; height: 12px; text-align: center; }
+/* Anchor only the outer label; the nested .cjk must remain an inline run. */
+.link > span {
+  position: absolute;
+  top: 2px;
+  left: 26px;
+  width: 132px;
+  height: 12px;
+  line-height: 12px;
+  text-align: center;
+}
 .link .cjk { color: red; }
 </style>
 

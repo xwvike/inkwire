@@ -177,6 +177,10 @@ func rootStyle() style {
 		color:      display.InkBlack,
 		fontFamily: display.DefaultFontFamily,
 		fontSize:   display.DefaultFontSize,
+		// Bitmap text has no browser baseline to align against. Middle is the
+		// useful box-model default for a fixed panel and keeps flex/grid labels
+		// visually centred without requiring an inkwire-specific declaration.
+		textVAlign: display.AlignMiddle,
 		// CSS wraps by default. Not wrapping is what white-space: nowrap is
 		// for, and a page that silently refused to wrap would lose text with
 		// nothing but a clipping warning to show for it.
@@ -1309,7 +1313,7 @@ func (s *style) reset(property string, report func(string)) {
 	case "text-align":
 		s.textAlign = display.AlignStart
 	case "vertical-align":
-		s.textVAlign = display.AlignTop
+		s.textVAlign = display.AlignMiddle
 	case "white-space":
 		// CSS wraps by default, and WrapRunes is not the zero value, so this
 		// is one of the few that cannot be taken from a fresh style.

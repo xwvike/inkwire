@@ -1,6 +1,7 @@
 <!--
   A usage meter for the tag on the desk: how long until the window resets, and
-  how much of it has gone.
+  how much of it has gone. The plan label also demonstrates a relative nudge
+  without changing the header's flex allocation.
 
   Two bars, both drawn rather than laid out. A bar is a length that means a
   number, so it is geometry: the fill is 62% of the track because 62 is the
@@ -21,7 +22,14 @@
 header, footer { flex-basis: 44px; background: black; color: white; }
 header { display: flex; align-items: center; padding: 0 14px; vertical-align: middle; }
 header b { font-size: 24px; }
-header .plan { margin-left: auto; font-family: monaco; font-size: 16px; }
+header .plan {
+  margin-left: auto;
+  position: relative;
+  top: 2px;
+  left: -3px;
+  font-family: monaco;
+  font-size: 16px;
+}
 
 main {
   flex-grow: 1;

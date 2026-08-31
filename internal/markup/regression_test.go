@@ -78,6 +78,30 @@ func TestNestedAbsolutePositionUsesTheNearestPositionedAncestor(t *testing.T) {
 	expect(t, got, display.InkRed, image.Rect(7, 5, 17, 15), "the pin anchored to frame rather than wrapper")
 }
 
+func TestTextDefaultsToMiddleAlignment(t *testing.T) {
+	document, err := Compile(`<div class="page"><span class="label">x</span></div>`,
+		`.page { display: flex; width: 40px; height: 20px; }
+		 .label { display: block; flex-grow: 1; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flat := strings.Join(strings.Fields(string(document.JSON)), "")
+	if !strings.Contains(flat, `"verticalAlign":"middle"`) {
+		t.Fatalf("default text alignment was not emitted as middle:\n%s", document.JSON)
+	}
+
+	top, err := Compile(`<div class="page"><span class="label">x</span></div>`,
+		`.page { display: flex; width: 40px; height: 20px; }
+		 .label { display: block; flex-grow: 1; vertical-align: top; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	topFlat := strings.Join(strings.Fields(string(top.JSON)), "")
+	if strings.Contains(topFlat, `"verticalAlign":"middle"`) {
+		t.Fatalf("explicit top alignment was replaced by middle:\n%s", top.JSON)
+	}
+}
+
 func TestFlexGapUsesTheGapForTheActiveAxis(t *testing.T) {
 	row := boxes(t, `<i class="a"></i><i class="b"></i>`,
 		`.a { display: block; width: 20px; background: black; }
