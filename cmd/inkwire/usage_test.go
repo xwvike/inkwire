@@ -45,7 +45,7 @@ func TestUsageNamesEveryCommand(t *testing.T) {
 			t.Errorf("usage never mentions %q:\n%s", command, usage.String())
 		}
 	}
-	for _, command := range []string{"schema", "version"} {
+	for _, command := range []string{"version"} {
 		if !strings.Contains(usage.String(), "inkwire "+command) {
 			t.Errorf("usage never mentions %q", command)
 		}

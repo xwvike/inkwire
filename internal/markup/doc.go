@@ -1,11 +1,11 @@
 // Package markup compiles a subset of HTML and CSS into a scene document, so
 // a page can be written the way a page is usually written and still reach the
-// panel as the drawing commands every other document reaches it as.
+// panel through the renderer's shared internal representation.
 //
 // # What it produces, and what it does not do
 //
-// A page compiles to bytes: the same JSON a scene document is written in.
-// That is the whole of this package's output. It does not lay anything out,
+// A page compiles to bytes for the internal scene decoder. That is the whole
+// of this package's output: it does not lay anything out,
 // measure a glyph, open a picture or build a node the drawing model would
 // recognise, and it has no way of reaching a panel except by handing those
 // bytes to the decoder everything else goes through.
@@ -18,8 +18,8 @@
 // itself and had its own picture loader, which was ten lines against the
 // decoder's fifty-five, and the difference was invisible until it was a hole.
 //
-// A test renders every page in examples/desk that exists in both formats and
-// compares it with its scene document pixel for pixel.
+// Tests render the example pages through this compiler and compare their
+// frames with checked-in references.
 //
 // # What this describes, and what it does not
 //
@@ -40,11 +40,11 @@
 // external drawing is compiled in place, so what leaves here is one
 // self-contained description rather than a description and a promise.
 //
-// There was a scene element here once, which embedded a scene document in a
-// page. It was a tag nobody else has, describing geometry in a format nobody
-// else writes, and SVG turned out to reach every drawing node the schema has
-// — so it went, and with it the last thing in this package that a browser
-// would not recognise.
+// There was a scene element here once, which embedded the internal scene
+// representation in a page. It was a tag nobody else has, describing geometry
+// in a format nobody else writes, and SVG turned out to reach every drawing
+// node the renderer needs - so it went, and with it the last thing in this
+// package that a browser would not recognise.
 //
 // The division is enforced rather than described. internal/compose carries a
 // table of which nodes belong to a page and which to a drawing, and a test
@@ -59,7 +59,7 @@
 // static frame there is nothing to animate; and with no scrolling there is
 // nowhere for overflow to go. What remains is the box model, flex, grid and
 // text, which is sixty-odd properties. Which ones exactly is written down in
-// both READMEs, and a test derives the list from the switch in style.go so
+// the Markup references, and a test derives the list from the switch in style.go
 // that the document cannot drift from what is implemented. A third copy here
 // would be a third thing to keep in step, so there is not one.
 //
@@ -88,15 +88,9 @@
 // written with a timeout, because a loop that does not terminate cannot be
 // caught by looking at its answer.
 //
-// # Two notes on the translation
+// # Translation notes
 //
 // A margin needs different treatment on each axis. Along the container's, it
 // is a fixed gap beside the item, which a spacer expresses exactly; across it,
 // the item is inset instead, which is what wrapping it in padding does.
-//
-// vertical-align is the one property used slightly outside its CSS meaning.
-// There it applies to inline boxes and table cells; here it says where text
-// sits inside a box taller than itself, which is the table-cell case and the
-// property an author reaches for. Text is centred by default on a fixed panel;
-// top and bottom remain available when an edge alignment is intentional.
 package markup

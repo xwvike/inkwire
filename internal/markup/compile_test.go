@@ -3,7 +3,6 @@ package markup
 import (
 	"bytes"
 	"fmt"
-	"image/color"
 	"os"
 	"strings"
 	"testing"
@@ -13,36 +12,9 @@ import (
 	"github.com/xwvike/inkwire/internal/scene"
 )
 
-// The pages live beside the scene documents they were rewritten from, so a
-// reader comparing the two formats finds them side by side rather than one of
-// them buried in a test directory.
-const examples = "../../examples/desk/"
-
-// rewritten names every page that exists in both formats, by the directory and
-// base name that hold them. Pixel identity between the two is what keeps two
-// authoring formats from becoming two renderers.
-//
-// chart belongs here even though CSS cannot describe a ninety-six point
-// polyline, because the page does not ask it to: the layout is a stylesheet
-// and the plot is a scene element handed over. Leaving it out is how its
-// stylesheet came to draw a plot area of a different height from the one the
-// scene document draws, with nothing to notice.
-//
-// The pages that are not here cannot be: they exist to show arcs, circles,
-// polygons, patterns and paths on their own, and a page with nothing but
-// geometry in it is a scene document rather than a page.
-func rewritten() [][2]string {
-	return [][2]string{
-		{"../../examples/schema_quickstart/", "page"},
-	}
-}
-
 func readPage(t *testing.T, dir, name, extension string) []byte {
 	t.Helper()
 	source, err := os.ReadFile(dir + name + extension)
-	// An example carries its styles in a style element, so the sibling
-	// stylesheet the compiler also accepts is usually not there. Its absence
-	// is the ordinary case rather than a broken example.
 	if os.IsNotExist(err) && extension == ".css" {
 		return nil
 	}
@@ -109,63 +81,9 @@ func frameOf(t *testing.T, page Document) *display.Frame {
 	return frame
 }
 
-// The whole point of the exercise: a page written as HTML and CSS has to reach
-// the panel as the same drawing commands the scene document produces. Anything
-// less and the two authoring formats would drift into two renderers.
-func TestTheHTMLPagesMatchTheirSceneDocumentsExactly(t *testing.T) {
-	for _, page := range rewritten() {
-		dir, name := page[0], page[1]
-		label := strings.TrimSuffix(strings.TrimPrefix(dir, "../../examples/"), "/") + "/" + name
-		t.Run(label, func(t *testing.T) { assertSamePixels(t, dir, name) })
-	}
-}
-
-func assertSamePixels(t *testing.T, dir, name string) {
-	t.Helper()
-	fromMarkup, warnings, report := renderIn(t, dir,
-		string(readPage(t, dir, name, ".html")), string(readPage(t, dir, name, ".css")))
-	for _, warning := range warnings {
-		t.Errorf("markup warning %s: %s", warning.Code, warning.Message)
-	}
-	for _, warning := range report.Warnings {
-		t.Errorf("compose warning %s at %s: %s", warning.Code, warning.Path, warning.Message)
-	}
-
-	// The same directory the markup side gets, because a page that names a
-	// picture names it relative to itself and the scene document beside it
-	// names the same one the same way.
-	sceneSource := readPage(t, dir, name, ".json")
-	result, err := (scene.Decoder{BaseDir: dir}).Render(bytes.NewReader(sceneSource))
-	if err != nil {
-		t.Fatal(err)
-	}
-	fromScene := result.Frame
-
-	if fromMarkup.Bounds() != fromScene.Bounds() {
-		t.Fatalf("markup rendered %v, the scene document renders %v", fromMarkup.Bounds(), fromScene.Bounds())
-	}
-	differing := 0
-	firstX, firstY := -1, -1
-	for y := 0; y < fromScene.Height(); y++ {
-		for x := 0; x < fromScene.Width(); x++ {
-			want := color.NRGBAModel.Convert(fromScene.At(x, y))
-			if got := color.NRGBAModel.Convert(fromMarkup.At(x, y)); got != want {
-				differing++
-				if firstX < 0 {
-					firstX, firstY = x, y
-				}
-			}
-		}
-	}
-	if differing != 0 {
-		t.Errorf("%d of %d pixels differ, first at (%d,%d)",
-			differing, fromScene.Width()*fromScene.Height(), firstX, firstY)
-	}
-}
-
 // A subset that quietly ignores what it does not implement is worse than a
-// small schema that never accepted it, so every unhandled declaration has to
-// come back named.
+// small subset that rejects it, so every unhandled declaration has to come
+// back named.
 func TestUnsupportedDeclarationsAreReported(t *testing.T) {
 	const markupSource = `<div class="a"><span>x</span></div>`
 	tests := []struct {

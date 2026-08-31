@@ -12,21 +12,21 @@ import (
 	"testing"
 )
 
-var readmes = []string{"../../README.md", "../../README.zh-CN.md"}
+var markupDocs = []string{"../../MARKUP.md", "../../MARKUP.zh-CN.md"}
 
 // A list of supported properties in a document is a copy of the switch that
-// supports them, and the copy is the one nobody remembers. The schema
-// reference drifted from decode.go exactly this way, so this reads the switch.
+// supports them, and the copy is the one nobody remembers. This reads the
+// switch so the Markup references cannot drift from the implementation.
 //
 // The promise this package makes is that a declaration is either applied or
 // reported. A property implemented and not written down breaks the other half
 // of it: an author has no way to find out it is there.
-func TestBothReadmesNameEverySupportedProperty(t *testing.T) {
+func TestMarkupDocsNameEverySupportedProperty(t *testing.T) {
 	implemented := supportedProperties(t)
 	if len(implemented) < 30 {
 		t.Fatalf("found %d properties, which cannot be right", len(implemented))
 	}
-	for _, path := range readmes {
+	for _, path := range markupDocs {
 		source, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
@@ -104,7 +104,8 @@ func reportsAnUnimplementedProperty(statement *ast.SwitchStmt) bool {
 // that was not on it did nothing and said nothing — "padding-top: initial"
 // left the padding where it was.
 //
-// This reads the same switch the README test reads, so the three cannot drift.
+// This reads the same switch the property test reads, so the reset behavior
+// and the documented property list cannot drift.
 func TestInheritAndInitialCoverEveryImplementedProperty(t *testing.T) {
 	implemented := supportedProperties(t)
 	for _, function := range []string{"inheritOne", "reset"} {

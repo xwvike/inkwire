@@ -6,7 +6,7 @@
 // the same question. These pages answer the second one, which has to be
 // answered by looking at the panel rather than by anything in this repository.
 //
-// primitives draws every shape the schema has, with every stroke at two pixels
+// primitives draws every supported shape, with every stroke at two pixels
 // and one cell putting one pixel beside two so the difference has somewhere to
 // show. polarity is the controlled one: the same font at the same size in both
 // directions, light on dark beside dark on light, because on the panel this was

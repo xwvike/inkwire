@@ -1,6 +1,6 @@
 # Inkwire
 
-Json Schema驱动的电子纸标签渲染器。
+使用 HTML、CSS 和 SVG 编写固定尺寸电子纸页面的渲染器。
 
 | | Gicisky | EPD-nRF5 |
 |---|---|---|
@@ -10,19 +10,21 @@ Json Schema驱动的电子纸标签渲染器。
 | 尺寸 | 212x104 … 960x640 | 400x300 … 880x528 |
 | 颜色 | BW、BWR、BWRY | BW、BWR |
 
+Inkwire遵循熟悉的 Web 布局规则，但只实现面向电子纸面板的 CSS 子集，
+不是浏览器，也不保证任意 CSS 都能工作。完整的元素、取值和渲染差异见
+[MARKUP.zh-CN.md](MARKUP.zh-CN.md)。
 
 ## CLI
 
 | 命令 | 用途 |
 |---|---|
 | `inkwire scan [-timeout 15s]` | 列出当前可被扫描出来的标签 |
-| `inkwire render [-o out.png] [-size WxH \| -panel FAMILY:ID] <page.html\|scene.json>` | PNG 预览 |
-| `inkwire compile [-o scene.json] <page.html>` | 打印页面编译出的场景文档 |
-| `inkwire measure [-size WxH \| -panel FAMILY:ID] [-json] <page.html\|scene.json>` | 打印每个节点最终落在哪 |
-| `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] <page.html\|scene.json>` | 渲染并写入 |
+| `inkwire render [-o out.png] [-size WxH \| -panel FAMILY:ID] <page.html>` | PNG 预览 |
+| `inkwire compile [-o scene.json] <page.html>` | 调试时查看内部编译结果 |
+| `inkwire measure [-size WxH \| -panel FAMILY:ID] [-json] <page.html>` | 打印每个节点最终落在哪 |
+| `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] <page.html>` | 渲染并写入 |
 | `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 时钟/日历 模式 |
 | `inkwire serve [-listen ADDR] [-assets DIR]` | 启动 HTTP 服务 |
-| `inkwire schema [-lang en\|zh]` | 打印 Json Schema 参考 |
 | `inkwire help` | `-h`、`--help` |
 | `inkwire version` | `-v`、`--version` |
 
@@ -51,10 +53,10 @@ C1:57:DD:3F:C1:F8                      NRF_EPD_C1F8    -62     -  nrfepd   ask o
 
 ### render
 
-把场景渲染成 PNG，预览效果。
+把 html 页面渲染成 PNG，预览效果。
 
 ```bash
-inkwire render -o preview.png page.json
+inkwire render -o preview.png page.html
 ```
 
 ```
@@ -63,27 +65,27 @@ wrote preview.png (296x128)
 
 | 参数 | 默认 | 说明 |
 |---|---|---|
-| `-o` | 场景同名的 `.png` | PNG 输出路径 |
-| `-size` | 场景自己的 `size` | 改按 `WxH` 排版 |
+| `-o` | 页面同名的 `.png` | PNG 输出路径 |
+| `-size` | 页面的根尺寸 | 改按 `WxH` 排版 |
 | `-panel` | 未设置 | 按指定面板排版，并检查它的墨水 |
 
 
 ```
-$ inkwire render page.json
-this scene states no size: give the document a size, or render with -size WxH or -panel family:id
+$ inkwire render page.html
+this page states no size: give the root element a size, or render with -size WxH or -panel family:id
 ```
 
 `-size` 直接说明尺寸，不查任何面板表：
 
 ```bash
-inkwire render -size 400x300 page.json
+inkwire render -size 400x300 page.html
 ```
 
 `-panel` 通过设置面板型号直接获取尺寸和支持的墨水颜色。
 
 ```bash
-inkwire render -panel gicisky:0x0033 page.json
-inkwire render -panel nrfepd:UC8176_420_BWR page.json
+inkwire render -panel gicisky:0x0033 page.html
+inkwire render -panel nrfepd:UC8176_420_BWR page.html
 ```
 
 ```
@@ -94,7 +96,7 @@ wrote page.png (400x300)
 面板显示不了的内容会给出信息：
 
 ```bash
-inkwire render -panel gicisky:0x0028 page.json
+inkwire render -panel gicisky:0x0028 page.html
 ```
 
 ```
@@ -102,18 +104,18 @@ wrote page.png (296x128)
 BW panel cannot show red ink at (10,10)
 ```
 
-面板拒绝时依旧会渲染预览图，可以通过退出码判断拒绝原因。面板或尺寸写错退出码 2；场景无法排布 1。
+面板拒绝时依旧会渲染预览图，可以通过退出码判断拒绝原因。面板或尺寸写错退出码 2；页面无法排布 1。
 
 `-size` 和 `-panel` 是同一件事的两种说法，同时给会被拒绝。
 
-页面级字段的完整说明见 [SCHEMA.zh-CN.md](SCHEMA.zh-CN.md) 的「页面」一节。
+页面结构和支持的 HTML、CSS、SVG 行为见 [MARKUP.zh-CN.md](MARKUP.zh-CN.md)。
 
 ### measure
 
 打印每个节点分到的框，以及有主张的节点原本想要多大。不渲染。
 
 ```bash
-inkwire measure page.json
+inkwire measure page.html
 ```
 
 ```
@@ -126,7 +128,7 @@ warning root.children[0] [text-clipped]: "LAST REF" does not fit 40x17: 16 pixel
 
 | 参数 | 默认 | 含义 |
 |---|---|---|
-| `-size` | 场景自己的 `size` | 改按 `WxH` 排版 |
+| `-size` | 页面的根尺寸 | 改按 `WxH` 排版 |
 | `-panel` | 未设置 | 按指定面板排版 |
 | `-json` | 关 | 输出 JSON 而不是树 |
 
@@ -141,7 +143,7 @@ warning root.children[0] [text-clipped]: "LAST REF" does not fit 40x17: 16 pixel
 渲染并写入标签。
 
 ```bash
-inkwire push -device NEMR92943861 page.json
+inkwire push -device NEMR92943861 page.html
 ```
 
 ```
@@ -157,7 +159,7 @@ upload complete, tag is refreshing
 | `-family` | `auto` | 指定则断言设备属于这个家族，不再内部判断 |
 | `-settle` | `30s` | 仅 EPD-nRF5：`REFRESH` 后保持连接的时长，`0` 表示立即断开，见[写入间隔](#写入间隔) |
 
-场景声明的尺寸与面板不符不会拒绝，按面板重排并给出 `size-mismatch` 警告。面板没有
+页面根元素声明的尺寸与面板不符不会拒绝，按面板重排并给出 `size-mismatch` 警告。面板没有
 对应色层的墨水同样不会拒绝：改画成黑色，每种墨水给一条 `unsupported-ink` 警告。
 
 渲染报告中的警告打印在写入日志里，见[警告](#警告)。
@@ -212,20 +214,6 @@ listening on http://127.0.0.1:8080
 
 没有任何鉴权，每个请求都会写硬件，所以只允许绑定回环地址，绑别的会被拒绝。
 路由与错误码见[创建HTTP服务](#创建http服务)。
-
-### schema
-
-打印 Json Schema 参考。内容随二进制一同分发。
-
-```bash
-inkwire schema -lang zh > SCHEMA.zh-CN.md
-```
-
-| 参数 | 默认 | 说明 |
-|---|---|---|
-| `-lang` | `en` | 打印哪一份翻译：`en` 或 `zh` |
-
-
 
 ## Gicisky
 
@@ -388,7 +376,7 @@ inkwire serve -listen 127.0.0.1:8080
 |---|---|---|
 | `GET /v1/scan` | `inkwire scan` | 列出当前能扫描到的标签 |
 | `POST /v1/render` | `inkwire render` | 本地渲染，返回 PNG 预览 |
-| `POST /v1/push` | `inkwire push` | 渲染并写入标签 |
+| `POST /v1/push` | `inkwire push` | 渲染页面并写入标签 |
 | `POST /v1/mode` | `inkwire mode` | 把 EPD-nRF5 标签交还给它自己的时钟或日历 |
 
 `?device=` 所有写入路由必填，和 CLI 的 `-device` 一样，服务端不会替请求猜设备。
@@ -396,13 +384,13 @@ inkwire serve -listen 127.0.0.1:8080
 ```bash
 curl http://127.0.0.1:8080/v1/scan
 
-curl -H 'Content-Type: application/json' --data-binary @page.json \
+curl -F 'page=@examples/desk/tasks.html;type=text/html' \
   http://127.0.0.1:8080/v1/render -o render.json
 
-curl -H 'Content-Type: application/json' --data-binary @page.json \
+curl -F 'page=@examples/desk/tasks.html;type=text/html' \
   'http://127.0.0.1:8080/v1/render?panel=gicisky:0x0033' -o render.json
 
-curl -H 'Content-Type: application/json' --data-binary @page.json \
+curl -F 'page=@examples/desk/tasks.html;type=text/html' \
   'http://127.0.0.1:8080/v1/push?device=NRF_EPD_C1F8'
 
 curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
@@ -410,7 +398,7 @@ curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
 
 | 查询参数 | 用在 | 说明 |
 |---|---|---|
-| `size` | render | 改按 `WxH` 排版，而不是场景声明的尺寸 |
+| `size` | render | 改按 `WxH` 排版，而不是页面根元素的尺寸 |
 | `panel` | render | 按指定面板排版，并检查它的墨水 |
 | `device` | push、mode | 广播名或 BLE 地址，必填 |
 | `family` | push | 指定则断言设备属于这个家族 |
@@ -432,8 +420,8 @@ curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
 | `layout-overflow` | 子节点主轴超出容器 |
 | `empty-layout` | 内边距或尺寸使可绘制区域为零 |
 | `missing-runes` | 字库缺少这些字形 |
-| `size-mismatch` | 场景声明的尺寸与面板不符，已按面板重排，超出部分被裁 |
-| `unsupported-ink` | 场景用了面板没有对应色层的墨水，已改画成黑色，每种墨水一条 |
+| `size-mismatch` | 页面声明的尺寸与面板不符，已按面板重排，超出部分被裁 |
+| `unsupported-ink` | 页面用了面板没有对应色层的墨水，已改画成黑色，每种墨水一条 |
 | `unsupported-declaration` | 页面用了本渲染器未实现的 CSS 属性或取值；直接忽略，不做近似 |
 | `unsupported-at-rule` | 页面用了 `@media` 之类的 at-rule；只有一块屏、一帧画面，没有可供选择的条件 |
 | `unresolved-drawing` | `svg` 元素没说尺寸，或者里面没有本 build 画得出来的东西 |
@@ -490,170 +478,80 @@ curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
 
 ## 图片资源
 
-| 场景 | `source` 解析为 |
+| 页面来源 | `source` 解析为 |
 |---|---|
-| CLI | 相对场景文档的路径；也接受绝对路径、`file:`、data URL |
+| CLI | 相对页面的路径；也接受绝对路径、`file:`、data URL |
 | `serve -assets DIR` | `DIR` 下的路径；绝对路径和 `..` 被拒 |
 | multipart | 同一请求中的文件字段名 |
 
-```json
-{
-  "type": "image",
-  "source": "assets/portrait.png",
-  "processing": "auto"
-}
+```html
+<img src="assets/portrait.png" class="portrait">
+<img src="chart-plot.svg" class="chart">
 ```
 
 ```bash
-inkwire render -o output/dashboard.png scenes/dashboard/page.json
-```
-
-```json
-{
-  "version": 1,
-  "size": {"width": 296, "height": 128},
-  "root": {
-    "type": "image",
-    "source": "portrait",
-    "processing": "auto"
-  }
-}
-```
-
-```bash
-curl -F 'scene=@page.json;type=application/json' \
+curl -F 'page=@examples/desk/tasks.html;type=text/html' \
      -F 'portrait=@photos/portrait.png;type=image/png' \
      http://127.0.0.1:8080/v1/render -o render.json
 ```
 
-`scene` 是文档，其他文件字段是资源，并在该请求内覆盖 `-assets`。
+`page` 部分是文档，其他文件字段是资源，并在该请求内覆盖 `-assets`。
 
 | 上限 | |
 |---|---:|
-| Scene JSON | 16 MiB |
+| 页面 | 16 MiB |
 | 单个资源 | 32 MiB |
 | 请求 | 64 MiB |
 | 资源数量 | 32 |
 | 渲染页面或解码后图片 | 16,777,216 像素 |
 
-## 用 HTML 和 CSS 写页面
+## 用 html 写页面
 
-场景文档说的是每个节点摆在哪；样式表说的是这页是什么，排版随之而来。同一张页面
-两种写法，markup 版短 2 到 7 倍。`examples/` 下的页面现在都是 HTML 写的。
+HTML 提供内容，CSS 负责布局和绘制，SVG 负责几何图形。页面
+会编译一次，然后进入统一的排版、图片和面板链路。
 
-**页面会被编译成场景文档。** 前端做的就只有这一件事——它不排版、不量字、不打开
-图片、不画任何像素。编译之后走的是场景文档一直以来的那一条路，所以页面受的限制、
-被拒的理由、经过的检查，跟别的文档完全一样，因为读它的没有第二个东西。
-
-中间产物是能看的：
-
+```text
+page.html + CSS + SVG/assets
+              |
+              v
+       markup compiler
+              |
+              v
+      internal scene IR
+              |
+              v
+   layout + renderer + device
 ```
-inkwire compile examples/desk/tasks.html
-inkwire compile -o tasks.json examples/desk/tasks.html
-```
 
-看完可以拿去用，也可以跳过——凡是收 `scene.json` 的命令都同样收 `page.html`。
+根元素的 `width` 和 `height` 就是这一页的尺寸。`orientation` 属性取 `landscape`、
+`portrait-cw` 或 `portrait-ccw`，不写就是 `landscape`。
 
-页面的样式有三个来源，按这个顺序层叠：同名的 `.css` 文件、页面里的 `style` 元素、
-`link` 元素指向的另一个文件。写在一个文件里的页面旁边什么都不用放；只有三样都没有
-才会收到警告。
+页面的样式有三个来源：先是同名的 `.css` 文件，然后按文档顺序处理页面里的 `style` 元素
+和 `link` 元素指向的样式表。写在一个文件里的页面旁边什么都不用放；只有三样都没有才会
+收到警告。
 
 ```
 inkwire render examples/desk/tasks.html
 inkwire push -device 命令行墨水屏 examples/desk/tasks.html
 ```
 
-根元素的 `width` 和 `height` 就是这一页的尺寸。它的 `orientation` 属性取
-`landscape`、`portrait-cw` 或 `portrait-ccw`，不写就是 landscape，跟场景文档一样。
-
-`examples/` 下每个示例就是一张页面加一张图，别的没有。`examples/schema_quickstart/`
-是唯一的例外，页面旁边还留着它编译出的场景文档：有一个测试会把两者各渲一遍逐像素
-比对——这是防止两种写法变成两个渲染器的东西。
-
 ### 走 HTTP
 
-`POST /v1/render` 和 `POST /v1/push` 用 multipart 收页面：一个 `page` 部分、一个
-`stylesheet` 部分，以及页面引用到的每张图片、每份图形各占一个文件部分。一次请求
-带 `scene` 或带 `page`，不能都带。
+`POST /v1/render` 和 `POST /v1/push` 用 multipart 收页面：一个 `page` 部分、可选的
+`stylesheet` 部分，以及页面引用到的每张图片、每份图形各占一个文件部分。响应是包含
+渲染报告的 JSON；JSON 不是页面编写格式。
 
-### 样式表能说什么
+### CSS 子集与面板限制
 
-六十三个属性。把这块屏用不上的那些去掉之后，盒模型、flex、grid 和文本就是全部了。
-
-| 分组 | 属性 |
-|---|---|
-| 盒 | `display` `width` `height` `min-width` `max-width` `min-height` `max-height` `aspect-ratio` `box-sizing` `padding` `padding-top` `padding-right` `padding-bottom` `padding-left` `margin` `margin-top` `margin-right` `margin-bottom` `margin-left` |
-| flex 与 grid | `flex` `flex-direction` `flex-basis` `flex-grow` `gap` `row-gap` `column-gap` `align-items` `align-self` `justify-content` `justify-items` `justify-self` `grid-template-columns` `grid-template-rows` `grid-column` `grid-row` |
-| 定位 | `position` `top` `right` `bottom` `left` `inset` `z-index` |
-| 绘制 | `background` `background-color` `color` `border` `border-width` `border-style` `border-color` `border-radius` `visibility` |
-| 裁剪与变换 | `overflow` `clip-path` `transform` `rotate` `transform-origin` `scale` |
-| 绘制 | `fill` `stroke` `stroke-width` —— `svg` 元素里的形状用什么画；样式表压过呈现属性 |
-| 虚线 | `stroke-dasharray` `stroke-dashoffset` —— 用 SVG 的名字，因为虚线在别处就叫这个 |
-| 文本 | `font` `font-family` `font-size` `line-height` `text-align` `vertical-align` `white-space` |
-| 图片 | `object-fit` |
-
-其中 `color`、`font-family`、`font-size`、`line-height`、`text-align`、
-`vertical-align` 会继承，其余不继承，与 CSS 一致。`inherit`、`initial`、`unset`、
-`revert` 对以上任意属性都有效。
-
-长度可以是像素、百分比，以及两者之间的 `calc`——尺寸、位置和 flex basis 都能取盒子的
-一个比例。
-
-盒子之间的间距不行。`padding`、`margin`、`gap`、边框宽度和圆角、字号，都是按整像素
-算的，写百分比会被点名拒绝，而不是悄悄取它的像素部分。这是 schema 比 CSS 窄的唯一
-一处：排版里的 inset 是整数，比例没有可以换算的对象。
-
-`line-height` 是其中的例外，因为无单位数字和百分比都是字号的比例，而比例这件事它是
-知道的。两种写法都按比例存着，等字号定下来才换算——所以两条声明谁先谁后不影响行高，
-子元素有自己的字号时也会用同一个比例算出自己的行高。
-
-`margin: auto` 把元素推到容器的另一头。`white-space: pre` 保留页面用来对齐列的连续
-空格。
-
-### 不能说什么，以及为什么
-
-一块只有四种墨、没有灰阶的屏，`opacity`、渐变、阴影、抗锯齿都无事可做；点阵字库
-没有字重和斜体；一帧静态画面没有东西可动；不滚动的页面也没有地方给 overflow 溢。
-这些是直接没有，而不是拿别的东西凑。
-
-图形的缺席是另一回事。CSS 没有描述圆弧、多边形、图案、路径的词汇，硬给它造一套就是
-在造一门长得像 CSS 的方言。SVG 就是这套词汇，本来就是标准，写进页面即可——内联，
-或者用 `img` 指过去：
-
-```html
-<svg viewBox="0 0 214 74"><polyline points="0,8 6,2 12,8"/></svg>
-<div class="frame"><img src="chart-plot.svg"></div>
-```
-
-`examples/desk/chart.html` 里那条九十六点的曲线就是这么画的：那些点本来就没人手写，
-生成序列的东西顺手就把它们生成了。外部图形会就地编译进来，出来的是一份自包含的文档，
-也就是推给设备的那份东西。
-
-### 图形能说什么
-
-`rect` `circle` `ellipse` `line` `polyline` `polygon` `path` `g` `clipPath`
-`pattern` `defs` `title` `desc`，用 `fill` `stroke` `stroke-width`
-`stroke-dasharray` `stroke-dashoffset` 绘制，用 `clip-path` 裁剪。`path` 读完整的
-`d` 文法：`M L H V C S Q T A Z`、它们的相对形式、命令的隐式重复，以及平滑曲线
-省略掉的那个控制点。
-
-`transform` 被折进坐标里——`translate` 和整数 `scale` 可以，`rotate`、`skew`、
-`matrix` 不行，会被点名。`viewBox` 要么按整数倍放大，要么不放大。
-
-样式表压过呈现属性，跟 CSS 一致。这正是别人做的图能在这块屏上用起来的原因：形状原样
-保留，颜色用屏上有的墨重述。
-
-```css
-svg path { fill: black; }
-```
-
-没有什么会被悄悄丢掉。不认识的属性、不支持的取值、不属于四种墨的颜色、没有对应
-点阵的字号，每一样都会产生一条点名到元素和声明的警告。
+完整的属性和取值参考见 [MARKUP.zh-CN.md](MARKUP.zh-CN.md)。面板只有有限墨色、位图字库和
+一帧固定画布，所以不支持的属性和值会被报告并忽略，不会被近似。CSS 不描述的路径、图案
+和其他几何图形使用标准 SVG。
 
 ## 示例
 
 | 页面 | 尺寸 |
 |---|---|
+| [markup_quickstart](examples/markup_quickstart/page.html) | 296x128 |
 | [desk](examples/desk/)：[claude](examples/desk/claude.html) [disk](examples/desk/disk.html) [tasks](examples/desk/tasks.html) [btc](examples/desk/btc.html) [chart](examples/desk/chart.html) | 296x128 |
 | [panel_check](examples/panel_check/)：[primitives](examples/panel_check/primitives.html) [polarity](examples/panel_check/polarity.html) | 400x300 |
 | [layout_showcase](examples/layout_showcase/page.html) —— `grid` `anchored` `transformed` `clip` `clipShape` | 296x128 |

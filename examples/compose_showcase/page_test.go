@@ -5,9 +5,8 @@
 // different picture.
 //
 // The page used to ask for a local contrast pass as well, which it no longer
-// can: a stylesheet has no word for it. That is the one thing the scene schema
-// offers a picture that CSS does not reach, and it is written down here rather
-// than in a comment nobody would find, because the page is the evidence.
+// can: a stylesheet has no word for it. The page keeps layout in CSS and leaves
+// the pixel-level decision to the renderer, which reports it explicitly.
 package compose_showcase
 
 import (

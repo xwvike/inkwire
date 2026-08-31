@@ -1,18 +1,15 @@
 <!--
-  The same page as page.json, written as markup.
+  A page showing the supported drawing primitives, written as Markup.
 
   It is the sheet that shows every primitive, so it is also the page that says
-  whether a stylesheet and an svg element between them can reach everything a
-  scene document can. They render identically, which is the answer.
+  whether a stylesheet and an SVG element between them can reach the drawing
+  primitives exposed by Markup.
 -->
 
 <style>
-/* The same page as page.json, written as markup. Both render identically,
-   which is what keeps the two authoring formats from drifting apart.
-
-   Everything here is placed rather than laid out, because the scene document
-   places everything: it is a sheet of samples and no two of them are the same
-   size. The shapes go in svg elements, which is where a page keeps geometry. */
+/* Everything here is placed rather than laid out: it is a sheet of samples and
+   no two of them are the same size. The shapes go in SVG elements, which is
+   where a page keeps geometry. */
 
 .page {
   display: block;
@@ -49,10 +46,8 @@
 
 /* The three panels.
 
-   The rounded border and the clip are two things here, as they are in the
-   scene document: overflow on a rounded box rounds the clip, which is what CSS
-   says and not what this page wants. The border is drawn by the panel's own
-   svg and the clip is square. */
+   The rounded border and the clip are two things here: overflow on a rounded
+   box rounds the clip, which is what CSS says and what this page wants. */
 .panel {
   display: block;
   position: absolute;

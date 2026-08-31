@@ -104,6 +104,20 @@ func TestSpecificity(t *testing.T) {
 	}
 }
 
+func TestNestedAndChildSelectorsMatch(t *testing.T) {
+	const layout = `.outer { display: block; flex-grow: 1; }
+		.middle { display: block; }
+		.target { display: block; width: 10px; height: 10px; }`
+
+	direct := boxes(t, `<div class="outer"><i class="target"></i></div>`,
+		layout+` .outer > .target { background: red; }`)
+	expect(t, direct, display.InkRed, image.Rect(0, 0, 10, 10), "a direct child selector")
+
+	deep := boxes(t, `<div class="outer"><div class="middle"><i class="target"></i></div></div>`,
+		layout+` .outer .target { background: red; }`)
+	expect(t, deep, display.InkRed, image.Rect(0, 0, 10, 10), "a deep descendant selector")
+}
+
 func TestInlineStyleBeatsEverySelector(t *testing.T) {
 	got := boxes(t, `<i id="x" class="a" style="background: red"></i>`,
 		`#x { background: black; } .a { display: block; flex-grow: 1; }`)
@@ -114,6 +128,12 @@ func TestImportantWins(t *testing.T) {
 	got := boxes(t, `<i id="x" class="a"></i>`,
 		`.a { display: block; flex-grow: 1; background: red !important; } #x { background: black; }`)
 	expect(t, got, display.InkRed, image.Rect(0, 0, 100, 50), "an important declaration")
+}
+
+func TestInlineImportantBeatsImportantStylesheet(t *testing.T) {
+	got := boxes(t, `<i id="x" class="a" style="background: red !important"></i>`,
+		`.a { display: block; flex-grow: 1; background: black !important; }`)
+	expect(t, got, display.InkRed, image.Rect(0, 0, 100, 50), "an inline important declaration")
 }
 
 // gap has no meaning outside a flex container, so it should say so rather than

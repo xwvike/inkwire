@@ -13,8 +13,9 @@ import (
 	"github.com/xwvike/inkwire/internal/scene"
 )
 
-// loadDocument reads a page in whichever of the two formats it is written in,
-// so that every command that takes a scene takes a stylesheet too.
+// loadDocument reads a Markup page. The decoder fallback keeps older encoded
+// documents usable internally without making that format part of the page
+// authoring path.
 //
 // Which one a file is, is decided by its extension and nothing else. Sniffing
 // the contents would make a mistyped name render something rather than say so.
@@ -43,7 +44,8 @@ func loadDocument(source string) (compose.Document, []compose.Warning, error) {
 	return document, warnings, nil
 }
 
-// isPage reports whether a path names a page rather than a scene document.
+// isPage reports whether a path names a Markup page rather than an encoded
+// document.
 func isPage(source string) bool { return strings.EqualFold(filepath.Ext(source), ".html") }
 
 // compilePage turns an HTML page and its stylesheets into the scene document
@@ -91,7 +93,7 @@ func compilePage(source string) ([]byte, []compose.Warning, error) {
 	return page.JSON, warnings, nil
 }
 
-// runCompile prints the scene document a page compiles to.
+// runCompile prints the internal representation a page compiles to.
 //
 // It is the one command that stops in the middle, and it is here because the
 // middle is worth seeing. A stylesheet says what a page is and leaves the
@@ -99,8 +101,8 @@ func compilePage(source string) ([]byte, []compose.Warning, error) {
 // wrong place is what their CSS turned into — and until this, the answer was
 // somewhere inside a process that only ever emitted a picture.
 //
-// What it prints is a whole document. It goes into render, into push, into the
-// HTTP service, or onto a device, and nothing here is a debugging format.
+// What it prints is a whole internal document. It is useful when diagnosing a
+// layout, but it is not the page authoring format.
 func runCompile(args []string, stdout, stderr io.Writer) int {
 	flags := command("compile", stderr)
 	output := flags.String("o", "", "write the document here instead of to standard output")

@@ -1,6 +1,7 @@
-// Package scene decodes the versioned JSON page description used by the CLI
-// and transports. It is deliberately separate from compose: JSON is the
-// stable input contract, while compose remains an internal compiler model.
+// Package scene decodes the versioned internal page representation used between
+// the Markup compiler and the renderer. It is deliberately separate from
+// compose: the encoded document is the boundary shared by the two stages,
+// while compose remains an internal layout model.
 //
 // # What this describes
 //
@@ -14,12 +15,11 @@
 // coverage_test.go walks compose for everything implementing Node and fails
 // if this package cannot build one, because the gap it is looking for opened
 // once already and stayed open: grid, quarter turns, shape clipping and
-// anchored boxes all reached compose long before they reached the schema, and
-// no test noticed, since every document in the suite was written against the
-// schema as it stood.
+// anchored boxes once reached compose before this decoder could build them, and
+// no test noticed while the document examples were the only coverage.
 //
-// A page compiled from HTML and CSS was the other way in for a while. It lives
-// on the html-frontend branch now and nothing here depends on it.
+// Pages written with HTML and CSS enter through internal/markup, which emits
+// this representation before the renderer decodes it.
 package scene
 
 import (

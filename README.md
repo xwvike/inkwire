@@ -1,6 +1,6 @@
 # Inkwire
 
-A JSON Schema driven renderer for e-paper tags.
+A renderer for fixed-size e-paper pages written with HTML, CSS and SVG.
 
 | | Gicisky | EPD-nRF5 |
 |---|---|---|
@@ -10,22 +10,22 @@ A JSON Schema driven renderer for e-paper tags.
 | Size | 212x104 … 960x640 | 400x300 … 880x528 |
 | Inks | BW, BWR, BWRY | BW, BWR |
 
-The document these commands read is the Scene Schema: **[SCHEMA.md](SCHEMA.md)**,
-which the binary also carries — `inkwire schema` prints it with no network and no
-second download.
+Inkwire follows familiar Web layout conventions, but implements a documented
+CSS subset for e-paper panels. It is not a browser, and arbitrary CSS is not
+guaranteed to work. See **[MARKUP.md](MARKUP.md)** for the supported elements,
+values and rendering differences.
 
 ## CLI
 
 | Command | Purpose |
 |---|---|
 | `inkwire scan [-timeout 15s]` | List the tags a scan can currently see |
-| `inkwire render [-o out.png] [-size WxH \| -panel FAMILY:ID] <page.html\|scene.json>` | PNG preview |
-| `inkwire compile [-o scene.json] <page.html>` | Print the scene document a page compiles to |
-| `inkwire measure [-size WxH \| -panel FAMILY:ID] [-json] <page.html\|scene.json>` | Print where every node ended up |
-| `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] <page.html\|scene.json>` | Render and write |
+| `inkwire render [-o out.png] [-size WxH \| -panel FAMILY:ID] <page.html>` | PNG preview |
+| `inkwire compile [-o scene.json] <page.html>` | Print the internal compiler output for debugging |
+| `inkwire measure [-size WxH \| -panel FAMILY:ID] [-json] <page.html>` | Print where every node ended up |
+| `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] <page.html>` | Render and write |
 | `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 clock / calendar mode |
 | `inkwire serve [-listen ADDR] [-assets DIR]` | Start the HTTP service |
-| `inkwire schema [-lang en\|zh]` | Print the JSON Schema reference |
 | `inkwire help` | `-h`, `--help` |
 | `inkwire version` | `-v`, `--version` |
 
@@ -55,10 +55,10 @@ Exits 1 when the scan comes back empty.
 
 ### render
 
-Renders a scene to a PNG, to preview the result.
+Renders a Markup page to a PNG, to preview the result.
 
 ```bash
-inkwire render -o preview.png page.json
+inkwire render -o preview.png page.html
 ```
 
 ```
@@ -67,27 +67,27 @@ wrote preview.png (296x128)
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `-o` | the scene's path with `.png` | PNG output path |
-| `-size` | the scene's own `size` | Lay the scene out at `WxH` instead |
-| `-panel` | unset | Lay the scene out for a named panel and check its inks |
+| `-o` | the page's path with `.png` | PNG output path |
+| `-size` | the page's root size | Lay the page out at `WxH` instead |
+| `-panel` | unset | Lay the page out for a named panel and check its inks |
 
 
 ```
-$ inkwire render page.json
-this scene states no size: give the document a size, or render with -size WxH or -panel family:id
+$ inkwire render page.html
+this page states no size: give the root element a size, or render with -size WxH or -panel family:id
 ```
 
 `-size` says it without consulting any panel table:
 
 ```bash
-inkwire render -size 400x300 page.json
+inkwire render -size 400x300 page.html
 ```
 
 `-panel` takes the size and the available inks from the named panel.
 
 ```bash
-inkwire render -panel gicisky:0x0033 page.json
-inkwire render -panel nrfepd:UC8176_420_BWR page.json
+inkwire render -panel gicisky:0x0033 page.html
+inkwire render -panel nrfepd:UC8176_420_BWR page.html
 ```
 
 ```
@@ -98,7 +98,7 @@ wrote page.png (400x300)
 Anything the panel cannot show is reported:
 
 ```bash
-inkwire render -panel gicisky:0x0028 page.json
+inkwire render -panel gicisky:0x0028 page.html
 ```
 
 ```
@@ -107,14 +107,14 @@ BW panel cannot show red ink at (10,10)
 ```
 
 The preview is still written when the panel refuses the page; the exit code
-says why it was refused. A misspelled panel or size exits 2; a scene that will
+says why it was refused. A misspelled panel or size exits 2; a page that will
 not lay out exits 1.
 
 `-size` and `-panel` are two ways of saying the same thing, so giving both is
 refused.
 
-The page-level fields are documented in full under "Page" in
-[SCHEMA.md](SCHEMA.md).
+Page structure, style sources and supported CSS are documented in
+[MARKUP.md](MARKUP.md).
 
 ### measure
 
@@ -122,7 +122,7 @@ Prints the box every node was given, and what the ones with an opinion would
 rather have had. Nothing is rendered.
 
 ```bash
-inkwire measure page.json
+inkwire measure page.html
 ```
 
 ```
@@ -135,8 +135,8 @@ warning root.children[0] [text-clipped]: "LAST REF" does not fit 40x17: 16 pixel
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `-size` | the scene's own `size` | Lay the scene out at `WxH` instead |
-| `-panel` | unset | Lay the scene out for a named panel |
+| `-size` | the page's root size | Lay the page out at `WxH` instead |
+| `-panel` | unset | Lay the page out for a named panel |
 | `-json` | off | Write the placements as JSON instead of a tree |
 
 `wants` is the size the node asked for and appears only where that differs from
@@ -149,10 +149,10 @@ them. `text-clipped` is what says the difference cost something.
 
 ### push
 
-Renders a scene and writes it to a tag.
+Renders a page and writes it to a tag.
 
 ```bash
-inkwire push -device NEMR92943861 page.json
+inkwire push -device NEMR92943861 page.html
 ```
 
 ```
@@ -168,7 +168,7 @@ upload complete, tag is refreshing
 | `-family` | `auto` | Given, it asserts the device belongs to that family instead of working it out |
 | `-settle` | `30s` | EPD-nRF5 only: how long to stay connected after `REFRESH`; `0` leaves at once, see [Between writes](#between-writes) |
 
-A scene stating a size the panel does not have is not refused: it is laid out
+A page stating a size the panel does not have is not refused: it is laid out
 again for the panel and a `size-mismatch` warning is reported. An ink the panel
 has no plane for is not refused either: it is drawn black and an
 `unsupported-ink` warning is reported, one per ink.
@@ -228,20 +228,6 @@ listening on http://127.0.0.1:8080
 There is no authentication and every request reaches hardware, so only a
 loopback address is accepted and anything else is refused. Routes and error
 codes are under [Running the HTTP service](#running-the-http-service).
-
-### schema
-
-Prints the JSON Schema reference. It ships inside the binary.
-
-```bash
-inkwire schema -lang zh > SCHEMA.zh-CN.md
-```
-
-| Flag | Default | Meaning |
-|---|---|---|
-| `-lang` | `en` | Which translation to print: `en` or `zh` |
-
-
 
 ## Gicisky
 
@@ -418,7 +404,7 @@ parameters under the same names.
 |---|---|---|
 | `GET /v1/scan` | `inkwire scan` | Lists the tags a scan can currently see |
 | `POST /v1/render` | `inkwire render` | Renders locally and returns a PNG preview |
-| `POST /v1/push` | `inkwire push` | Renders a scene and writes it to a tag |
+| `POST /v1/push` | `inkwire push` | Renders a page and writes it to a tag |
 | `POST /v1/mode` | `inkwire mode` | Hands an EPD-nRF5 tag back to its own clock or calendar |
 
 `?device=` is required by every route that writes, exactly as `-device` is on
@@ -427,13 +413,13 @@ the command line. The service does not pick a tag for a request.
 ```bash
 curl http://127.0.0.1:8080/v1/scan
 
-curl -H 'Content-Type: application/json' --data-binary @page.json \
+curl -F 'page=@examples/desk/tasks.html;type=text/html' \
   http://127.0.0.1:8080/v1/render -o render.json
 
-curl -H 'Content-Type: application/json' --data-binary @page.json \
+curl -F 'page=@examples/desk/tasks.html;type=text/html' \
   'http://127.0.0.1:8080/v1/render?panel=gicisky:0x0033' -o render.json
 
-curl -H 'Content-Type: application/json' --data-binary @page.json \
+curl -F 'page=@examples/desk/tasks.html;type=text/html' \
   'http://127.0.0.1:8080/v1/push?device=NRF_EPD_C1F8'
 
 curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
@@ -441,14 +427,14 @@ curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
 
 | Query parameter | Used by | Meaning |
 |---|---|---|
-| `size` | render | Lay the scene out at `WxH` instead of the size it declares |
-| `panel` | render | Lay the scene out for a named panel and check its inks |
+| `size` | render | Lay the page out at `WxH` instead of its root size |
+| `panel` | render | Lay the page out for a named panel and check its inks |
 | `device` | push, mode | Advertised name or BLE address, required |
 | `family` | push | Given, it asserts the device belongs to that family |
 | `mode` | mode | `picture`, `calendar` or `clock`; `calendar` by default |
 | `week-start` | mode | `sunday` or `monday`; unset leaves the tag's own setting |
 
-`/v1/render` and `/v1/push` answer with the full `report`; `/v1/push` and
+`/v1/render` and `/v1/push` answer with the full JSON `report`; `/v1/push` and
 `/v1/mode` also carry the device status. A page that `?panel=` refuses comes
 back as `unprocessable-scene` with `pngBase64` still in the body: the page
 drew, and what it looks like is what says which part of it has to change.
@@ -464,8 +450,8 @@ Non-fatal.
 | `layout-overflow` | Children exceed the container on the main axis |
 | `empty-layout` | Padding or size leaves no drawable area |
 | `missing-runes` | Font lacks these glyphs |
-| `size-mismatch` | The scene states a size the panel does not have; laid out again for the panel, anything beyond it clipped |
-| `unsupported-ink` | The scene uses an ink the panel has no plane for; drawn black instead, one warning per ink |
+| `size-mismatch` | The page states a size the panel does not have; laid out again for the panel, anything beyond it clipped |
+| `unsupported-ink` | The page uses an ink the panel has no plane for; drawn black instead, one warning per ink |
 | `unsupported-declaration` | A page uses a CSS property or value this renderer does not implement; it was ignored, not approximated |
 | `unsupported-at-rule` | A page uses an at-rule such as `@media`; there is one panel and one frame, so there is nothing to select on |
 | `unresolved-drawing` | An `svg` element that states no size, or has nothing in it this build can draw |
@@ -525,194 +511,89 @@ Scan 15 s, reply 5 s, retry 2 s, 3 attempts.
 
 | Context | `source` resolves to |
 |---|---|
-| CLI | Path relative to the scene document; also absolute, `file:`, data URL |
+| CLI | Path relative to the page; also absolute, `file:`, data URL |
 | `serve -assets DIR` | Path under `DIR`; absolute and `..` refused |
 | multipart | A file field name in the same request |
 
-```json
-{
-  "type": "image",
-  "source": "assets/portrait.png",
-  "processing": "auto"
-}
+```html
+<img src="assets/portrait.png" class="portrait">
+<img src="chart-plot.svg" class="chart">
 ```
 
 ```bash
-inkwire render -o output/dashboard.png scenes/dashboard/page.json
-```
-
-```json
-{
-  "version": 1,
-  "size": {"width": 296, "height": 128},
-  "root": {
-    "type": "image",
-    "source": "portrait",
-    "processing": "auto"
-  }
-}
-```
-
-```bash
-curl -F 'scene=@page.json;type=application/json' \
+curl -F 'page=@examples/desk/tasks.html;type=text/html' \
      -F 'portrait=@photos/portrait.png;type=image/png' \
      http://127.0.0.1:8080/v1/render -o render.json
 ```
 
-`scene` is the document; other file fields are assets, and shadow `-assets` for
-that request.
+The `page` part is the document; other file fields are assets, and shadow
+`-assets` for that request.
 
 | Limit | |
 |---|---:|
-| Scene JSON | 16 MiB |
+| Page | 16 MiB |
 | One asset | 32 MiB |
 | Request | 64 MiB |
 | Asset count | 32 |
 | Rendered page or decoded image | 16,777,216 pixels |
 
-## Pages in HTML and CSS
+## Writing HTML pages
 
-A scene document says where every node goes; a stylesheet says what the page
-is and lets the layout follow. The same page written both ways is 2 to 7 times
-shorter as markup, and the pages in `examples/desk/` are there in both formats
-so the two can be read side by side.
+HTML provides content, CSS provides layout and paint, and SVG provides
+geometry. A page is compiled once and then follows the renderer's normal
+layout, image and panel path.
 
-**A page compiles to a scene document.** That is the whole of what the front
-end does — it does not lay anything out, measure a glyph, open a picture or
-draw a pixel. Everything after the compile is the one path a scene document
-has always taken, so a page is held to the same limits, the same refusals and
-the same checks, because it is not being read by anything else.
-
-You can see the middle:
-
-```
-inkwire compile examples/desk/tasks.html
-inkwire compile -o tasks.json examples/desk/tasks.html
-```
-
-and then use it, or skip it — every command that takes a `scene.json` takes a
-`page.html`.
-
-A page finds its style in three places, which cascade in this order: the file
-with the same path and `.css` on it, a `style` element in the page, and a
-`link` element naming another file. A page written in one file needs nothing
-beside it; only a page with none of the three is warned about.
-
-```
-inkwire render examples/desk/tasks.html
-inkwire push -device 命令行墨水屏 examples/desk/tasks.html
+```text
+page.html + CSS + SVG/assets
+              |
+              v
+       markup compiler
+              |
+              v
+      internal scene IR
+              |
+              v
+   layout + renderer + device
 ```
 
 The root element's `width` and `height` are the page. Its `orientation`
 attribute is `landscape`, `portrait-cw` or `portrait-ccw`, and absent means
-landscape, as it does in a scene document.
+`landscape`.
 
-Every example under `examples/` is a page and its picture, and nothing else.
-`examples/schema_quickstart/` is the exception, and keeps the scene document
-beside the page: a test renders both and compares them pixel for pixel, which
-is what keeps the two ways of writing a page from becoming two renderers.
+A page finds its style in three places: the file with the same path and `.css`
+on it first, then `style` and `link rel="stylesheet"` elements in document
+order. A page written in one file needs nothing beside it; only a page with
+none of the three is warned about.
+
+```bash
+inkwire render examples/desk/tasks.html
+inkwire push -device 命令行墨水屏 examples/desk/tasks.html
+```
+
+The complete HTML, CSS and SVG capability reference is in
+[MARKUP.md](MARKUP.md). It documents the supported subset and the places where
+fixed-size e-paper differs from a browser.
 
 ### Over HTTP
 
 `POST /v1/render` and `POST /v1/push` take a page in a multipart request: a
-`page` part, a `stylesheet` part, and a file part for every picture or drawing
-the page names. A request carries a `scene` part or a `page` part, not both.
+`page` part, an optional `stylesheet` part, and a file part for every picture
+or drawing the page names. Responses are JSON reports; JSON is not the page
+authoring format.
 
-### What a stylesheet can say
+### CSS subset and panel limits
 
-Sixty-three properties, which is the whole of the box model, flex, grid and
-text once the ones a panel has no use for are taken out.
-
-| Group | Properties |
-|---|---|
-| Box | `display` `width` `height` `min-width` `max-width` `min-height` `max-height` `aspect-ratio` `box-sizing` `padding` `padding-top` `padding-right` `padding-bottom` `padding-left` `margin` `margin-top` `margin-right` `margin-bottom` `margin-left` |
-| Flex and grid | `flex` `flex-direction` `flex-basis` `flex-grow` `gap` `row-gap` `column-gap` `align-items` `align-self` `justify-content` `justify-items` `justify-self` `grid-template-columns` `grid-template-rows` `grid-column` `grid-row` |
-| Position | `position` `top` `right` `bottom` `left` `inset` `z-index` |
-| Paint | `background` `background-color` `color` `border` `border-width` `border-style` `border-color` `border-radius` `visibility` |
-| Clipping and transform | `overflow` `clip-path` `transform` `rotate` `transform-origin` `scale` |
-| Drawing | `fill` `stroke` `stroke-width` — what a shape in an `svg` element is painted with, and a stylesheet outranks the attribute |
-| Dashes | `stroke-dasharray` `stroke-dashoffset` — SVG's names, because a dashed line is called that everywhere else |
-| Text | `font` `font-family` `font-size` `line-height` `text-align` `vertical-align` `white-space` |
-| Image | `object-fit` |
-
-`color`, `font-family`, `font-size`, `line-height`, `text-align` and
-`vertical-align` inherit; everything else does not, which matches CSS.
-`inherit`, `initial`, `unset` and `revert` work on any of them.
-
-Markup text defaults to `vertical-align: middle`, which keeps labels centred in
-fixed-size boxes the way a panel UI normally expects. Use `top` or `bottom` when
-an edge is intentional; the explicit value is preserved through the scene
-document the page compiles to.
-
-Lengths are pixels, percentages, and `calc` between the two — a size, a
-position and a flex basis all take a share of the box.
-
-The spacing between boxes does not: `padding`, `margin`, `gap`, a border width
-and a radius, and a font size are counted in whole pixels, and a percentage
-there is refused by name rather than taken as the pixel half of itself. That is
-the one place the schema is narrower than CSS: the layout holds an inset as an
-integer, so there is nothing for a share to resolve against.
-
-`line-height` is the exception among them, because a bare number and a
-percentage are both ratios of the font size and that is a number this does
-know. Both are kept as the ratio and worked out once the font size is settled,
-so the order the two are written in does not change the line, and a child with
-its own size gets its own line from the same ratio.
-
-`margin: auto` pushes an item to the other end of its container.
-`white-space: pre` keeps the runs of spaces a page lines its columns up with.
-
-### What it cannot, and why
-
-There is nothing for `opacity`, gradients, shadows or antialiasing to do on a
-panel with four inks and no greys; nothing for font weight or italic with
-bitmap strikes; nothing to animate in one static frame; and nowhere for
-overflow to scroll. Those are absent rather than approximated.
-
-Geometry is absent for a different reason. CSS has no vocabulary for an arc, a
-polygon, a pattern or a path, and giving it one would be inventing a dialect
-that looks like CSS and is not. SVG is that vocabulary, already standard, and
-it goes in the page — inline, or named by an `img`:
-
-```html
-<svg viewBox="0 0 214 74"><polyline points="0,8 6,2 12,8"/></svg>
-<div class="frame"><img src="chart-plot.svg"></div>
-```
-
-which is how `examples/desk/chart.html` draws a ninety-six point series: the
-points are not something anyone writes by hand, and whatever produced the
-series produced them too. An external drawing is compiled in place, so what
-comes out is one self-contained document, which is what a device is given.
-
-### What a drawing can say
-
-`rect` `circle` `ellipse` `line` `polyline` `polygon` `path` `g` `clipPath`
-`pattern` `defs` `title` `desc`, painted with `fill` `stroke` `stroke-width`
-`stroke-dasharray` `stroke-dashoffset` and clipped with `clip-path`. A `path`
-reads the whole of the `d` grammar: `M L H V C S Q T A Z`, their relative
-forms, a command repeating without being written again, and the control point
-a smooth curve leaves out.
-
-A `transform` is folded into the coordinates, which a `translate` and a
-whole-number `scale` can be and a `rotate`, a `skew` or a `matrix` cannot —
-those are reported. A `viewBox` is magnified by a whole number or not at all.
-
-A stylesheet outranks a presentation attribute, as it does in CSS, which is
-what makes a drawing somebody else made usable: the shapes are kept and the
-colours are restated in terms the panel has.
-
-```css
-svg path { fill: black; }
-```
-
-Nothing is dropped quietly. An unknown property, an unsupported value, an ink
-that is not one of the four and a font size with no strike each produce a
-warning that names the element and the declaration.
+The full property and value reference is in [MARKUP.md](MARKUP.md). The panel
+has four inks, bitmap fonts and one fixed frame, so unsupported properties and
+values are reported and ignored rather than approximated. SVG supplies the
+standard vocabulary for paths, patterns and other geometry that CSS does not
+describe.
 
 ## Examples
 
 | Page | Size |
 |---|---|
+| [markup_quickstart](examples/markup_quickstart/page.html) | 296x128 |
 | [desk](examples/desk/): [claude](examples/desk/claude.html) [disk](examples/desk/disk.html) [tasks](examples/desk/tasks.html) [btc](examples/desk/btc.html) [chart](examples/desk/chart.html) | 296x128 |
 | [panel_check](examples/panel_check/): [primitives](examples/panel_check/primitives.html) [polarity](examples/panel_check/polarity.html) | 400x300 |
 | [layout_showcase](examples/layout_showcase/page.html) — `grid` `anchored` `transformed` `clip` `clipShape` | 296x128 |

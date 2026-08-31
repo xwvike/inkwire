@@ -14,10 +14,8 @@ import (
 // RenderPage draws an example the way its author writes it.
 //
 // Every example is a page written as HTML, with its styles in a style element
-// and its picture beside it. The scene document a page compiles to is not kept
-// anywhere except examples/schema_quickstart, where it is the subject; the
-// fallback below is what renders it, and what renders any page somebody hands
-// this in the older format.
+// and its picture beside it. The fallback below keeps tests able to render an
+// older encoded page when a fixture explicitly needs one.
 func RenderPage(t *testing.T, dir, name string) scene.Result {
 	t.Helper()
 	page := filepath.Join(dir, name+".html")

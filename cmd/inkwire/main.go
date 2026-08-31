@@ -1,5 +1,5 @@
-// Command inkwire renders Scene Schema documents and writes them to BLE
-// e-paper tags of two families.
+// Command inkwire renders Markup pages and writes them to BLE e-paper tags of
+// two families.
 //
 // Every subcommand is here rather than in a package of its own because there
 // is little to them: they parse flags, call a driver, and turn an error into
@@ -25,7 +25,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xwvike/inkwire"
 	"github.com/xwvike/inkwire/internal/ble"
 	"github.com/xwvike/inkwire/internal/compose"
 	"github.com/xwvike/inkwire/internal/display"
@@ -72,8 +71,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runMode(ctx, args[1:], logger, stdout, stderr)
 	case "serve":
 		return runServe(ctx, args[1:], logger, stdout, stderr)
-	case "schema":
-		return runSchema(args[1:], stdout, stderr)
 	default:
 		// Every invocation names a command. There used to be a bare form that
 		// took a file path and wrote it to a tag, which is how `inkwire
@@ -127,14 +124,13 @@ func parseFlags(flags *flag.FlagSet, args []string, help io.Writer) (int, bool) 
 // take -settle, and nobody would find that by reading either one, only by
 // reading both and comparing. The order here is the order the summary lists.
 var usageLines = []struct{ name, takes string }{
-	{"render", "[-o preview.png] [-size WxH | -panel family:id] <page.html|scene.json>"},
+	{"render", "[-o preview.png] [-size WxH | -panel family:id] <page.html>"},
 	{"compile", "[-o scene.json] <page.html>"},
-	{"push", "-device MAC-or-name [-family gicisky|nrfepd] [-settle 30s] <page.html|scene.json>"},
-	{"measure", "[-size WxH | -panel family:id] [-json] <page.html|scene.json>"},
+	{"push", "-device MAC-or-name [-family gicisky|nrfepd] [-settle 30s] <page.html>"},
+	{"measure", "[-size WxH | -panel family:id] [-json] <page.html>"},
 	{"scan", "[-timeout 15s]"},
 	{"mode", "-device MAC-or-name [-mode picture|calendar|clock] [-week-start sunday|monday] [-settle 30s]"},
 	{"serve", "[-listen address] [-assets directory]"},
-	{"schema", "[-lang en|zh]"},
 	{"version", ""},
 }
 
@@ -204,32 +200,6 @@ func buildVersion() string {
 		return "devel-" + revision + "-dirty"
 	}
 	return "devel-" + revision
-}
-
-// runSchema prints the Scene Schema reference the binary carries. Whatever is
-// driving this program needs to know what a scene document may contain, and
-// asking the program it is already running beats finding the right version of a
-// file on the web.
-func runSchema(args []string, stdout, stderr io.Writer) int {
-	flags := command("schema", stderr)
-	lang := flags.String("lang", "en", "which translation to print: en or zh")
-	if code, ok := parseFlags(flags, args, stdout); !ok {
-		return code
-	}
-	if flags.NArg() != 0 {
-		flags.Usage()
-		return 2
-	}
-	switch strings.ToLower(*lang) {
-	case "en":
-		fmt.Fprint(stdout, inkwire.Schema)
-	case "zh":
-		fmt.Fprint(stdout, inkwire.SchemaChinese)
-	default:
-		fmt.Fprintf(stderr, "unknown language %q: use en or zh\n", *lang)
-		return 2
-	}
-	return 0
 }
 
 func runServe(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
