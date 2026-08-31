@@ -90,7 +90,11 @@ type emitted struct {
 
 	// Last, so that a node that wraps another reads as what it does before
 	// what it does it to: a padding states its insets and then its child.
-	Child *emitted `json:"child,omitempty"`
+	Child  *emitted `json:"child,omitempty"`
+	Top    any      `json:"top,omitempty"`
+	Right  any      `json:"right,omitempty"`
+	Bottom any      `json:"bottom,omitempty"`
+	Left   any      `json:"left,omitempty"`
 
 	Gap        int    `json:"gap,omitempty"`
 	MainAlign  string `json:"mainAlign,omitempty"`

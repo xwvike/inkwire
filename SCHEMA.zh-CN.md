@@ -236,6 +236,26 @@ CLI 命令逐项打印扩展；HTTP 渲染响应在 JSON body 的
 
 同轴两条边加一个尺寸被拒。
 
+### relative
+
+```json
+{
+  "type": "relative",
+  "top": "10%",
+  "left": 8,
+  "child": {"type": "rectangle", "fill": "red"}
+}
+```
+
+| 字段 | 类型 | | 默认 |
+|---|---|---|---|
+| `top` `right` `bottom` `left` | length | 相对于正常 flow 位置的偏移 | 不偏移 |
+| `child` | node | | 必填 |
+
+子节点仍保留正常布局得到的尺寸和位置，但整个绘制子树会按这些边距移动。
+同一轴同时写两条边时，`left` 优先于 `right`，`top` 优先于 `bottom`；只写末端边时
+会向相反方向移动。百分比相对于 containing box 解析。这个包装节点不会改变父级测量到的尺寸。
+
 ### transformed
 
 ```json

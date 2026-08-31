@@ -184,7 +184,7 @@ func (a Absolute) paint(ctx *compileContext, list *display.DisplayList, bounds i
 	for index, child := range a.Children {
 		nodePath := childPath(path, "children", index)
 		childBounds := child.Bounds.Add(bounds.Min)
-		if err := ctx.paint(child.Node, list, childBounds, nodePath); err != nil {
+		if err := ctx.paintWithContaining(child.Node, list, childBounds, bounds, nodePath); err != nil {
 			return err
 		}
 	}
@@ -350,7 +350,7 @@ func paintFlow(ctx *compileContext, list *display.DisplayList, bounds image.Rect
 			crossStart = availableCross - childCross
 		}
 		childBounds := rectFromAxes(bounds.Min, cursor, crossStart, childMain, childCross, horizontal)
-		if err := ctx.paint(child.Node, list, childBounds, nodePath); err != nil {
+		if err := ctx.paintWithContaining(child.Node, list, childBounds, bounds, nodePath); err != nil {
 			return err
 		}
 		cursor += childMain + gap
@@ -389,7 +389,7 @@ func (s Stack) measure(ctx *compileContext, maximum image.Point, path string) (i
 
 func (s Stack) paint(ctx *compileContext, list *display.DisplayList, bounds image.Rectangle, path string) error {
 	for index, child := range s.Children {
-		if err := ctx.paint(child, list, bounds, childPath(path, "children", index)); err != nil {
+		if err := ctx.paintWithContaining(child, list, bounds, bounds, childPath(path, "children", index)); err != nil {
 			return err
 		}
 	}
@@ -427,7 +427,47 @@ func (p Padding) paint(ctx *compileContext, list *display.DisplayList, bounds im
 		return nil
 	}
 	inner := image.Rectangle{Min: min, Max: maxPoint}
-	return ctx.paint(p.Child, list, inner, path+".child")
+	return ctx.paintWithContaining(p.Child, list, inner, inner, path+".child")
+}
+
+// Relative keeps its child's measured flow box but paints that box at an
+// offset. Unlike Anchored, it does not remove the child from flow or change
+// the size its parent allocates. The four edges follow CSS precedence: the
+// start edge wins when both edges on one axis are stated, and the end edge
+// moves in the opposite direction when it stands alone.
+type Relative struct {
+	Top, Right, Bottom, Left Length
+	Child                    Node
+}
+
+func (Relative) composeNode() {}
+
+func (r Relative) measure(ctx *compileContext, maximum image.Point, path string) (image.Point, error) {
+	if nilNode(r.Child) {
+		return image.Point{}, fmt.Errorf("%s.child: node must not be nil", path)
+	}
+	return r.Child.measure(ctx, maximum, path+".child")
+}
+
+func (r Relative) paint(ctx *compileContext, list *display.DisplayList, bounds image.Rectangle, path string) error {
+	if nilNode(r.Child) {
+		return fmt.Errorf("%s.child: node must not be nil", path)
+	}
+	container := ctx.containing
+	dx := relativeShift(r.Left, r.Right, container.Dx())
+	dy := relativeShift(r.Top, r.Bottom, container.Dy())
+	shifted := bounds.Add(image.Pt(dx, dy))
+	return ctx.paintWithContaining(r.Child, list, shifted, shifted, path+".child")
+}
+
+func relativeShift(start, end Length, available int) int {
+	if value, ok := start.Offset(available); ok {
+		return value
+	}
+	if value, ok := end.Offset(available); ok {
+		return -value
+	}
+	return 0
 }
 
 // Spacer reserves an explicit size and paints nothing.
@@ -536,7 +576,7 @@ func (a Anchored) paint(ctx *compileContext, list *display.DisplayList, bounds i
 			ctx.warn(nodePath, "empty-layout", "the anchored box resolved to no area")
 			continue
 		}
-		if err := ctx.paint(child.Node, list, placed, nodePath); err != nil {
+		if err := ctx.paintWithContaining(child.Node, list, placed, bounds, nodePath); err != nil {
 			return err
 		}
 	}

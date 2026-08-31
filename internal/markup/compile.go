@@ -109,7 +109,7 @@ func (options Compiler) Compile(markup, css string) (Document, error) {
 	if element == nil {
 		return Document{Warnings: c.warnings}, fmt.Errorf("body has no element to render")
 	}
-	tree, _ := c.element(element, rootStyle(), "root")
+	tree, _ := c.element(element, rootStyle(), "root", nil)
 	if tree == nil {
 		return Document{Warnings: c.warnings},
 			fmt.Errorf("the root element resolved to nothing to draw")
@@ -346,7 +346,7 @@ func (c *compiler) variablesFor(node *html.Node) map[string]string {
 
 // element compiles one element and reports the flex weights its parent should
 // give it.
-func (c *compiler) element(node *html.Node, parent style, path string) (*emitted, style) {
+func (c *compiler) element(node *html.Node, parent style, path string, containing *childBoxes) (*emitted, style) {
 	current := c.computed(node, parent, path)
 	if current.display == displayNone {
 		return nil, current
@@ -359,16 +359,16 @@ func (c *compiler) element(node *html.Node, parent style, path string) (*emitted
 	if node.Namespace == svgNamespace && node.Data == "svg" {
 		// A drawing is content rather than a container, and the element around
 		// it still sizes, clips and transforms it.
-		return sized(transformed(shaped(c.svg(node, current, path), current), current), current), current
+		return relatively(sized(transformed(shaped(c.svg(node, current, path), current), current), current), current), current
 	}
 	if node.Data == "img" {
 		// An image is content rather than a container, but it is still an
 		// element: clipping and transforming apply to it exactly as they do
 		// to anything else, and returning here without them made a circular
 		// portrait come out square without a word about it.
-		return sized(transformed(shaped(c.image(node, current, path), current), current), current), current
+		return relatively(sized(transformed(shaped(c.image(node, current, path), current), current), current), current), current
 	}
-	inner, insetAlready := c.children(node, current, path)
+	inner, insetAlready := c.children(node, current, path, containing)
 	if inner == nil && current.background == nil && current.border == nil {
 		// An element with nothing to paint still has a box. Dropping it
 		// shifted everything after it along, which in a grid meant a spacer
@@ -418,12 +418,12 @@ func (c *compiler) element(node *html.Node, parent style, path string) (*emitted
 		}
 	}
 	if len(layers) == 0 {
-		return sized(transformed(shaped(inner, current), current), current), current
+		return relatively(sized(transformed(shaped(inner, current), current), current), current), current
 	}
 	if inner != nil {
 		layers = append(layers, inner)
 	}
-	return sized(transformed(shaped(&emitted{Type: "stack", Children: layers}, current), current), current), current
+	return relatively(sized(transformed(shaped(&emitted{Type: "stack", Children: layers}, current), current), current), current), current
 }
 
 // shaped confines the whole element to its clip-path, background and border
@@ -468,6 +468,23 @@ func transformed(node *emitted, s style) *emitted {
 		}
 	}
 	return turn
+}
+
+// relatively keeps the element in its parent's flow while moving the whole
+// painted subtree. The scene decoder resolves these lengths against the
+// containing box once the layout has produced one.
+func relatively(node *emitted, s style) *emitted {
+	if node == nil || !s.positioned || s.absolute || !hasInset(s) {
+		return node
+	}
+	return &emitted{
+		Type:   "relative",
+		Top:    lengthValue(lengthOf(s.inset[0])),
+		Right:  lengthValue(lengthOf(s.inset[1])),
+		Bottom: lengthValue(lengthOf(s.inset[2])),
+		Left:   lengthValue(lengthOf(s.inset[3])),
+		Child:  node,
+	}
 }
 
 func radiusOf(s style) int {
@@ -616,7 +633,7 @@ func pathExtension(source string) string {
 // which it does when it has laid an anchored layer over the content: an
 // absolutely positioned child is placed against the padding box and not inside
 // it, so the padding has to go round the line rather than round both.
-func (c *compiler) children(node *html.Node, current style, path string) (*emitted, bool) {
+func (c *compiler) children(node *html.Node, current style, path string, containing *childBoxes) (*emitted, bool) {
 	// A flex container lays out boxes, never a line of text, so the inline
 	// path is not even attempted for one.
 	if current.display != displayFlex {
@@ -635,7 +652,11 @@ func (c *compiler) children(node *html.Node, current style, path string) (*emitt
 	}
 
 	var boxes childBoxes
-	c.appendChildren(node, current, path, &boxes)
+	childContaining := containing
+	if childContaining == nil || current.positioned {
+		childContaining = &boxes
+	}
+	c.appendChildren(node, current, path, &boxes, childContaining)
 	items, cells, placed := boxes.items, boxes.cells, boxes.placed
 
 	// gap only means something between the children of a flex line or a grid,
@@ -723,10 +744,19 @@ type childBoxes struct {
 	index  int
 }
 
+func hasInset(s style) bool {
+	for _, edge := range s.inset {
+		if edge.set {
+			return true
+		}
+	}
+	return false
+}
+
 // appendChildren walks one element's children into the collection. It calls
 // itself for an element with display: contents, whose children belong to this
 // container rather than to a box of its own.
-func (c *compiler) appendChildren(node *html.Node, current style, path string, into *childBoxes) {
+func (c *compiler) appendChildren(node *html.Node, current style, path string, into, containing *childBoxes) {
 	// The axis the children actually run along. direction only means anything
 	// on a flex container; a block container stacks down the page whatever it
 	// says, and reading direction straight off it left every block at the row
@@ -763,17 +793,21 @@ func (c *compiler) appendChildren(node *html.Node, current style, path string, i
 		childPath := fmt.Sprintf("%s>%s[%d]", path, child.Data, into.index)
 		into.index++
 		if c.computed(child, current, childPath).display == displayContents {
-			c.appendChildren(child, current, childPath, into)
+			c.appendChildren(child, current, childPath, into, containing)
 			continue
 		}
-		compiled, childStyle := c.element(child, current, childPath)
+		compiled, childStyle := c.element(child, current, childPath, containing)
 		if compiled == nil {
 			continue
 		}
 		// An absolutely positioned child is taken out of the line and placed
 		// against the container's own box.
 		if childStyle.absolute {
-			into.placed = append(into.placed, anchorFor(childStyle, compiled))
+			target := containing
+			if target == nil {
+				target = into
+			}
+			target.placed = append(target.placed, anchorFor(childStyle, compiled))
 			continue
 		}
 		if current.display == displayGrid {

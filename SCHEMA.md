@@ -244,6 +244,28 @@ per-grid records in the JSON body's `report.GridExpansions` field.
 
 Both edges plus a size on one axis is refused.
 
+### relative
+
+```json
+{
+  "type": "relative",
+  "top": "10%",
+  "left": 8,
+  "child": {"type": "rectangle", "fill": "red"}
+}
+```
+
+| Field | Type | | Default |
+|---|---|---|---|
+| `top` `right` `bottom` `left` | length | offset from the normal flow position | no offset |
+| `child` | node | | required |
+
+The child keeps the size and slot it gets from normal layout, but its whole
+painted subtree is moved by the stated insets. `left` wins over `right` and
+`top` wins over `bottom` when both edges on one axis are stated; an end edge
+moves in the opposite direction. Percentages resolve against the containing
+box. The wrapper does not change the size its parent measures.
+
 ### transformed
 
 ```json

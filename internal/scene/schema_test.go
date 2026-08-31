@@ -252,6 +252,44 @@ func TestAnchoredPaintsHigherLayersLast(t *testing.T) {
 	assertInk(t, result, 5, 5, display.InkRed, "the higher layer wins regardless of document order")
 }
 
+func TestRelativeNodeMovesPaintAndKeepsFlowPlacement(t *testing.T) {
+	result := renderScene(t, `{
+		"version": 1, "background": "white",
+		"root": {
+			"type": "row",
+			"children": [
+				{"basis": 20, "cross": 10, "node": {
+					"type": "relative", "top": 5, "left": 7,
+					"child": {"type": "rectangle", "fill": "black"}
+				}},
+				{"basis": 20, "cross": 10, "node": {"type": "rectangle", "fill": "red"}}
+			]
+		}
+	}`)
+
+	assertInk(t, result, 7, 5, display.InkBlack, "relative paint moves right and down")
+	assertInk(t, result, 20, 0, display.InkRed, "the following item keeps its flow slot")
+	assertInk(t, result, 0, 0, display.InkWhite, "the original relative slot is not painted")
+}
+
+func TestRelativePercentagesUseContainingBox(t *testing.T) {
+	result := renderScene(t, `{
+		"version": 1, "background": "white",
+		"root": {
+			"type": "absolute",
+			"children": [{
+				"bounds": {"x": 0, "y": 0, "width": 20, "height": 10},
+				"node": {
+					"type": "relative", "top": "25%", "left": "50%",
+					"child": {"type": "rectangle", "fill": "black"}
+				}
+			}]
+		}
+	}`)
+
+	assertInk(t, result, 148, 32, display.InkBlack, "percentages resolve against the page containing box")
+}
+
 func TestClipNodesDoNotOwnPaintingOrder(t *testing.T) {
 	_, err := (Decoder{}).Decode(strings.NewReader(`{
 		"version": 1,

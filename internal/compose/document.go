@@ -249,6 +249,9 @@ type compileContext struct {
 	compiler *Compiler
 	report   Report
 	seenRune map[rune]bool
+	// containing is the box against which a positioned child's percentages
+	// resolve.
+	containing image.Rectangle
 	// wanted is what a node said it needed, before whatever it was given.
 	// Only nodes that know an answer worth reporting fill it in.
 	wanted map[string]image.Point
@@ -261,6 +264,16 @@ type compileContext struct {
 // same arrangement as warn: the context is the one thing that sees every node,
 // so it is the one place that can count them.
 func (c *compileContext) paint(node Node, list *display.DisplayList, bounds image.Rectangle, path string) error {
+	return c.paintWithContaining(node, list, bounds, bounds, path)
+}
+
+// paintWithContaining records the box that contains node separately from the
+// box allocated to node. Most nodes use the two interchangeably; relative
+// positioning is the case where CSS makes the distinction observable.
+func (c *compileContext) paintWithContaining(node Node, list *display.DisplayList, bounds, containing image.Rectangle, path string) error {
+	previous := c.containing
+	c.containing = containing
+	defer func() { c.containing = previous }()
 	if c.compiler.Trace {
 		c.report.Placements = append(c.report.Placements, Placement{
 			Path:   path,

@@ -5,7 +5,7 @@
 // # What this describes
 //
 // Everything compose can draw. A document lays out a page with rows, columns,
-// grids and anchored boxes, and it states geometry as coordinates: arcs,
+// grids, relative offsets and anchored boxes, and it states geometry as coordinates: arcs,
 // polygons, paths, patterns and single pixels. The second kind is what a
 // generator produces rather than what a person writes, which is why it is
 // stated as numbers and not as a style.
@@ -224,6 +224,20 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 			}
 		}
 		return compose.Anchored{Size: value.Size.point(), Children: children}, nil
+	case "relative":
+		var value relativeJSON
+		if err := decodeStrictBytes(raw, &value); err != nil {
+			return nil, nodeError(path, err)
+		}
+		child, err := d.decodeNode(value.Child, path+".child")
+		if err != nil {
+			return nil, err
+		}
+		return compose.Relative{
+			Top: value.Top.length, Right: value.Right.length,
+			Bottom: value.Bottom.length, Left: value.Left.length,
+			Child: child,
+		}, nil
 	case "stack":
 		var value stackJSON
 		if err := decodeStrictBytes(raw, &value); err != nil {
@@ -687,6 +701,16 @@ type anchoredJSON struct {
 	Size     sizeJSON     `json:"size,omitempty"`
 	Children []anchorJSON `json:"children,omitempty"`
 }
+
+type relativeJSON struct {
+	Type   string          `json:"type"`
+	Top    offsetJSON      `json:"top,omitempty"`
+	Right  offsetJSON      `json:"right,omitempty"`
+	Bottom offsetJSON      `json:"bottom,omitempty"`
+	Left   offsetJSON      `json:"left,omitempty"`
+	Child  json.RawMessage `json:"child"`
+}
+
 type anchorJSON struct {
 	Node   json.RawMessage `json:"node"`
 	Top    offsetJSON      `json:"top,omitempty"`

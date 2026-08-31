@@ -47,6 +47,7 @@ var nodeOwners = map[string]owner{
 	"Stack":     layout,
 	"Absolute":  layout,
 	"Anchored":  layout,
+	"Relative":  layout,
 	"Padding":   layout,
 	"Spacer":    layout,
 	"Text":      layout,

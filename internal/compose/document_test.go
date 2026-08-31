@@ -40,6 +40,25 @@ func compileAndRender(t *testing.T, document Document) (*display.Frame, Report) 
 	return frame, report
 }
 
+func boundsOfInk(frame *display.Frame, target display.Ink) image.Rectangle {
+	var bounds image.Rectangle
+	for y := 0; y < frame.Height(); y++ {
+		for x := 0; x < frame.Width(); x++ {
+			ink, _ := frame.InkAt(x, y)
+			if ink != target {
+				continue
+			}
+			pixel := image.Rect(x, y, x+1, y+1)
+			if bounds.Empty() {
+				bounds = pixel
+			} else {
+				bounds = bounds.Union(pixel)
+			}
+		}
+	}
+	return bounds
+}
+
 func TestDocumentPaintsOnlyExplicitContent(t *testing.T) {
 	frame, report := compileAndRender(t, Document{
 		Root: Absolute{Children: []Placed{
@@ -137,6 +156,36 @@ func TestRowAllocatesIntegerGrowthWithoutChangingOrder(t *testing.T) {
 		if got != test.ink {
 			t.Fatalf("pixel (%d,0) = %d, want %d", test.x, got, test.ink)
 		}
+	}
+}
+
+func TestRelativeMovesPaintWithoutChangingFlowSlot(t *testing.T) {
+	frame, _ := compileAndRender(t, Document{Root: Row{
+		Children: []LayoutChild{
+			{Basis: Pixels(20), Cross: Pixels(10), Node: Relative{
+				Top: Pixels(5), Left: Pixels(7),
+				Child: Rectangle{Fill: Ink(display.InkBlack)},
+			}},
+			{Basis: Pixels(20), Cross: Pixels(10), Node: Rectangle{Fill: Ink(display.InkRed)}},
+		},
+	}})
+	if got := boundsOfInk(frame, display.InkBlack); got != image.Rect(7, 5, 27, 15) {
+		t.Fatalf("relative black bounds = %v, want shifted paint", got)
+	}
+	if got := boundsOfInk(frame, display.InkRed); got != image.Rect(20, 0, 40, 10) {
+		t.Fatalf("relative sibling bounds = %v, want original flow slot", got)
+	}
+}
+
+func TestRelativePercentagesUseContainingBox(t *testing.T) {
+	frame, _ := compileAndRender(t, Document{Size: image.Pt(100, 50), Root: Absolute{
+		Children: []Placed{{Bounds: image.Rect(0, 0, 20, 10), Node: Relative{
+			Top: Tenths(100), Left: Tenths(200),
+			Child: Rectangle{Fill: Ink(display.InkBlack)},
+		}}},
+	}})
+	if got := boundsOfInk(frame, display.InkBlack); got != image.Rect(20, 5, 40, 15) {
+		t.Fatalf("relative percentage bounds = %v, want containing-box offsets", got)
 	}
 }
 

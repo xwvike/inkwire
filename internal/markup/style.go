@@ -95,6 +95,7 @@ type style struct {
 	dash       []int
 	dashOffset int
 	absolute   bool
+	positioned bool
 	minSize    [2]length // width, height
 	maxSize    [2]length
 	inset      [4]length // top, right, bottom, left
@@ -558,15 +559,15 @@ func (s *style) apply(property, value string, parent style, report func(string))
 	case "position":
 		switch value {
 		case "static":
-			s.absolute = false
+			s.absolute, s.positioned = false, false
 		case "absolute":
-			s.absolute = true
+			s.absolute, s.positioned = true, true
 		case "relative":
-			// Nothing here is offset from its flow position, and a relative
-			// box with no offsets is indistinguishable from a static one, so
-			// this is only accepted for the containing-block role it plays.
+			// A relative box stays in flow, establishes the containing block for
+			// descendants, and is wrapped with its offsets when the scene is emitted.
+			s.absolute, s.positioned = false, true
 		default:
-			report(fmt.Sprintf("position: %s is not supported; use static or absolute", value))
+			report(fmt.Sprintf("position: %s is not supported; use static, relative or absolute", value))
 		}
 	case "top":
 		s.inset[0] = parseLength(value, property, report)
@@ -577,13 +578,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 	case "left":
 		s.inset[3] = parseLength(value, property, report)
 	case "inset":
-		sides := parseInsets(value, property, report)
-		s.inset = [4]length{
-			{set: true, pixels: float64(sides.Top)},
-			{set: true, pixels: float64(sides.Right)},
-			{set: true, pixels: float64(sides.Bottom)},
-			{set: true, pixels: float64(sides.Left)},
-		}
+		s.inset = parseInsetLengths(value, property, report)
 	case "z-index":
 		// Nothing here overlaps except boxes taken out of the flow, and for
 		// those the layer is simply the order they are painted in.
@@ -1019,7 +1014,7 @@ func (s *style) inheritOne(property string, parent style, report func(string)) {
 		// Nothing to carry: a width here always includes padding and border,
 		// and box-sizing only ever says so or is refused.
 	case "position":
-		s.absolute = parent.absolute
+		s.absolute, s.positioned = parent.absolute, parent.positioned
 	case "top":
 		s.inset[0] = parent.inset[0]
 	case "right":
@@ -1170,7 +1165,7 @@ func (s *style) reset(property string, report func(string)) {
 	case "box-sizing":
 		// Nothing to return: see inheritOne.
 	case "position":
-		s.absolute = false
+		s.absolute, s.positioned = false, false
 	case "top":
 		s.inset[0] = fresh.inset[0]
 	case "right":
@@ -1632,6 +1627,32 @@ func parseInsets(value, property string, report func(string)) compose.Insets {
 	}
 	report(fmt.Sprintf("%s: %q needs one to four lengths", property, value))
 	return compose.Insets{}
+}
+
+func parseInsetLengths(value, property string, report func(string)) [4]length {
+	fields := splitSides(value)
+	sides := make([]length, 0, 4)
+	for _, field := range fields {
+		sides = append(sides, parseLength(field, property, report))
+		if !sides[len(sides)-1].set && field != "auto" {
+			return [4]length{}
+		}
+	}
+	if len(sides) == 0 || len(sides) > 4 {
+		report(fmt.Sprintf("%s: %q needs one to four lengths", property, value))
+		return [4]length{}
+	}
+	result := [4]length{sides[0], sides[0], sides[0], sides[0]}
+	if len(sides) > 1 {
+		result[1], result[3] = sides[1], sides[1]
+	}
+	if len(sides) > 2 {
+		result[2] = sides[2]
+	}
+	if len(sides) > 3 {
+		result[3] = sides[3]
+	}
+	return result
 }
 
 func parseInk(value, property string, report func(string)) (display.Ink, bool) {
