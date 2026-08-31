@@ -52,7 +52,6 @@ type style struct {
 	direction  axis
 	basis      length
 	grow       int
-	gap        int
 	padding    compose.Insets
 	margin     compose.Insets
 	autoLeft   bool
@@ -169,6 +168,7 @@ func (s style) inherited() style {
 		lineHeightMultiple: s.lineHeightMultiple,
 		wrap:               s.wrap,
 		preserve:           s.preserve,
+		hidden:             s.hidden,
 	}
 }
 
@@ -198,13 +198,21 @@ func (s *style) apply(property, value string, parent style, report func(string))
 	}
 	// inherit takes the parent's value, which is not the same as leaving the
 	// field alone: an earlier declaration on this element may already have
-	// changed it. initial and unset return the property to its own default.
+	// changed it. initial returns the property's own default; unset inherits
+	// when CSS defines the property as inherited and otherwise resets it.
 	switch value {
 	case "inherit":
 		s.inheritOne(property, parent, report)
 		return
-	case "initial", "unset", "revert":
+	case "initial", "revert":
 		s.reset(property, report)
+		return
+	case "unset":
+		if isInheritedProperty(property) {
+			s.inheritOne(property, parent, report)
+		} else {
+			s.reset(property, report)
+		}
 		return
 	}
 	switch property {
@@ -268,7 +276,6 @@ func (s *style) apply(property, value string, parent style, report func(string))
 			}
 			s.columnGap = columnGap
 		}
-		s.gap = s.rowGap
 		s.gapSet = true
 	case "row-gap":
 		rowGap, ok := wholeLength(value, property, report)
@@ -276,7 +283,6 @@ func (s *style) apply(property, value string, parent style, report func(string))
 			return
 		}
 		s.rowGap = rowGap
-		s.gap = s.rowGap
 		s.gapSet = true
 	case "column-gap":
 		columnGap, ok := wholeLength(value, property, report)
@@ -313,7 +319,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 		// recommends line-height be written and therefore how it usually is.
 		// Refusing it sent an author looking for a unit that the property
 		// they copied did not have.
-		if multiple, err := strconv.ParseFloat(strings.TrimSpace(value), 64); err == nil {
+		if multiple, err := parseFinite(strings.TrimSpace(value)); err == nil {
 			if multiple <= 0 {
 				report(fmt.Sprintf("line-height: %s must be more than zero", value))
 				return
@@ -407,8 +413,12 @@ func (s *style) apply(property, value string, parent style, report func(string))
 		case "dashed":
 			s.borderStyle()
 			s.dashed = true
+		case "none":
+			s.borderStyle()
+			s.border.width = 0
+			s.dashed, s.dash, s.dashOffset = false, nil, 0
 		default:
-			report(fmt.Sprintf("border-style: %s is not supported; use solid or dashed", value))
+			report(fmt.Sprintf("border-style: %s is not supported; use solid, dashed or none", value))
 		}
 	// SVG's two names for the same thing a border does here. They are used
 	// rather than something of this package's own invention because they are
@@ -549,8 +559,8 @@ func (s *style) apply(property, value string, parent style, report func(string))
 		if !ok {
 			height = "1"
 		}
-		numerator, errWidth := strconv.ParseFloat(strings.TrimSpace(width), 64)
-		denominator, errHeight := strconv.ParseFloat(strings.TrimSpace(height), 64)
+		numerator, errWidth := parseFinite(strings.TrimSpace(width))
+		denominator, errHeight := parseFinite(strings.TrimSpace(height))
 		if errWidth != nil || errHeight != nil || numerator <= 0 || denominator <= 0 {
 			report(fmt.Sprintf("aspect-ratio: %s must be a positive ratio such as 16 / 9", value))
 			return
@@ -678,7 +688,15 @@ func (s *style) apply(property, value string, parent style, report func(string))
 			s.color = ink
 		}
 	case "border":
+		if strings.EqualFold(strings.TrimSpace(value), "none") {
+			s.border, s.dashed, s.dash, s.dashOffset = nil, false, nil, 0
+			return
+		}
 		s.border = parseBorder(value, s.border, report)
+		// The shorthand's omitted style is solid. Keep radius (which the
+		// shorthand does not reset), but do not let an earlier dashed longhand
+		// leak through it.
+		s.dashed, s.dash, s.dashOffset = false, nil, 0
 	case "border-radius":
 		radius, ok := wholeLength(value, property, report)
 		if !ok {
@@ -775,6 +793,10 @@ func (s *style) applyFontShorthand(value, property string, parent style, report 
 		s.apply("font-size", size, parent, report)
 		if height != "" {
 			s.apply("line-height", height, parent, report)
+		} else {
+			// A shorthand resets omitted subproperties. Otherwise an earlier
+			// line-height declaration on this element leaks through the shorthand.
+			s.reset("line-height", report)
 		}
 		s.apply("font-family", strings.Join(fields[index+1:], " "), parent, report)
 		return
@@ -800,7 +822,7 @@ func parseAngle(value string) (float64, bool) {
 		if !found {
 			continue
 		}
-		number, err := strconv.ParseFloat(strings.TrimSpace(body), 64)
+		number, err := parseFinite(strings.TrimSpace(body))
 		if err != nil {
 			return 0, false
 		}
@@ -815,7 +837,7 @@ func parseAngle(value string) (float64, bool) {
 			return number * 360, true
 		}
 	}
-	number, err := strconv.ParseFloat(trimmed, 64)
+	number, err := parseFinite(trimmed)
 	if err != nil {
 		return 0, false
 	}
@@ -891,7 +913,7 @@ func wholePixels(field string) (int, bool) {
 // is handed on untouched for the length parser to accept or refuse.
 func bareNumberInPixels(value string) string {
 	trimmed := strings.TrimSpace(value)
-	if _, err := strconv.ParseFloat(trimmed, 64); err != nil {
+	if _, err := parseFinite(trimmed); err != nil {
 		return value
 	}
 	return trimmed + "px"
@@ -904,6 +926,14 @@ func (s *style) borderStyle() *border {
 		s.border = &border{width: 1, ink: display.InkBlack}
 	}
 	return s.border
+}
+
+func cloneBorder(value *border) *border {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }
 
 func fitOf(fit display.ImageFit) *display.ImageFit { return &fit }
@@ -930,6 +960,17 @@ func crossOfMain(main compose.MainAlignment) compose.CrossAlignment {
 	return compose.CrossStretch
 }
 
+func isInheritedProperty(property string) bool {
+	switch property {
+	case "color", "fill", "stroke", "stroke-width", "stroke-dasharray", "stroke-dashoffset",
+		"font", "font-family", "font-size", "line-height", "text-align", "vertical-align",
+		"white-space", "visibility":
+		return true
+	default:
+		return false
+	}
+}
+
 // inheritOne copies one property from the value the parent passed down.
 // inheritOne takes one property's value from the parent, which is what the
 // inherit keyword means for any property and not only the ones CSS passes down
@@ -951,9 +992,9 @@ func (s *style) inheritOne(property string, parent style, report func(string)) {
 	case "flex", "flex-grow":
 		s.grow = parent.grow
 	case "gap":
-		s.rowGap, s.columnGap, s.gap, s.gapSet = parent.rowGap, parent.columnGap, parent.gap, parent.gapSet
+		s.rowGap, s.columnGap, s.gapSet = parent.rowGap, parent.columnGap, parent.gapSet
 	case "row-gap":
-		s.rowGap, s.gap, s.gapSet = parent.rowGap, parent.gap, parent.gapSet
+		s.rowGap, s.gapSet = parent.rowGap, parent.gapSet
 	case "column-gap":
 		s.columnGap, s.gapSet = parent.columnGap, parent.gapSet
 	case "grid-template-columns":
@@ -1031,9 +1072,36 @@ func (s *style) inheritOne(property string, parent style, report func(string)) {
 		s.background = parent.background
 	case "color":
 		s.color = parent.color
-	case "border", "border-width", "border-style", "border-color", "border-radius":
-		s.border, s.dashed, s.dash, s.dashOffset =
-			parent.border, parent.dashed, parent.dash, parent.dashOffset
+	case "border":
+		s.border = cloneBorder(parent.border)
+		s.dashed, s.dash, s.dashOffset = parent.dashed, slices.Clone(parent.dash), parent.dashOffset
+	case "border-width":
+		if parent.border != nil {
+			s.borderStyle().width = parent.border.width
+		} else if s.border != nil {
+			s.border.width = 1
+		}
+	case "border-style":
+		s.dashed, s.dash, s.dashOffset = parent.dashed, slices.Clone(parent.dash), parent.dashOffset
+		if parent.border == nil && s.border != nil {
+			s.border.width = 0
+		}
+	case "border-color":
+		if s.border != nil {
+			if parent.border != nil {
+				s.border.ink = parent.border.ink
+			} else {
+				s.border.ink = display.InkBlack
+			}
+		}
+	case "border-radius":
+		if s.border != nil {
+			if parent.border != nil {
+				s.border.radius = parent.border.radius
+			} else {
+				s.border.radius = 0
+			}
+		}
 	case "visibility":
 		s.hidden = parent.hidden
 	case "overflow":
@@ -1055,7 +1123,7 @@ func (s *style) inheritOne(property string, parent style, report func(string)) {
 	case "stroke-width":
 		s.strokeWidth = parent.strokeWidth
 	case "stroke-dasharray":
-		s.dashed, s.dash = parent.dashed, parent.dash
+		s.dashed, s.dash = parent.dashed, slices.Clone(parent.dash)
 	case "stroke-dashoffset":
 		s.dashOffset = parent.dashOffset
 	case "font":
@@ -1082,10 +1150,10 @@ func (s *style) inheritOne(property string, parent style, report func(string)) {
 
 // reset returns one property to the value it would have had with no
 // declaration at all.
-// reset returns one property to its initial value, which is what initial,
-// unset and revert all ask for here. Most of them are the zero value of a
-// fresh style; the handful that are not are the ones with a default the panel
-// chose rather than the struct.
+// reset returns one property to its initial value, which is what initial and
+// revert ask for here, and what unset asks for on a non-inherited property.
+// Most of them are the zero value of a fresh style; the handful that are not
+// are the ones with a default the panel chose rather than the struct.
 //
 // Every property apply implements is here, for the same reason as inheritOne:
 // the ones that were missing did nothing and said nothing.
@@ -1104,9 +1172,9 @@ func (s *style) reset(property string, report func(string)) {
 	case "flex", "flex-grow":
 		s.grow = fresh.grow
 	case "gap":
-		s.rowGap, s.columnGap, s.gap, s.gapSet = 0, 0, 0, false
+		s.rowGap, s.columnGap, s.gapSet = 0, 0, false
 	case "row-gap":
-		s.rowGap, s.gap, s.gapSet = 0, 0, false
+		s.rowGap, s.gapSet = 0, false
 	case "column-gap":
 		s.columnGap, s.gapSet = 0, false
 	case "grid-template-columns":
@@ -1182,8 +1250,29 @@ func (s *style) reset(property string, report func(string)) {
 		s.background = nil
 	case "color":
 		s.color = display.InkBlack
-	case "border", "border-width", "border-style", "border-color", "border-radius":
+	case "border":
 		s.border, s.dashed, s.dash, s.dashOffset = nil, false, nil, 0
+	case "border-width":
+		if s.border != nil {
+			// The implementation's medium border is one pixel. Keeping the
+			// border object preserves color and radius set by other longhands.
+			s.border.width = 1
+		}
+	case "border-style":
+		s.dashed, s.dash, s.dashOffset = false, nil, 0
+		if s.border != nil {
+			// There is no separate style field in the scene schema; zero width
+			// is the representation of CSS's initial border-style: none.
+			s.border.width = 0
+		}
+	case "border-color":
+		if s.border != nil {
+			s.border.ink = display.InkBlack
+		}
+	case "border-radius":
+		if s.border != nil {
+			s.border.radius = 0
+		}
 	case "visibility":
 		s.hidden = false
 	case "overflow":
@@ -1240,12 +1329,12 @@ func parseTracks(value, property string, report func(string)) []compose.Track {
 		case field == "auto" || field == "min-content" || field == "max-content":
 			tracks = append(tracks, compose.Track{})
 		case strings.HasSuffix(field, "fr"):
-			count, err := strconv.ParseFloat(strings.TrimSuffix(field, "fr"), 64)
+			count, err := strconv.Atoi(strings.TrimSpace(strings.TrimSuffix(field, "fr")))
 			if err != nil || count <= 0 {
 				report(fmt.Sprintf("%s: %s is not a positive number of fr", property, field))
 				return nil
 			}
-			tracks = append(tracks, compose.Track{Fraction: int(count)})
+			tracks = append(tracks, compose.Track{Fraction: count})
 		default:
 			size := parseLength(field, property, report)
 			if !size.set {
@@ -1471,14 +1560,14 @@ func parseLength(value, property string, report func(string)) length {
 	case strings.HasPrefix(value, "calc("):
 		return parseCalc(value, property, report)
 	case strings.HasSuffix(value, "%"):
-		number, err := strconv.ParseFloat(strings.TrimSuffix(value, "%"), 64)
+		number, err := parseFinite(strings.TrimSuffix(value, "%"))
 		if err != nil {
 			report(fmt.Sprintf("%s: %s is not a percentage", property, value))
 			return length{}
 		}
 		return length{set: true, percent: number}
 	case strings.HasSuffix(value, "px"):
-		number, err := strconv.ParseFloat(strings.TrimSuffix(value, "px"), 64)
+		number, err := parseFinite(strings.TrimSuffix(value, "px"))
 		if err != nil {
 			report(fmt.Sprintf("%s: %s is not a pixel length", property, value))
 			return length{}
@@ -1538,13 +1627,30 @@ func parseCalc(value, property string, report func(string)) length {
 	return result
 }
 
+// parseFinite reads a number the way CSS spells one, which is to say without
+// NaN or an infinity. strconv accepts all three by name, and none of them is a
+// length, an angle or a count. NaN reached json.Marshal, which refuses it, so
+// one unreadable declaration stopped the whole page compiling — the opposite
+// of what this package promises. A figure too large to hold comes back as an
+// infinity with an error and is refused here for the same reason.
+func parseFinite(value string) (float64, error) {
+	number, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, err
+	}
+	if math.IsNaN(number) || math.IsInf(number, 0) {
+		return 0, fmt.Errorf("%s is not a finite number", value)
+	}
+	return number, nil
+}
+
 func parseNumber(value, property string, report func(string)) int {
 	fields := strings.Fields(value)
 	if len(fields) == 0 {
 		report(fmt.Sprintf("%s: %q is not a number", property, value))
 		return 0
 	}
-	number, err := strconv.ParseFloat(fields[0], 64)
+	number, err := parseFinite(fields[0])
 	if err != nil {
 		report(fmt.Sprintf("%s: %s is not a number", property, value))
 		return 0

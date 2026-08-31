@@ -351,15 +351,23 @@ func (c *compiler) element(node *html.Node, parent style, path string, containin
 	if current.display == displayNone {
 		return nil, current
 	}
-	if current.hidden {
-		// visibility keeps the box and its space; only the paint goes.
+	// An image has no descendants that could override visibility, so keeping its
+	// box as a spacer is enough. Ordinary boxes and SVGs still have to walk their
+	// children because a descendant may explicitly say visible.
+	if current.hidden && node.Data == "img" {
 		return sized(&emitted{Type: "spacer"}, current), current
 	}
 
 	if node.Namespace == svgNamespace && node.Data == "svg" {
 		// A drawing is content rather than a container, and the element around
 		// it still sizes, clips and transforms it.
-		return relatively(sized(transformed(shaped(c.svg(node, current, path), current), current), current), current), current
+		drawing := c.svg(node, current, path)
+		if drawing == nil && current.hidden {
+			// visibility:hidden preserves the SVG box even when every shape
+			// underneath it is hidden.
+			return sized(&emitted{Type: "spacer"}, current), current
+		}
+		return relatively(sized(transformed(shaped(drawing, current), current), current), current), current
 	}
 	if node.Data == "img" {
 		// An image is content rather than a container, but it is still an
@@ -367,6 +375,11 @@ func (c *compiler) element(node *html.Node, parent style, path string, containin
 		// to anything else, and returning here without them made a circular
 		// portrait come out square without a word about it.
 		return relatively(sized(transformed(shaped(c.image(node, current, path), current), current), current), current), current
+	}
+	// The element's own paint goes even though its children are still walked,
+	// because one of them may say visible.
+	if current.hidden {
+		current.background, current.border = nil, nil
 	}
 	inner, insetAlready := c.children(node, current, path, containing)
 	if inner == nil && current.background == nil && current.border == nil {
@@ -697,11 +710,11 @@ func (c *compiler) children(node *html.Node, current style, path string, contain
 		}
 		cross := current.alignItems
 		if current.direction == axisColumn {
-			return flow(&emitted{Type: "column", Gap: current.gap,
+			return flow(&emitted{Type: "column", Gap: current.rowGap,
 				MainAlign: mainAlignName(current.justify), CrossAlign: crossAlignName(cross),
 				Children: items})
 		}
-		return flow(&emitted{Type: "row", Gap: current.gap,
+		return flow(&emitted{Type: "row", Gap: current.columnGap,
 			MainAlign: mainAlignName(current.justify), CrossAlign: crossAlignName(cross),
 			Children: items})
 	}
@@ -744,6 +757,22 @@ type childBoxes struct {
 	index  int
 }
 
+// contentsContext keeps the outer container's layout rules while carrying the
+// computed values that display: contents would otherwise pass to its children.
+// A contents element has no box of its own, but its inherited paint and text
+// properties still apply to the nodes it exposes.
+func contentsContext(container, contents style) style {
+	next := container
+	inherited := contents.inherited()
+	next.fill, next.stroke, next.strokeWidth = inherited.fill, inherited.stroke, inherited.strokeWidth
+	next.color = inherited.color
+	next.fontFamily, next.fontSize = inherited.fontFamily, inherited.fontSize
+	next.textAlign, next.textVAlign = inherited.textAlign, inherited.textVAlign
+	next.lineHeight, next.lineHeightMultiple = inherited.lineHeight, inherited.lineHeightMultiple
+	next.wrap, next.preserve, next.hidden = inherited.wrap, inherited.preserve, inherited.hidden
+	return next
+}
+
 func hasInset(s style) bool {
 	for _, edge := range s.inset {
 		if edge.set {
@@ -767,6 +796,9 @@ func (c *compiler) appendChildren(node *html.Node, current style, path string, i
 	}
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
 		if child.Type == html.TextNode {
+			if current.hidden {
+				continue
+			}
 			// Text sitting directly among boxes becomes a box of its own, as
 			// CSS puts it in an anonymous item. Skipping it dropped the units
 			// out of "<b>412</b>h<small>hours</small>" without a word.
@@ -792,8 +824,9 @@ func (c *compiler) appendChildren(node *html.Node, current style, path string, i
 		}
 		childPath := fmt.Sprintf("%s>%s[%d]", path, child.Data, into.index)
 		into.index++
-		if c.computed(child, current, childPath).display == displayContents {
-			c.appendChildren(child, current, childPath, into, containing)
+		childStyle := c.computed(child, current, childPath)
+		if childStyle.display == displayContents {
+			c.appendChildren(child, contentsContext(current, childStyle), childPath, into, containing)
 			continue
 		}
 		compiled, childStyle := c.element(child, current, childPath, containing)
@@ -952,6 +985,9 @@ func (c *compiler) collectRuns(node *html.Node, current style, path string, star
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
 		switch child.Type {
 		case html.TextNode:
+			if current.hidden {
+				continue
+			}
 			text := c.spacing(child.Data, current, *started)
 			if text == "" {
 				continue
@@ -968,6 +1004,22 @@ func (c *compiler) collectRuns(node *html.Node, current style, path string, star
 				continue
 			}
 			childStyle := c.computed(child, current, path)
+			// display: none takes an element and its content out of the
+			// document, and a line of text is content like any other. Without
+			// this the words were laid into the run anyway and reached the
+			// panel, which is the one failure worse than a wrong layout.
+			if childStyle.display == displayNone {
+				continue
+			}
+			// A hidden inline element keeps its space in CSS and loses its
+			// paint, and a run has no way to be one without the other. The
+			// words go, and that is said rather than done quietly.
+			if childStyle.hidden {
+				c.warn(path, "unsupported-declaration", fmt.Sprintf(
+					"%s: visibility: hidden on text inside a line drops the words rather than "+
+						"keeping the space they took", describe(child)))
+				continue
+			}
 			if !childStyle.inline || childStyle.display == displayFlex {
 				return nil
 			}

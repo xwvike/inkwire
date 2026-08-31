@@ -53,7 +53,7 @@
 // noticing.
 //
 // It is not a browser and does not try to be. The panel settles most of the
-// question of what to support: with three inks and no greys there is nothing
+// question of what to support: with four inks and no greys there is nothing
 // for opacity, gradients, shadows or antialiasing to do; with bitmap strikes
 // there is no font weight, no italic and no continuous font size; with one
 // static frame there is nothing to animate; and with no scrolling there is

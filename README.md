@@ -701,7 +701,7 @@ svg path { fill: black; }
 ```
 
 Nothing is dropped quietly. An unknown property, an unsupported value, an ink
-that is not one of the three and a font size with no strike each produce a
+that is not one of the four and a font size with no strike each produce a
 warning that names the element and the declaration.
 
 ## Examples

@@ -3,7 +3,6 @@ package markup
 import (
 	"fmt"
 	"math"
-	"strconv"
 	"strings"
 
 	"golang.org/x/net/html"
@@ -49,9 +48,11 @@ func (c *compiler) svg(node *html.Node, current style, path string) *emitted {
 	patterns(node, c.patterns)
 	drawing := &emitted{Type: "absolute", Clip: true}
 	var children []placed
-	c.svgChildren(node, box, c.svgPaint(node, rootPaint(), current, path), rootFrame(), path, &children)
+	c.svgChildren(node, box, c.svgPaint(node, rootPaint(), current, path), current, rootFrame(), path, &children)
 	if len(children) == 0 {
-		c.warn(path, "unresolved-drawing", "an svg element with nothing in it that this build can draw")
+		if !current.hidden {
+			c.warn(path, "unresolved-drawing", "an svg element with nothing in it that this build can draw")
+		}
 		return nil
 	}
 	drawing.Children = children
@@ -126,29 +127,36 @@ func (c *compiler) viewport(node *html.Node, current style, path string) (int, i
 
 // svgChildren walks a drawing, placing what it can draw and naming what it
 // cannot. It calls itself for a g element, which groups without placing.
-func (c *compiler) svgChildren(node *html.Node, box rect, inherited svgPaint, frame svgFrame, path string, into *[]placed) {
+func (c *compiler) svgChildren(node *html.Node, box rect, inherited svgPaint, inheritedStyle style, frame svgFrame, path string, into *[]placed) {
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
 		if child.Type != html.ElementNode || child.Namespace != svgNamespace {
 			continue
 		}
 		childPath := fmt.Sprintf("%s>%s", path, child.Data)
+		childStyle := c.computed(child, inheritedStyle, childPath)
+		// display:none removes a group and everything beneath it. Visibility is
+		// inherited, so a hidden group still has to be walked for a descendant
+		// that explicitly says visible; individual hidden shapes are skipped.
+		if childStyle.display == displayNone {
+			continue
+		}
 		switch child.Data {
 		case "g":
 			// A group carries style down to its children, which is what the
 			// element is for. What it says and this cannot do is reported
 			// here rather than once per child, since it was written once.
 			c.reportUnread(child, childPath)
-			paint := c.svgPaint(child, inherited, c.computed(child, style{}, childPath), childPath)
+			paint := c.svgPaint(child, inherited, childStyle, childPath)
 			degrees, about, turned := c.turnOf(child, frame, childPath)
 			if !turned {
-				c.svgChildren(child, box, paint, c.transformed(child, frame, childPath), childPath, into)
+				c.svgChildren(child, box, paint, childStyle, c.transformed(child, frame, childPath), childPath, into)
 				continue
 			}
 			// A turned group becomes a box of its own, turned. Its children
 			// keep the coordinates they were written in, which is what makes
 			// the turn the only thing that moved.
 			var inner []placed
-			c.svgChildren(child, box, paint, c.transformed(child, frame, childPath), childPath, &inner)
+			c.svgChildren(child, box, paint, childStyle, c.transformed(child, frame, childPath), childPath, &inner)
 			if len(inner) == 0 {
 				continue
 			}
@@ -159,7 +167,10 @@ func (c *compiler) svgChildren(node *html.Node, box rect, inherited svgPaint, fr
 		case "title", "desc", "metadata", "defs", "clipPath", "pattern":
 			// Not drawn, by their own definition.
 		default:
-			placement, ok := c.svgShape(child, box, inherited, c.transformed(child, frame, childPath), childPath)
+			if childStyle.hidden {
+				continue
+			}
+			placement, ok := c.svgShape(child, box, inherited, childStyle, c.transformed(child, frame, childPath), childPath)
 			if !ok {
 				continue
 			}
@@ -179,7 +190,7 @@ func (c *compiler) svgChildren(node *html.Node, box rect, inherited svgPaint, fr
 // in. The two kinds of shape need different boxes: one states its own
 // coordinates and is placed across the whole viewport, and one fills whatever
 // box it is given and so is placed in its own.
-func (c *compiler) svgShape(node *html.Node, box rect, inherited svgPaint, frame svgFrame, path string) (placed, bool) {
+func (c *compiler) svgShape(node *html.Node, box rect, inherited svgPaint, current style, frame svgFrame, path string) (placed, bool) {
 	c.reportUnread(node, path)
 	// A fill that names a pattern is not a colour, so it is read before the
 	// paint is: what comes back is the drawing that fills the shape rather
@@ -187,7 +198,7 @@ func (c *compiler) svgShape(node *html.Node, box rect, inherited svgPaint, frame
 	if tiled, ok := c.patternFill(c.svgAttribute(node, "fill", path), path); ok {
 		return c.tiled(node, box, frame, tiled, path)
 	}
-	paint := c.svgPaint(node, inherited, c.computed(node, style{}, path), path)
+	paint := c.svgPaint(node, inherited, current, path)
 	switch node.Data {
 	case "rect":
 		x, y := frame.place(svgLength(node, "x"), svgLength(node, "y"))
@@ -525,7 +536,7 @@ func svgNumber(value string) (float64, bool) {
 		return 0, false
 	}
 	trimmed = strings.TrimSuffix(trimmed, "px")
-	number, err := strconv.ParseFloat(trimmed, 64)
+	number, err := parseFinite(trimmed)
 	if err != nil {
 		return 0, false
 	}

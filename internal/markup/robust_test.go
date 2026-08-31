@@ -164,7 +164,9 @@ func TestNoDeclarationCanPanic(t *testing.T) {
 		"0", "1", "-1", "px", "1px 2px 3px 4px 5px", ",", "a,b", "url(", "url(#)", "var(--x)",
 		"inset(", "circle(", "polygon(1px)", "rotate(", "repeat(", "repeat(1)", "span",
 		"span 0", "1 /", "/ 2", "1 / span", "auto auto auto auto auto", "\t\n", "'", "\"",
-		"1e999", "99999999999999999999", "NaN", "Inf", "#", "#0", "#00000000000"}
+		"1e999", "99999999999999999999", "NaN", "Inf", "-Inf", "+Inf", "infinity", "nan",
+		"NaNpx", "Infdeg", "NaNfr", "NaN / 1", "1 / NaN", "calc(NaN + 1px)",
+		"#", "#0", "#00000000000"}
 	for _, property := range properties {
 		for _, value := range values {
 			func() {
@@ -195,5 +197,39 @@ func TestAnEmptyValueIsReportedByName(t *testing.T) {
 	}
 	if !strings.Contains(said, "gap") || !strings.Contains(said, "no value") {
 		t.Errorf("the empty gap was not reported: %q", said)
+	}
+}
+
+// A number CSS cannot spell must not reach the document. strconv reads NaN and
+// Inf by name; json.Marshal refuses both, so a single unreadable declaration
+// stopped the whole page compiling — which is the opposite of the promise that
+// a bad declaration costs you that declaration and nothing else.
+func TestANonFiniteNumberCostsOnlyItsOwnDeclaration(t *testing.T) {
+	for _, declaration := range []string{
+		"rotate: NaNdeg", "rotate: Infdeg", "aspect-ratio: NaN", "aspect-ratio: 1 / Inf",
+		"flex-grow: Inf", "z-index: NaN", "width: NaNpx", "height: Infpx",
+		"line-height: Inf", "scale: Inf", "flex-basis: 1e999px",
+		"grid-template-columns: NaNfr", "padding: NaNpx", "font-size: Infpx",
+	} {
+		t.Run(declaration, func(t *testing.T) {
+			document, err := Compile(`<div class="page"><i class="a">x</i></div>`,
+				`.page { display: flex; width: 60px; height: 40px; }
+				 .a { flex-grow: 1; background: red; `+declaration+`; }`)
+			if err != nil {
+				t.Fatalf("the page did not compile: %v", err)
+			}
+			var said string
+			for _, warning := range document.Warnings {
+				said += warning.Message
+			}
+			if said == "" {
+				t.Errorf("%q was taken silently", declaration)
+			}
+			for _, spelling := range []string{"NaN", "Inf", "+Inf", "-Inf"} {
+				if strings.Contains(string(document.JSON), spelling) {
+					t.Errorf("%s reached the document:\n%s", spelling, document.JSON)
+				}
+			}
+		})
 	}
 }

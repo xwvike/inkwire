@@ -3,7 +3,6 @@ package markup
 import (
 	"fmt"
 	"math"
-	"strconv"
 	"strings"
 )
 
@@ -397,7 +396,7 @@ done:
 		s.at = start
 		return 0, false
 	}
-	value, err := strconv.ParseFloat(s.source[start:s.at], 64)
+	value, err := parseFinite(s.source[start:s.at])
 	if err != nil {
 		s.at = start
 		return 0, false
