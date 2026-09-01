@@ -124,10 +124,10 @@ func parseFlags(flags *flag.FlagSet, args []string, help io.Writer) (int, bool) 
 // take -settle, and nobody would find that by reading either one, only by
 // reading both and comparing. The order here is the order the summary lists.
 var usageLines = []struct{ name, takes string }{
-	{"render", "[-o preview.png] [-size WxH | -panel family:id] <page.html>"},
-	{"compile", "[-o scene.json] <page.html>"},
-	{"push", "-device MAC-or-name [-family gicisky|nrfepd] [-settle 30s] <page.html>"},
-	{"measure", "[-size WxH | -panel family:id] [-json] <page.html>"},
+	{"render", "[-o preview.png] [-size WxH | -panel family:id] [-asset SRC=FILE] <page.html>"},
+	{"compile", "[-o scene.json] [-asset SRC=FILE] <page.html>"},
+	{"push", "-device MAC-or-name [-family gicisky|nrfepd] [-settle 30s] [-asset SRC=FILE] <page.html>"},
+	{"measure", "[-size WxH | -panel family:id] [-json] [-asset SRC=FILE] <page.html>"},
 	{"scan", "[-timeout 15s]"},
 	{"mode", "-device MAC-or-name [-mode picture|calendar|clock] [-week-start sunday|monday] [-settle 30s]"},
 	{"serve", "[-listen address] [-assets directory]"},
@@ -158,6 +158,49 @@ func command(name string, stderr io.Writer) *flag.FlagSet {
 		flags.PrintDefaults()
 	}
 	return flags
+}
+
+type assetMapping struct {
+	source string
+	path   string
+}
+
+type assetFlags struct {
+	mappings []assetMapping
+}
+
+func (f *assetFlags) String() string {
+	values := make([]string, 0, len(f.mappings))
+	for _, mapping := range f.mappings {
+		values = append(values, mapping.source+"="+mapping.path)
+	}
+	return strings.Join(values, ",")
+}
+
+func (f *assetFlags) Set(value string) error {
+	source, path, ok := strings.Cut(value, "=")
+	if !ok || strings.TrimSpace(source) == "" || strings.TrimSpace(path) == "" {
+		return fmt.Errorf("-asset expects SRC=FILE")
+	}
+	for _, mapping := range f.mappings {
+		if mapping.source == source {
+			return fmt.Errorf("-asset %q was specified more than once", source)
+		}
+	}
+	f.mappings = append(f.mappings, assetMapping{source: source, path: path})
+	return nil
+}
+
+func (f *assetFlags) read() (map[string][]byte, error) {
+	resources := make(map[string][]byte, len(f.mappings))
+	for _, mapping := range f.mappings {
+		content, err := os.ReadFile(mapping.path)
+		if err != nil {
+			return nil, fmt.Errorf("read asset %q for %q: %w", mapping.path, mapping.source, err)
+		}
+		resources[mapping.source] = content
+	}
+	return resources, nil
 }
 
 // version is stamped by the release build. Anything built another way leaves it
@@ -205,7 +248,7 @@ func buildVersion() string {
 func runServe(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
 	flags := command("serve", stderr)
 	address := flags.String("listen", "127.0.0.1:8080", "HTTP listen address")
-	assets := flags.String("assets", ".", "directory available to relative image sources")
+	assets := flags.String("assets", ".", "directory available to relative JSON-scene resources")
 	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
 	}
@@ -312,6 +355,8 @@ func runRender(args []string, stdout, stderr io.Writer) int {
 	output := flags.String("o", "", "PNG output path")
 	size := flags.String("size", "", "lay the scene out at this size instead of the one it declares, as `WxH`")
 	target := flags.String("panel", "", "lay the scene out for a named `family:id` panel and check its inks, such as gicisky:0x0033 or nrfepd:UC8176_420_BWR")
+	assets := new(assetFlags)
+	flags.Var(assets, "asset", "read a local resource as SRC=FILE; repeat for multiple resources")
 	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
 	}
@@ -330,7 +375,12 @@ func runRender(args []string, stdout, stderr io.Writer) int {
 	if *output == "" {
 		*output = replaceExtension(source, ".png")
 	}
-	result, renderErr, usage := renderFile(source, *size, *target)
+	resources, err := assets.read()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	result, renderErr, usage := renderFile(source, *size, *target, resources)
 	if usage != nil {
 		// A page that lost a declaration on the way in is often why there is
 		// nothing to lay out. Printing the usage error on its own would send
@@ -377,6 +427,8 @@ func runPushScene(ctx context.Context, args []string, logger *log.Logger, stdout
 	family := flags.String("family", "auto", "tag family: auto, gicisky or nrfepd")
 	settle := flags.Duration("settle", nrfepd.DefaultSettle,
 		"nrfepd only: how long to stay connected while the panel refreshes; leaving early cancels it, and 0 leaves immediately")
+	assets := new(assetFlags)
+	flags.Var(assets, "asset", "read a local resource as SRC=FILE; repeat for multiple resources")
 	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
 	}
@@ -399,7 +451,12 @@ func runPushScene(ctx context.Context, args []string, logger *log.Logger, stdout
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	document, warnings, err := loadDocument(flags.Arg(0))
+	resources, err := assets.read()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	document, warnings, err := loadDocument(flags.Arg(0), resources)
 	if err != nil {
 		logger.Print(err)
 		return 1
@@ -599,6 +656,8 @@ func runMeasure(args []string, stdout, stderr io.Writer) int {
 	size := flags.String("size", "", "lay the scene out at this size instead of the one it declares, as `WxH`")
 	target := flags.String("panel", "", "lay the scene out for a named `family:id` panel, such as gicisky:0x0033")
 	asJSON := flags.Bool("json", false, "write the placements as JSON instead of a tree")
+	assets := new(assetFlags)
+	flags.Var(assets, "asset", "read a local resource as SRC=FILE; repeat for multiple resources")
 	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
 	}
@@ -611,7 +670,12 @@ func runMeasure(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	result, renderErr, usage := measureFile(flags.Arg(0), *size, *target)
+	resources, err := assets.read()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	result, renderErr, usage := measureFile(flags.Arg(0), *size, *target, resources)
 	if usage != nil {
 		printWarnings(stderr, result.Report.Warnings)
 		fmt.Fprintln(stderr, usage)
@@ -699,8 +763,8 @@ func placementsJSON(placements []compose.Placement) []placementJSON {
 
 // measureFile is renderFile with the trace on. The two stay side by side
 // because they answer the same question about which size to lay out at.
-func measureFile(source, size, key string) (scene.Result, error, error) {
-	document, warnings, err := loadDocument(source)
+func measureFile(source, size, key string, resources map[string][]byte) (scene.Result, error, error) {
+	document, warnings, err := loadDocument(source, resources)
 	if err != nil {
 		return scene.Result{}, err, nil
 	}
@@ -744,8 +808,8 @@ func traceDocument(document compose.Document, size, key string) (scene.Result, e
 // contains. A misspelled panel or size is a usage error and exits 2, the same
 // as an unknown week start or an unknown family; a scene that will not lay out
 // exits 1.
-func renderFile(source, size, key string) (scene.Result, error, error) {
-	document, warnings, err := loadDocument(source)
+func renderFile(source, size, key string, resources map[string][]byte) (scene.Result, error, error) {
+	document, warnings, err := loadDocument(source, resources)
 	if err != nil {
 		return scene.Result{}, err, nil
 	}

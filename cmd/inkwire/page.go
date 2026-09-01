@@ -23,12 +23,12 @@ import (
 // The second return is what the front end could not honour on the way in. It
 // is separate from the document because a page that lost a declaration still
 // has to be rendered — the picture is what shows the author what went missing.
-func loadDocument(source string) (compose.Document, []compose.Warning, error) {
+func loadDocument(source string, resources map[string][]byte) (compose.Document, []compose.Warning, error) {
 	if !isPage(source) {
-		document, err := (scene.Decoder{}).DecodeFile(source)
+		document, err := (scene.Decoder{Resources: resources}).DecodeFile(source)
 		return document, nil, err
 	}
-	written, warnings, err := compilePage(source)
+	written, warnings, err := compilePage(source, resources)
 	if err != nil {
 		return compose.Document{}, warnings, err
 	}
@@ -37,7 +37,7 @@ func loadDocument(source string) (compose.Document, []compose.Warning, error) {
 	// formats it will decode, a field nobody implements, a path that points
 	// out of the directory — a page is held to because it is not being read
 	// by anything else.
-	document, err := (scene.Decoder{BaseDir: filepath.Dir(source)}).Decode(bytes.NewReader(written))
+	document, err := (scene.Decoder{BaseDir: filepath.Dir(source), Resources: resources}).Decode(bytes.NewReader(written))
 	if err != nil {
 		return compose.Document{}, warnings, fmt.Errorf("%s: %w", source, err)
 	}
@@ -55,7 +55,7 @@ func isPage(source string) bool { return strings.EqualFold(filepath.Ext(source),
 // file beside it, named by having the same path with .css on it; a style
 // element in the page itself; and a link element naming another file. They
 // cascade in that order, so a page overrides what it shares.
-func compilePage(source string) ([]byte, []compose.Warning, error) {
+func compilePage(source string, resources map[string][]byte) ([]byte, []compose.Warning, error) {
 	markupSource, err := os.ReadFile(source)
 	if err != nil {
 		return nil, nil, err
@@ -77,6 +77,9 @@ func compilePage(source string) ([]byte, []compose.Warning, error) {
 	// the compiler: where a file may be read from is a question about the
 	// page's origin, not its contents.
 	beside := func(name string) ([]byte, error) {
+		if resource, ok := resources[name]; ok {
+			return resource, nil
+		}
 		return os.ReadFile(filepath.Join(base, filepath.Clean("/"+name)))
 	}
 	compiler := markup.Compiler{
@@ -106,6 +109,8 @@ func compilePage(source string) ([]byte, []compose.Warning, error) {
 func runCompile(args []string, stdout, stderr io.Writer) int {
 	flags := command("compile", stderr)
 	output := flags.String("o", "", "write the document here instead of to standard output")
+	assets := new(assetFlags)
+	flags.Var(assets, "asset", "read a local resource as SRC=FILE; repeat for multiple resources")
 	if code, ok := parseFlags(flags, args, stdout); !ok {
 		return code
 	}
@@ -118,7 +123,12 @@ func runCompile(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "compile takes a page: %s is already a scene document\n", source)
 		return 2
 	}
-	written, warnings, err := compilePage(source)
+	resources, err := assets.read()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	written, warnings, err := compilePage(source, resources)
 	printWarnings(stderr, warnings)
 	if err != nil {
 		fmt.Fprintln(stderr, err)

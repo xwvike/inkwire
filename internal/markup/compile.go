@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	stdimage "image"
+	"io"
+	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/xwvike/inkwire/internal/compose"
 	"github.com/xwvike/inkwire/internal/display"
@@ -66,6 +70,10 @@ type Compiler struct {
 	// on the same terms as the other two.
 	Drawings func(src string) ([]byte, error)
 }
+
+const maxRemoteDrawingBytes = 32 << 20
+
+var remoteDrawingClient = &http.Client{Timeout: 15 * time.Second}
 
 // Compile turns one HTML document and one stylesheet into a scene document.
 func Compile(markup, css string) (Document, error) {
@@ -592,12 +600,17 @@ func (c *compiler) image(node *html.Node, current style, path string) *emitted {
 // reason: which files may be read is a question about where the page came
 // from, and this package does not know that.
 func (c *compiler) externalDrawing(source string, current style, path string) *emitted {
-	if c.drawings == nil {
+	var read []byte
+	var err error
+	if isRemoteSource(source) {
+		read, err = fetchRemoteDrawing(source)
+	} else if c.drawings == nil {
 		c.warn(path, "unresolved-drawing", fmt.Sprintf(
 			"img src=%q was not drawn: this compiler was given no way to read one", source))
 		return nil
+	} else {
+		read, err = c.drawings(source)
 	}
-	read, err := c.drawings(source)
 	if err != nil {
 		c.warn(path, "unresolved-drawing", fmt.Sprintf("img src=%q: %v", source, err))
 		return nil
@@ -613,6 +626,30 @@ func (c *compiler) externalDrawing(source string, current style, path string) *e
 		return nil
 	}
 	return c.svg(element, current, fmt.Sprintf("%s<%s>", path, source))
+}
+
+func isRemoteSource(source string) bool {
+	parsed, err := url.Parse(source)
+	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https")
+}
+
+func fetchRemoteDrawing(source string) ([]byte, error) {
+	response, err := remoteDrawingClient.Get(source)
+	if err != nil {
+		return nil, fmt.Errorf("fetch drawing: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("fetch drawing: HTTP %s", response.Status)
+	}
+	content, err := io.ReadAll(io.LimitReader(response.Body, maxRemoteDrawingBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read drawing response: %w", err)
+	}
+	if len(content) > maxRemoteDrawingBytes {
+		return nil, fmt.Errorf("drawing response exceeds the %d byte limit", maxRemoteDrawingBytes)
+	}
+	return content, nil
 }
 
 // findSVG is the drawing inside a file that holds one, which the HTML parser
@@ -632,6 +669,9 @@ func findSVG(node *html.Node) *html.Node {
 // pathExtension is the suffix of a src, without needing the file to exist or
 // this package to know what a path is.
 func pathExtension(source string) string {
+	if parsed, err := url.Parse(source); err == nil && parsed.Path != "" {
+		source = parsed.Path
+	}
 	dot := strings.LastIndexByte(source, '.')
 	slash := strings.LastIndexAny(source, "/\\")
 	if dot < 0 || dot < slash {

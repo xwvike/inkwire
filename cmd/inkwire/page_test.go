@@ -49,11 +49,14 @@ func TestRenderAndMeasureTakeAPageAsWellAsAScene(t *testing.T) {
 func TestAPageDrawsTheDrawingItPointsAt(t *testing.T) {
 	directory := t.TempDir()
 	page := filepath.Join(directory, "page.html")
-	write(t, page, `<div class="page"><img src="dot.svg"></div>`)
+	write(t, page, `<div class="page"><img src="assets/dot.svg"></div>`)
 	write(t, filepath.Join(directory, "page.css"),
 		`.page { display: flex; width: 40px; height: 40px; background: white; }
 		 img { display: block; flex-grow: 1; }`)
-	write(t, filepath.Join(directory, "dot.svg"),
+	if err := os.MkdirAll(filepath.Join(directory, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(directory, "assets", "dot.svg"),
 		`<svg width="40" height="40"><circle cx="20" cy="20" r="15" fill="black"/></svg>`)
 
 	var stdout, stderr bytes.Buffer
@@ -76,6 +79,25 @@ func TestAPageDrawsTheDrawingItPointsAt(t *testing.T) {
 	run([]string{"render", "-o", filepath.Join(directory, "missing.png"), missing}, &stdout, &stderr)
 	if !strings.Contains(stdout.String()+stderr.String(), "gone.svg") {
 		t.Errorf("the missing drawing was not named: %s", stdout.String()+stderr.String())
+	}
+}
+
+func TestAPageUsesAnAssetFlagForAResourceOutsideItsDirectory(t *testing.T) {
+	directory := t.TempDir()
+	page := filepath.Join(directory, "page.html")
+	write(t, page, `<div class="page"><img src="assets/dot.svg"></div>`)
+	write(t, filepath.Join(directory, "page.css"),
+		`.page { display: flex; width: 40px; height: 40px; background: white; }
+		 img { display: block; flex-grow: 1; }`)
+	asset := filepath.Join(t.TempDir(), "dot.svg")
+	write(t, asset, `<svg width="40" height="40"><circle cx="20" cy="20" r="15" fill="black"/></svg>`)
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"render", "-asset", "assets/dot.svg=" + asset, "-o", filepath.Join(directory, "page.png"), page}, &stdout, &stderr); code != 0 {
+		t.Fatalf("render code = %d, stderr = %s", code, stderr.String())
+	}
+	if strings.Contains(stdout.String()+stderr.String(), "unresolved-drawing") {
+		t.Errorf("the flagged drawing was not read: %s", stdout.String()+stderr.String())
 	}
 }
 

@@ -3,9 +3,12 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"image/color"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -71,7 +74,7 @@ func TestRenderTakesAPageAndItsStylesheet(t *testing.T) {
 // it by. Nothing here reads a file, so a page sent over the wire cannot name
 // one that was not sent too.
 func TestAPageReachesTheDrawingSentWithIt(t *testing.T) {
-	const withPlot = `<div class="page"><img src="dot.svg"></div>`
+	const withPlot = `<div class="page"><img src="assets/dot.svg"></div>`
 	const css = `.page { display: flex; width: 40px; height: 40px; background: white; }
 	             img { display: block; flex-grow: 1; }`
 	handler := New(Config{Logf: func(string, ...any) {}})
@@ -79,7 +82,7 @@ func TestAPageReachesTheDrawingSentWithIt(t *testing.T) {
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, pageRequest(t, "/v1/render",
 		map[string]string{"page": withPlot, "stylesheet": css},
-		map[string]string{"dot.svg": `<svg width="40" height="40"><circle cx="20" cy="20" r="15" fill="black"/></svg>`}))
+		map[string]string{"assets/dot.svg": `<svg width="40" height="40"><circle cx="20" cy="20" r="15" fill="black"/></svg>`}))
 	if response.Code != http.StatusOK {
 		t.Fatalf("code = %d, body = %s", response.Code, response.Body.String())
 	}
@@ -95,11 +98,55 @@ func TestAPageReachesTheDrawingSentWithIt(t *testing.T) {
 	if missing.Code != http.StatusOK {
 		t.Fatalf("a page naming a part nobody sent got %d: %s", missing.Code, missing.Body.String())
 	}
-	if !strings.Contains(missing.Body.String(), "dot.svg") {
+	if !strings.Contains(missing.Body.String(), "assets/dot.svg") {
 		t.Errorf("the missing part was not named in the report: %s", missing.Body.String())
 	}
 	if !strings.Contains(missing.Body.String(), "unresolved-drawing") {
 		t.Errorf("the report carries no warning about it: %s", missing.Body.String())
+	}
+}
+
+func TestAPageUsesBitmapSentUnderItsSrcName(t *testing.T) {
+	handler := New(Config{Logf: func(string, ...any) {}})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, pageRequest(t, "/v1/render",
+		map[string]string{
+			"page": `<div class="page"><img src="assets/portrait.png"></div>`,
+			"stylesheet": `.page { display: flex; width: 16px; height: 16px; background: white; }
+			               img { display: block; width: 8px; height: 8px; }`,
+		}, map[string]string{
+			"assets/portrait.png": string(solidPNG(t, color.NRGBA{A: 0xff})),
+		}))
+	if response.Code != http.StatusOK {
+		t.Fatalf("code = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestAPageCannotReadAnImageFromTheServerWorkingDirectory(t *testing.T) {
+	workingDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assetName := filepath.Base(t.TempDir()) + ".png"
+	assetPath := filepath.Join(workingDir, assetName)
+	if err := os.WriteFile(assetPath, solidPNG(t, color.NRGBA{R: 0xff, A: 0xff}), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(assetPath) })
+
+	handler := New(Config{Logf: func(string, ...any) {}})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, pageRequest(t, "/v1/render",
+		map[string]string{
+			"page": `<div class="page"><img src="` + assetName + `"></div>`,
+			"stylesheet": `.page { display: flex; width: 16px; height: 16px; background: white; }
+			               img { display: block; width: 8px; height: 8px; }`,
+		}, nil))
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "local image sources are not allowed") {
+		t.Fatalf("error does not identify the rejected local image: %s", response.Body.String())
 	}
 }
 

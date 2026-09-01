@@ -3,6 +3,8 @@ package markup
 import (
 	"bytes"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -45,6 +47,38 @@ func renderIn(t *testing.T, dir, markupSource, cssSource string) (*display.Frame
 	}
 	frame, report := renderDocument(t, dir, page.JSON)
 	return frame, page.Warnings, report
+}
+
+func TestRemoteSVGImageIsFetchedByItsURL(t *testing.T) {
+	previous := remoteDrawingClient
+	remoteDrawingClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Body:       io.NopCloser(strings.NewReader(`<svg width="20" height="20"><rect width="20" height="20" fill="black"/></svg>`)),
+			Header:     make(http.Header),
+			Request:    request,
+		}, nil
+	})}
+	defer func() { remoteDrawingClient = previous }()
+
+	page, err := Compile(
+		`<div class="page"><img src="https://example.com/image.svg"></div>`,
+		`.page { display: flex; width: 20px; height: 20px; background: white; }
+		 img { display: block; flex-grow: 1; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame, _ := renderDocument(t, "", page.JSON)
+	if got, _ := frame.InkAt(0, 0); got != display.InkBlack {
+		t.Fatalf("remote drawing pixel = %v, want black", got)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
 }
 
 // renderDocument decodes and draws what a page compiled to. A failure here is

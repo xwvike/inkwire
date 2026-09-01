@@ -30,12 +30,16 @@ func flagSets(t *testing.T) map[string]map[string]bool {
 	sections := constructor.Split(string(source), -1)
 	names := constructor.FindAllStringSubmatch(string(source), -1)
 	declaration := regexp.MustCompile(`flags\.(?:String|Int|Bool|Duration|Float64)\("([\w-]+)"`)
+	variableDeclaration := regexp.MustCompile(`flags\.Var\([^,]+,\s*"([\w-]+)"`)
 
 	sets := map[string]map[string]bool{}
 	for index, name := range names {
 		body, _, _ := strings.Cut(sections[index+1], "flags.Parse")
 		flags := map[string]bool{}
 		for _, match := range declaration.FindAllStringSubmatch(body, -1) {
+			flags[match[1]] = true
+		}
+		for _, match := range variableDeclaration.FindAllStringSubmatch(body, -1) {
 			flags[match[1]] = true
 		}
 		sets[name[1]] = flags

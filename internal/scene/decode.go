@@ -31,11 +31,13 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/xwvike/inkwire/internal/compose"
 	"github.com/xwvike/inkwire/internal/display"
@@ -43,10 +45,17 @@ import (
 
 const Version = 1
 
+const maxRemoteImageBytes = 32 << 20
+
+var remoteImageClient = &http.Client{Timeout: 15 * time.Second}
+
 type Decoder struct {
 	BaseDir       string
 	RestrictFiles bool
 	Resources     map[string][]byte
+	// ResourcesOnly prevents image sources from falling back to the local
+	// filesystem. Resource maps, HTTP(S) URLs and data URLs remain available.
+	ResourcesOnly bool
 }
 
 type documentJSON struct {
@@ -1079,37 +1088,44 @@ func (d Decoder) loadImage(source string) (image.Image, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid source: %w", err)
 		}
-		if parsed.Scheme != "" && parsed.Scheme != "file" {
-			return nil, fmt.Errorf("unsupported URL scheme %q", parsed.Scheme)
-		}
-		if parsed.Scheme == "file" && parsed.Host != "" && parsed.Host != "localhost" {
-			return nil, fmt.Errorf("file URL host %q is not supported", parsed.Host)
-		}
-		if parsed.RawQuery != "" || parsed.Fragment != "" {
-			return nil, fmt.Errorf("local image source must not contain a query or fragment")
-		}
-		path := source
-		if parsed.Scheme == "file" {
-			path = parsed.Path
-		}
-		if d.RestrictFiles && (parsed.Scheme == "file" || filepath.IsAbs(path)) {
-			return nil, fmt.Errorf("absolute image paths are not allowed")
-		}
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(d.BaseDir, path)
-		}
-		if d.RestrictFiles {
-			path, err = confinedPath(d.BaseDir, path)
+		if parsed.Scheme == "http" || parsed.Scheme == "https" {
+			content, err := fetchRemoteImage(source)
 			if err != nil {
 				return nil, err
 			}
+			reader = bytes.NewReader(content)
+		} else if parsed.Scheme != "" && parsed.Scheme != "file" {
+			return nil, fmt.Errorf("unsupported URL scheme %q", parsed.Scheme)
+		} else if parsed.Scheme == "file" && parsed.Host != "" && parsed.Host != "localhost" {
+			return nil, fmt.Errorf("file URL host %q is not supported", parsed.Host)
+		} else if parsed.RawQuery != "" || parsed.Fragment != "" {
+			return nil, fmt.Errorf("local image source must not contain a query or fragment")
+		} else if d.ResourcesOnly {
+			return nil, fmt.Errorf("local image sources are not allowed")
+		} else {
+			path := source
+			if parsed.Scheme == "file" {
+				path = parsed.Path
+			}
+			if d.RestrictFiles && (parsed.Scheme == "file" || filepath.IsAbs(path)) {
+				return nil, fmt.Errorf("absolute image paths are not allowed")
+			}
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(d.BaseDir, path)
+			}
+			if d.RestrictFiles {
+				path, err = confinedPath(d.BaseDir, path)
+				if err != nil {
+					return nil, err
+				}
+			}
+			file, err := os.Open(path)
+			if err != nil {
+				return nil, err
+			}
+			defer file.Close()
+			reader = file
 		}
-		file, err := os.Open(path)
-		if err != nil {
-			return nil, err
-		}
-		defer file.Close()
-		reader = file
 	}
 	config, format, err := image.DecodeConfig(reader)
 	if err != nil {
@@ -1133,6 +1149,25 @@ func (d Decoder) loadImage(source string) (image.Image, error) {
 		return nil, fmt.Errorf("unsupported image format %q", format)
 	}
 	return decoded, nil
+}
+
+func fetchRemoteImage(source string) ([]byte, error) {
+	response, err := remoteImageClient.Get(source)
+	if err != nil {
+		return nil, fmt.Errorf("fetch image: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("fetch image: HTTP %s", response.Status)
+	}
+	content, err := io.ReadAll(io.LimitReader(response.Body, maxRemoteImageBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read image response: %w", err)
+	}
+	if len(content) > maxRemoteImageBytes {
+		return nil, fmt.Errorf("image response exceeds the %d byte limit", maxRemoteImageBytes)
+	}
+	return content, nil
 }
 
 func confinedPath(root, candidate string) (string, error) {

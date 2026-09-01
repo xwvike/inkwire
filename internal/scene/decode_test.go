@@ -8,7 +8,10 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"io"
+	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -101,6 +104,60 @@ func TestDecoderResolvesImagesRelativeToSceneFile(t *testing.T) {
 	if got, _ := result.Frame.InkAt(0, 0); got != display.InkRed {
 		t.Fatalf("relative image pixel = %v, want red", got)
 	}
+}
+
+func TestDecoderFetchesHTTPImages(t *testing.T) {
+	var encoded bytes.Buffer
+	source := image.NewNRGBA(image.Rect(0, 0, 1, 1))
+	source.SetNRGBA(0, 0, color.NRGBA{R: 0xff, A: 0xff})
+	if err := png.Encode(&encoded, source); err != nil {
+		t.Fatal(err)
+	}
+	previous := remoteImageClient
+	remoteImageClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Body:       io.NopCloser(bytes.NewReader(encoded.Bytes())),
+			Header:     make(http.Header),
+			Request:    request,
+		}, nil
+	})}
+	defer func() { remoteImageClient = previous }()
+
+	value := `{"version":1,"size":{"width":8,"height":8},"root":{"type":"image","source":"https://example.com/image.png","size":{"width":1,"height":1}}}`
+	result, err := (Decoder{}).Render(strings.NewReader(value))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := result.Frame.InkAt(0, 0); got != display.InkRed {
+		t.Fatalf("remote image pixel = %v, want red", got)
+	}
+}
+
+func TestResourcesOnlyRejectsLocalImages(t *testing.T) {
+	root := t.TempDir()
+	imagePath := filepath.Join(root, "photo.png")
+	var encoded bytes.Buffer
+	asset := image.NewNRGBA(image.Rect(0, 0, 1, 1))
+	asset.SetNRGBA(0, 0, color.NRGBA{R: 0xff, A: 0xff})
+	if err := png.Encode(&encoded, asset); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(imagePath, encoded.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	value := `{"version":1,"size":{"width":8,"height":8},"root":{"type":"image","source":"photo.png","size":{"width":1,"height":1}}}`
+	_, err := (Decoder{BaseDir: root, RestrictFiles: true, ResourcesOnly: true}).Render(strings.NewReader(value))
+	if err == nil || !strings.Contains(err.Error(), "local image sources are not allowed") {
+		t.Fatalf("local image error = %v", err)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
 }
 
 func TestDecodeRendersYellowInk(t *testing.T) {

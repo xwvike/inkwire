@@ -1,6 +1,6 @@
 # Markup Manual
 
-Markup pages use HTML for content, CSS for layout and paint, and SVG for
+Pages use HTML for content, CSS for layout and paint, and SVG for
 geometry. The page size comes from the root element:
 
 ```html
@@ -19,85 +19,6 @@ geometry. The page size comes from the root element:
 
 `orientation` on the root may be `landscape`, `portrait-cw` or
 `portrait-ccw`. It defaults to `landscape`.
-
-## HTML
-
-Elements are boxes. `div`, `main`, `section`, `header`, `footer`, `p`, headings
-and other block elements start as block boxes. `span`, `b`, `i`, `small`, `em`,
-`strong`, `a`, `label` and `code` are inline until CSS changes their `display`.
-`style`, `link`, `script`, `title`, `meta`, `head`, `base` and `template` are
-not drawn.
-
-Use `class`, `id` and `style` attributes in the usual way. An `img` places a
-bitmap or an external SVG drawing. An inline `svg` places vector geometry.
-
-## CSS cascade
-
-Styles are collected in this order:
-
-1. The `.css` file beside the page.
-2. `style` elements and linked stylesheets in document order.
-
-The `style` attribute is local to its element and has higher priority than
-normal stylesheet rules. For one property, declarations are resolved in this
-order:
-
-```text
-important declaration
-        |
-normal style attribute
-        |
-normal selector rule: specificity, then source order
-        |
-inherited value or property default
-```
-
-Selector specificity follows CSS:
-
-```css
-/* element */
-p { color: black; }
-
-/* class */
-.warning { color: red; }
-
-/* id */
-#title { color: yellow; }
-
-/* combinations and relationships */
-main.warning { color: red; }
-main .warning { color: red; }      /* descendant */
-main > .warning { color: red; }    /* direct child */
-```
-
-Compare IDs first, then classes, attributes and pseudo-classes, then element
-names. Additional selectors increase their own specificity category, but an id
-still outranks any number of classes or elements. When specificity is equal,
-the later declaration wins. `!important` follows the same syntax as CSS and
-wins over normal declarations. An inline `!important` declaration wins over an
-important stylesheet declaration. Among important declarations, specificity and
-source order still decide:
-
-```css
-.warning { color: black !important; }
-#title { color: red; }
-```
-
-Custom properties use the same cascade and inherit through the element tree:
-
-```css
-:root { --accent: red; }
-.badge { color: var(--accent); }
-.badge span { color: var(--accent, black); }
-```
-
-`var(--name, fallback)` uses the fallback when the name is not declared. A
-missing name without a fallback, or a cycle between custom properties, produces
-an `unsupported-declaration` warning.
-
-Selectors the compiler cannot read are skipped with an `unsupported-selector`
-warning. Unsupported pseudo-elements and selector functions such as `:is()`
-and `:has()` are not silently approximated.
 
 ## Supported properties
 
@@ -122,7 +43,7 @@ each element.
 
 ### Values
 
-- Lengths use `px`, percentages, or `calc()` combining the two.
+- Lengths support `px`, percentages, and `calc()`.
 - `width`, `height`, `min-*`, `max-*`, `flex-basis`, `top`, `right`, `bottom`,
   `left`, `inset`, `transform-origin` and track sizes accept percentages.
 - Padding, margins, gaps, border widths, radii and font sizes resolve to whole
@@ -167,9 +88,6 @@ box by `top`, `right`, `bottom`, `left` or `inset`. `position: absolute` removes
 the element from flow and places it against the nearest positioned ancestor.
 `z-index` controls the paint order of positioned elements.
 
-Text uses `vertical-align: middle` when no value is supplied. Use `top` or
-`bottom` when an edge position is intentional.
-
 ### Paint and transform
 
 `background` and `border` accept the supported colors. Borders use
@@ -181,8 +99,6 @@ angle, with `transform-origin` controlling the pivot. Unsupported transform
 functions are reported.
 
 ## SVG
-
-Use SVG for geometry that CSS does not describe:
 
 ```html
 <svg viewBox="0 0 214 74">
@@ -202,15 +118,48 @@ presentation attribute when both specify the same value.
 
 ## Images and files
 
-An `img` whose source ends in `.svg` is compiled as a drawing. Other supported
-image formats are loaded as bitmaps. Relative sources resolve beside the page
-for the CLI, under `-assets` for the HTTP service, or from multipart file parts
-with the same name.
+An `img` references a resource through `src`. `src` may be an HTTP/HTTPS URL or
+a relative path. `.png`, `.jpg` and `.jpeg` are loaded as bitmaps. `.svg` is
+compiled as an external drawing.
+
+```
+page.html
+assets/
+  portrait.png
+  chart.svg
+```
 
 ```html
 <img src="assets/portrait.png" class="portrait" />
-<img src="chart-plot.svg" class="chart" />
+<img src="assets/chart.svg" class="chart" />
+<img src="https://example.com/portrait.png" class="remote" />
 ```
+
+The CLI injects local resources with repeatable `-asset SRC=FILE` flags:
+
+```bash
+inkwire render \
+     -asset assets/portrait.png=photos/portrait.png \
+     -asset assets/chart.svg=charts/chart.svg \
+     page.html
+```
+
+When no mapping is given, the CLI still reads relative resources beside the
+page. HTTP uses multipart: `page` is the HTML document; each local resource is a
+binary file part whose field name exactly matches `src`, including any directory
+prefix. HTTP/HTTPS resources need no file part.
+
+A client-local path is not visible to the service; local HTTP resources must be
+uploaded with the request.
+
+```bash
+curl -F 'page=@page.html;type=text/html' \
+     -F 'assets/portrait.png=@assets/portrait.png;type=image/png' \
+     -F 'assets/chart.svg=@assets/chart.svg;type=image/svg+xml' \
+     http://127.0.0.1:8080/v1/render
+```
+
+`link` `href` follows the same relative-resource rule, and `stylesheet` may be sent as its own part.
 
 ## Warnings
 

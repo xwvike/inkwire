@@ -801,7 +801,19 @@ func (h *Handler) decodeRequest(writer http.ResponseWriter, incoming *http.Reque
 		}
 		sceneBytes = compiled
 	}
-	document, err := (scene.Decoder{BaseDir: h.baseDir, RestrictFiles: true, Resources: sent.resources}).Decode(bytes.NewReader(sceneBytes))
+	baseDir := h.baseDir
+	if sent.page != nil {
+		// A page sent over HTTP has no server-side directory. Relative image
+		// paths must arrive as multipart resources; only a URL or an uploaded
+		// part can be resolved for this request.
+		baseDir = ""
+	}
+	document, err := (scene.Decoder{
+		BaseDir:       baseDir,
+		RestrictFiles: true,
+		Resources:     sent.resources,
+		ResourcesOnly: sent.page != nil,
+	}).Decode(bytes.NewReader(sceneBytes))
 	if err != nil {
 		writeError(writer, http.StatusUnprocessableEntity, "invalid-scene", err)
 		return compose.Document{}, warnings, false
@@ -819,13 +831,10 @@ type payload struct {
 }
 
 // compilePage turns a page that arrived over the wire into the document it
-// describes. A scene element reaches the parts sent with it and nothing else,
-// which is the same rule the decoder applies to a picture: a request carries
-// what it needs, and reaches no further.
+// describes. A page reaches the parts sent with it and nothing else, which is
+// the same rule the decoder applies to a picture: local resources are uploaded
+// as binary parts, while HTTP URLs remain self-contained in src.
 func compilePage(sent payload) ([]byte, []compose.Warning, error) {
-	// A page reaches the parts sent with it and nothing else, which is the
-	// same rule the decoder applies to a picture: a request carries what it
-	// needs, and reaches no further.
 	sent_ := func(name string) ([]byte, error) {
 		part, ok := sent.resources[name]
 		if !ok {
