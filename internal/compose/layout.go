@@ -552,7 +552,7 @@ func (a Anchored) measure(ctx *compileContext, maximum image.Point, path string)
 		if !child.Width.valid() || !child.Height.valid() {
 			return image.Point{}, fmt.Errorf("%s: size must not be negative", nodePath)
 		}
-		if _, err := child.Node.measure(ctx, maximum, nodePath); err != nil {
+		if _, err := child.Node.measure(ctx, child.maximum(maximum), nodePath); err != nil {
 			return image.Point{}, err
 		}
 	}
@@ -571,7 +571,15 @@ func (a Anchored) paint(ctx *compileContext, list *display.DisplayList, bounds i
 	for _, index := range ordered {
 		child := a.Children[index]
 		nodePath := childPath(path, "children", index)
-		placed := child.resolve(bounds)
+		// Auto-sized positioned boxes use their measured content size when one
+		// edge, or neither edge, establishes their position. Measure against the
+		// space left after the declared insets so wrapping still follows the
+		// containing block rather than the whole page.
+		natural, err := child.Node.measure(ctx, child.maximum(bounds.Size()), nodePath)
+		if err != nil {
+			return err
+		}
+		placed := child.resolve(bounds, natural)
 		if placed.Empty() {
 			ctx.warn(nodePath, "empty-layout", "the anchored box resolved to no area")
 			continue
@@ -583,35 +591,52 @@ func (a Anchored) paint(ctx *compileContext, list *display.DisplayList, bounds i
 	return nil
 }
 
+// maximum returns the available containing-block space after the insets. It is
+// used for measuring an auto-sized positioned child, where the available width
+// is the shrink-to-fit limit rather than the whole containing block.
+func (a Anchor) maximum(available image.Point) image.Point {
+	axis := func(startLen, endLen Length, size int) int {
+		original := size
+		if start, ok := startLen.Offset(original); ok {
+			size -= start
+		}
+		if end, ok := endLen.Offset(original); ok {
+			size -= end
+		}
+		return max(0, size)
+	}
+	return image.Pt(
+		axis(a.Left, a.Right, available.X),
+		axis(a.Top, a.Bottom, available.Y),
+	)
+}
+
 // resolve turns the insets into a rectangle inside the container, following
-// the same rules CSS does for an absolutely positioned box.
-func (a Anchor) resolve(bounds image.Rectangle) image.Rectangle {
-	span := func(startLen, endLen, sizeLen Length, low, high int) (int, int) {
+// the same rules CSS does for an absolutely positioned box. An auto-sized
+// child uses its measured natural size unless both edges on that axis are
+// stated, in which case the edges stretch it between them.
+func (a Anchor) resolve(bounds image.Rectangle, natural image.Point) image.Rectangle {
+	span := func(startLen, endLen, sizeLen Length, natural, low, high int) (int, int) {
 		available := high - low
 		// The insets are distances and may be negative, so that a box can be
 		// hung off the edge of its container. The size between them cannot.
 		start, hasStart := startLen.Offset(available)
 		end, hasEnd := endLen.Offset(available)
 		size, hasSize := sizeLen.Resolve(available)
+		if !hasSize {
+			size = max(0, natural)
+		}
 		switch {
 		case hasStart && hasEnd:
 			return low + start, high - end
 		case hasStart:
-			if hasSize {
-				return low + start, low + start + size
-			}
-			return low + start, high
+			return low + start, low + start + size
 		case hasEnd:
-			if hasSize {
-				return high - end - size, high - end
-			}
-			return low, high - end
-		case hasSize:
-			return low, low + size
+			return high - end - size, high - end
 		}
-		return low, high
+		return low, low + size
 	}
-	left, right := span(a.Left, a.Right, a.Width, bounds.Min.X, bounds.Max.X)
-	top, bottom := span(a.Top, a.Bottom, a.Height, bounds.Min.Y, bounds.Max.Y)
+	left, right := span(a.Left, a.Right, a.Width, natural.X, bounds.Min.X, bounds.Max.X)
+	top, bottom := span(a.Top, a.Bottom, a.Height, natural.Y, bounds.Min.Y, bounds.Max.Y)
 	return image.Rect(left, top, right, bottom)
 }

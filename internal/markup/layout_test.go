@@ -255,6 +255,19 @@ func TestPaddingDoesNotInsetAnAbsolutelyPositionedChild(t *testing.T) {
 	}
 }
 
+// An auto-sized absolute child uses its content box when one edge is stated,
+// as CSS does. Without this, right:5px made a badge stretch from the left edge
+// of its containing block all the way to x=95.
+func TestAnAbsolutelyPositionedAutoBoxShrinksToItsContent(t *testing.T) {
+	got := boxes(t, `<div class="frame"><span class="pin">NEW</span></div>`,
+		`.frame { display: block; flex-grow: 1; position: relative; }
+		 .pin { position: absolute; top: 5px; right: 5px; background: red;
+			 font-family: monaco; font-size: 10px; white-space: nowrap; }`)
+	if pin := got[display.InkRed]; pin != image.Rect(77, 5, 95, 19) {
+		t.Errorf("the auto-sized badge is at %v, want (77,5)-(95,19)", pin)
+	}
+}
+
 // grid-column: 1 / span 3 and grid-column: 1 / 4 say the same thing, and an
 // author writes whichever they were thinking in — where the cell ends, or how
 // many tracks it covers. Only the first was read.
