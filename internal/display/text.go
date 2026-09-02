@@ -68,6 +68,26 @@ type textLine struct {
 	height  int
 }
 
+// halfLeading is the room above this line's letters when the line box is
+// taller than they are.
+//
+// CSS calls the difference leading and puts half of it above the letters and
+// half below, which is why a line-height larger than the text centres the text
+// in the line rather than pushing it down. All of it used to hang below, so a
+// block of lines was as far above its own middle as the leading of its last
+// line — and which line was last changed where the whole block sat, because
+// two fonts leave different amounts of it.
+//
+// The half that cannot be split goes below, so a line is never pushed past the
+// bottom of its own box by rounding.
+func (l textLine) halfLeading() int {
+	leading := l.height - l.ascent - l.descent
+	if leading <= 0 {
+		return 0
+	}
+	return leading / 2
+}
+
 // TextLayout is the measured, immutable result of resolving a TextBox.
 type TextLayout struct {
 	box     TextBox
@@ -280,28 +300,6 @@ func (p glyphPlacement) inkRows() (top, bottom int) {
 	return top, bottom
 }
 
-// inkedHeight is the height of the letters rather than of the box holding them:
-// the laid-out height less the line gap that hangs below the last line.
-//
-// Centring used to use the full height, gap included, which put the letters
-// above the middle of the box by half that gap — every `verticalAlign: middle`
-// label sat one or two pixels high. It also made `lineHeight` move the letters,
-// because the gap it changed was counted on one side only; in CSS the same
-// number is spread above and below and cancels out of a centred line. Measuring
-// the letters instead cancels it here too, and leaves `top` alone, which is
-// where a line taller than its box is already relying on being anchored.
-func (l *TextLayout) inkedHeight() int {
-	if len(l.lines) == 0 {
-		return l.height
-	}
-	// The spare is subtracted whatever its sign. A line asked to be shorter than
-	// its own letters has a negative one, and dropping that case is what leaves
-	// every lineHeight below the natural one still moving a centred line — the
-	// case somebody tightening a label hits first.
-	last := l.lines[len(l.lines)-1]
-	return l.height - (last.height - last.ascent - last.descent)
-}
-
 // eachGlyph walks the laid-out glyphs where they will be drawn.
 //
 // Drawing and measuring what was lost have to agree about where every glyph
@@ -310,12 +308,17 @@ func (l *TextLayout) inkedHeight() int {
 // as fitting. Both go through here now, and a position can only be wrong in one
 // place.
 func (l *TextLayout) eachGlyph(visit func(at image.Rectangle, p glyphPlacement)) {
+	// Every line carries its own leading, half above its letters and half
+	// below, so the laid-out height is symmetric about the letters in it and
+	// centring on that height centres the letters. It was not: the leading
+	// hung below, and the correction subtracted the last line's share of it,
+	// which made where a block sat depend on which font ended it.
 	y := l.box.Bounds.Min.Y
 	switch l.box.VerticalAlign {
 	case AlignMiddle:
-		y += (l.box.Bounds.Dy() - l.inkedHeight()) / 2
+		y += (l.box.Bounds.Dy() - l.height) / 2
 	case AlignBottom:
-		y += l.box.Bounds.Dy() - l.inkedHeight()
+		y += l.box.Bounds.Dy() - l.height
 	}
 
 	for _, line := range l.lines {
@@ -326,7 +329,7 @@ func (l *TextLayout) eachGlyph(visit func(at image.Rectangle, p glyphPlacement))
 		case AlignEnd:
 			x += l.box.Bounds.Dx() - line.width
 		}
-		baseline := y + line.ascent
+		baseline := y + line.halfLeading() + line.ascent
 		for _, placement := range line.glyphs {
 			top := baseline - placement.metrics.Ascent
 			visit(image.Rect(x, top, x+placement.glyph.Width, top+placement.glyph.Height), placement)

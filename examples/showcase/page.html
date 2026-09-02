@@ -7,6 +7,9 @@
 -->
 
 <style>
+/* Every box measured the way a web page measures one. */
+* { box-sizing: border-box; }
+
 /* Everything here is placed rather than laid out: it is a sheet of samples and
    no two of them are the same size. The shapes go in SVG elements, which is
    where a page keeps geometry. */
@@ -79,7 +82,7 @@
    over the specific ones, which is how CSS works and not what anybody means. */
 .t16, .t14, .t12, .t10, .chiptext { position: absolute; color: black; }
 .t16 { top: 15px; left: 5px; width: 82px; height: 19px; font-family: hzk; font-size: 16px; }
-.t14 { top: 34px; left: 5px; width: 82px; height: 16px; font-family: hzk; font-size: 14px; }
+.t14 { top: 34px; left: 5px; width: 82px; height: 17px; font-family: hzk; font-size: 14px; }
 .t12 { top: 50px; left: 5px; width: 83px; height: 15px; font-family: ui; font-size: 12px; }
 .t10 { top: 66px; left: 5px; width: 82px; height: 14px; font-family: monaco; font-size: 10px;
        text-align: center; }

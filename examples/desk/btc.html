@@ -1,4 +1,7 @@
 <style>
+/* Every box measured the way a web page measures one. */
+* { box-sizing: border-box; }
+
 .page {
   display: flex;
   flex-direction: column;
@@ -69,7 +72,7 @@ main {
 }
 
 .range {
-  flex-basis: 14px;
+  flex-basis: 15px;
   text-align: right;
 }
 .range b { font-family: monaco; }
@@ -80,7 +83,7 @@ hr {
 }
 
 .holding {
-  flex-basis: 14px;
+  flex-basis: 15px;
   display: flex;
   align-items: center;
 }

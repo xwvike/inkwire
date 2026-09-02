@@ -9,6 +9,9 @@
 -->
 
 <style>
+/* Every box measured the way a web page measures one. */
+* { box-sizing: border-box; }
+
 .page {
   display: flex;
   flex-direction: column;
@@ -75,7 +78,7 @@ main {
 .last { flex-basis: 20px; font-size: 16px; color: red; vertical-align: middle; }
 .delta { flex-basis: 13px; font-size: 12px; color: red; }
 .fill { flex-grow: 1; }
-.range { flex-basis: 12px; font-size: 12px; }
+.range { flex-basis: 13px; font-size: 12px; }
 .range b { font-size: 10px; }
 </style>
 

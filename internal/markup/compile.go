@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -66,6 +67,11 @@ type Compiler struct {
 	// than ignored, because a page whose stylesheet did not arrive lays out
 	// as almost nothing and the reason has to be findable.
 	Stylesheets func(href string) ([]byte, error)
+	// StylesheetName is what the stylesheet handed to Compile is called, when
+	// it has a name. A link naming the same thing is that same stylesheet
+	// arriving a second time, and only a name can tell that from two files
+	// that happen to hold the same rules.
+	StylesheetName string
 	// Drawings reads the file an img element names when that file is an svg,
 	// on the same terms as the other two.
 	Drawings func(src string) ([]byte, error)
@@ -86,7 +92,7 @@ func (options Compiler) Compile(markup, css string) (Document, error) {
 		return Document{}, fmt.Errorf("parse markup: %w", err)
 	}
 	c := &compiler{computedFor: map[*html.Node]style{}, drawings: options.Drawings}
-	css, styled := c.gatherStyles(root, css, options.Stylesheets)
+	css, styled := c.gatherStyles(root, css, options.StylesheetName, options.Stylesheets)
 	if strings.TrimSpace(css) == "" && !styled {
 		// Said here because here is where every source of style has been
 		// looked for. A page with a style element of its own has a
@@ -183,9 +189,14 @@ var notContent = map[string]bool{
 // what is collected here: a style attribute is style, and a page written
 // entirely in them has a stylesheet in every sense that matters even though
 // there is no stylesheet to collect.
-func (c *compiler) gatherStyles(root *html.Node, css string, resolve func(string) ([]byte, error)) (string, bool) {
-	var collected strings.Builder
-	collected.WriteString(css)
+func (c *compiler) gatherStyles(root *html.Node, css, name string, resolve func(string) ([]byte, error)) (string, bool) {
+	// Every source in the order the page states it, because that order is the
+	// cascade: two rules of equal weight are settled by which came last.
+	type source struct {
+		id  string // "" for a style element, which has no identity to share
+		css string
+	}
+	sources := []source{{id: stylesheetID(name), css: css}}
 	styled := false
 	var walk func(*html.Node)
 	walk = func(node *html.Node) {
@@ -195,12 +206,13 @@ func (c *compiler) gatherStyles(root *html.Node, css string, resolve func(string
 			}
 			switch node.Data {
 			case "style":
-				collected.WriteString("\n")
-				collected.WriteString(textContent(node))
+				sources = append(sources, source{css: textContent(node)})
 				return
 			case "link":
-				collected.WriteString("\n")
-				collected.WriteString(c.linkedStyles(node, resolve))
+				if linked := c.linkedStyles(node, resolve); strings.TrimSpace(linked) != "" {
+					sources = append(sources,
+						source{id: stylesheetID(attribute(node, "href")), css: linked})
+				}
 				return
 			}
 		}
@@ -209,7 +221,55 @@ func (c *compiler) gatherStyles(root *html.Node, css string, resolve func(string
 		}
 	}
 	walk(root)
+
+	// One stylesheet can reach a page twice: the file beside it is read
+	// whether or not the page asks, so a link naming that same file arrives
+	// again. The link is the one to keep, at the position the page put it —
+	// it is what a browser would see, and the sibling is a convention of this
+	// tool that a page has no way to place. Dropping the later copy instead
+	// would move a stylesheet earlier in the cascade than the page says.
+	//
+	// Identity is the name, never the content: two different files that happen
+	// to say the same thing are two stylesheets, and the second still wins.
+	claimed := map[string]int{}
+	for index, entry := range sources {
+		if entry.id != "" {
+			claimed[entry.id] = index
+		}
+	}
+	var collected strings.Builder
+	for index, entry := range sources {
+		if entry.id != "" && claimed[entry.id] != index {
+			if index == 0 {
+				c.warn("stylesheet", "duplicate-stylesheet", fmt.Sprintf(
+					"the stylesheet beside this page is also linked as %q, so it was read once, where the link is",
+					strings.TrimSpace(entry.id)))
+			} else {
+				c.warn("stylesheet", "duplicate-stylesheet", fmt.Sprintf(
+					"link href=%q was already read, so it was read once", strings.TrimSpace(entry.id)))
+			}
+			continue
+		}
+		if collected.Len() > 0 {
+			collected.WriteString("\n")
+		}
+		collected.WriteString(entry.css)
+	}
 	return collected.String(), styled
+}
+
+// stylesheetID names a stylesheet so that the same one arriving twice can be
+// recognised. Two ways of writing one path are one stylesheet; two paths are
+// two, whatever they contain.
+func stylesheetID(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	if strings.Contains(name, "://") {
+		return name
+	}
+	return path.Clean(name)
 }
 
 // linkedStyles reads the stylesheet a link element names.
@@ -268,9 +328,11 @@ func (c *compiler) computed(node *html.Node, parent style, path string) style {
 	current := inherited
 	current.display = displayBlock
 	current.inline = inlineByDefault[node.Data]
-	// Children of a flex container are blockified: being a flex item settles
-	// the question before the element's own default gets a say.
-	if parent.display == displayFlex {
+	// Children of a flex or grid container are blockified: being an item in
+	// one settles the question before the element's own default gets a say.
+	// Grid was missing, so a span in a grid cell was still inline and every
+	// property that only means something on a box did nothing to it.
+	if parent.display == displayFlex || parent.display == displayGrid {
 		current.inline = false
 	}
 	// Custom properties are resolved against the chain this element sits in,
@@ -319,6 +381,22 @@ func (c *compiler) computed(node *html.Node, parent style, path string) style {
 	// with the box that was never built.
 	if current.absolute {
 		current.inline = false
+	}
+	// vertical-align here says where a box puts the text inside it, which is
+	// CSS's table-cell case and not its inline one: there is no inline box
+	// model behind this, so a span cannot be lifted off the line's baseline.
+	// Written on a span it did nothing and said nothing, which is the one
+	// thing this package must not do with a declaration.
+	if current.inline {
+		for _, applied := range c.sheet.declarationsFor(node) {
+			if applied.property != "vertical-align" {
+				continue
+			}
+			c.warn(path, "unsupported-declaration", fmt.Sprintf(
+				"%s: vertical-align says where a box puts its text, so it has no effect on an "+
+					"inline element; CSS's baseline alignment of one is not implemented", describe(node)))
+			break
+		}
 	}
 	c.computedFor[node] = current
 	return current
@@ -413,13 +491,18 @@ func (c *compiler) element(node *html.Node, parent style, path string, containin
 		layers = append(layers, &emitted{Type: "rectangle",
 			Fill: inkName(*current.background), Radius: radiusOf(current)})
 	}
-	if current.border != nil && current.border.width > 0 {
+	// A border with no style is not drawn, which is what CSS's initial
+	// border-style of none means and what a style this cannot draw falls back
+	// to. Drawing it as solid instead is the one thing that must not happen:
+	// the page would show a line the author asked not to have, or asked for in
+	// a shape this has no way to make.
+	if current.border != nil && current.border.width > 0 && current.line != borderNone {
 		edge := &stroke{Ink: inkName(current.border.ink), Width: current.border.width}
-		if current.dashed {
-			edge.Dash = []int{current.border.width * 3, current.border.width * 2}
-			if len(current.dash) > 0 {
-				edge.Dash = current.dash
-			}
+		edge.Dash = current.line.dashOf(current.border.width)
+		if len(current.dash) > 0 {
+			edge.Dash = current.dash
+		}
+		if len(edge.Dash) > 0 {
 			edge.DashOffset = current.dashOffset
 		}
 		layers = append(layers, &emitted{Type: "rectangle", Radius: current.border.radius, Stroke: edge})
@@ -532,12 +615,15 @@ func sized(node *emitted, s style) *emitted {
 		// right to — two sizes on one box is a question about which wins.
 		return node
 	}
+	// A stated size is the content's under CSS's default box-sizing, so the
+	// box around it is that much larger. border-box states the box itself.
+	width, height := s.outerSize(s.width, true), s.outerSize(s.height, false)
 	size := stdimage.Point{}
-	if s.width.fixed() {
-		size.X = s.width.px()
+	if width.fixed() {
+		size.X = width.px()
 	}
-	if s.height.fixed() {
-		size.Y = s.height.px()
+	if height.fixed() {
+		size.Y = height.px()
 	}
 	if size == (stdimage.Point{}) {
 		return node
@@ -691,8 +777,12 @@ func (c *compiler) children(node *html.Node, current style, path string, contain
 	// path is not even attempted for one.
 	if current.display != displayFlex {
 		if runs := c.textRuns(node, current, path); len(runs) > 0 {
-			// Text is centred in its box by default. Explicit vertical-align
-			// values still opt into top or bottom when a label needs an edge.
+			// Text sits at the top of its box, as it does in CSS. Centring it
+			// vertically is what vertical-align: middle is for, and the
+			// centring is where a half pixel has to go somewhere: a line of
+			// Chinese and a line of mixed Chinese and Latin have ink of
+			// different heights, so at an even line height the two settled a
+			// pixel apart. At the top they cannot.
 			return &emitted{Type: "text", Runs: runs,
 				Align:         horizontalAlignName(current.textAlign),
 				VerticalAlign: verticalAlignName(current.textVAlign),
@@ -721,7 +811,7 @@ func (c *compiler) children(node *html.Node, current style, path string, contain
 		if len(placed) == 0 {
 			return line, line != nil
 		}
-		layered := &emitted{Type: "anchored", Children: placed}
+		layered := anchoredIn(placed, current)
 		if line == nil {
 			return layered, true
 		}
@@ -762,25 +852,78 @@ func (c *compiler) children(node *html.Node, current style, path string, contain
 	return flow(&emitted{Type: "column", Children: items})
 }
 
-// padded insets an element's content, and is where the padding is applied for
-// every element that has any.
+// padded insets an element's content by everything between it and the outside
+// of the box: the border and then the padding, which is what CSS counts.
 func padded(inner *emitted, current style) *emitted {
-	if inner == nil || current.padding == (compose.Insets{}) {
+	edges := current.edges()
+	if inner == nil || edges == (compose.Insets{}) {
 		return inner
 	}
-	return &emitted{Type: "padding", Insets: insetsOf(current.padding), Child: inner}
+	return &emitted{Type: "padding", Insets: insetsOf(edges), Child: inner}
+}
+
+// anchoredIn places the children that were taken out of the flow. They resolve
+// against the padding box, so the border insets them and the padding does not.
+func anchoredIn(placed []anchor, current style) *emitted {
+	layered := &emitted{Type: "anchored", Children: placed}
+	edges := current.borderEdges()
+	if edges == (compose.Insets{}) {
+		return layered
+	}
+	return &emitted{Type: "padding", Insets: insetsOf(edges), Child: layered}
 }
 
 // anchorFor describes where a positioned child sits without deciding it. The
 // container's rectangle is only known once the layout runs, so the insets go
 // through as they were written and are resolved there.
-func anchorFor(child style, node *emitted) anchor {
+//
+// Both edges and a size on one axis is more than can hold at once, and CSS
+// says which one gives: the end edge, so a box that states left, right and
+// width keeps the left and the width. The schema refuses all three, and is
+// right to for a document somebody wrote by hand — but a stylesheet is not
+// refused for saying something CSS has an answer for, so the answer is applied
+// here and said.
+func (c *compiler) anchorFor(child style, node *emitted, path string) anchor {
 	placed := anchor{Node: node, Layer: child.layer}
-	for index, edge := range []*any{&placed.Top, &placed.Right, &placed.Bottom, &placed.Left} {
-		*edge = lengthValue(lengthOf(child.inset[index]))
+	top, right, bottom, left := child.inset[0], child.inset[1], child.inset[2], child.inset[3]
+	width := child.outerSize(child.width, true)
+	height := child.outerSize(child.height, false)
+	if left.set && right.set && width.set {
+		c.warn(path, "over-constrained",
+			overConstrained("left", "right", "width", child.insetFromShorthand[3], child.insetFromShorthand[1]))
+		right = length{}
 	}
-	placed.Width, placed.Height = lengthValue(lengthOf(child.width)), lengthValue(lengthOf(child.height))
+	if top.set && bottom.set && height.set {
+		c.warn(path, "over-constrained",
+			overConstrained("top", "bottom", "height", child.insetFromShorthand[0], child.insetFromShorthand[2]))
+		bottom = length{}
+	}
+	placed.Top = lengthValue(lengthOf(top))
+	placed.Right = lengthValue(lengthOf(right))
+	placed.Bottom = lengthValue(lengthOf(bottom))
+	placed.Left = lengthValue(lengthOf(left))
+	placed.Width = lengthValue(lengthOf(width))
+	placed.Height = lengthValue(lengthOf(height))
 	return placed
+}
+
+// overConstrained names the three that cannot all hold, and says which of them
+// came from inset — an author who wrote "inset: 0" has not written the word
+// "right" anywhere and would otherwise be told about a property they never
+// used. One who then wrote "left: 10px" did write that one, so it is theirs.
+func overConstrained(start, end, of string, startFromInset, endFromInset bool) string {
+	from := ""
+	switch {
+	case startFromInset && endFromInset:
+		from = fmt.Sprintf(" (%s and %s come from the inset shorthand)", start, end)
+	case startFromInset:
+		from = fmt.Sprintf(" (%s comes from the inset shorthand)", start)
+	case endFromInset:
+		from = fmt.Sprintf(" (%s comes from the inset shorthand)", end)
+	}
+	return fmt.Sprintf(
+		"%s, %s and %s cannot all hold at once%s; %s was dropped, as CSS drops it",
+		start, end, of, from, end)
 }
 
 // childBoxes is where one container's children accumulate. They are collected
@@ -876,7 +1019,7 @@ func (c *compiler) appendChildren(node *html.Node, current style, path string, i
 			if target == nil {
 				target = into
 			}
-			target.placed = append(target.placed, anchorFor(childStyle, compiled))
+			target.placed = append(target.placed, c.anchorFor(childStyle, compiled, childPath))
 			continue
 		}
 		if current.display == displayGrid {
@@ -970,9 +1113,12 @@ func (c *compiler) layoutChild(node *emitted, child, parent style, path string) 
 		AlignSelf: optionalCrossAlignName(child.alignSelf), Ratio: child.ratio,
 	}
 
-	mainSize, crossSize := child.width, child.height
-	minMain, minCross := child.minSize[0], child.minSize[1]
-	maxMain, maxCross := child.maxSize[0], child.maxSize[1]
+	// Every stated size is the content's unless the box says border-box, so
+	// the item the line is given has to be the box around it. flex-basis is
+	// sized the same way a width is, which is what CSS does with it.
+	mainSize, crossSize := child.outerSize(child.width, true), child.outerSize(child.height, false)
+	minMain, minCross := child.outerSize(child.minSize[0], true), child.outerSize(child.minSize[1], false)
+	maxMain, maxCross := child.outerSize(child.maxSize[0], true), child.outerSize(child.maxSize[1], false)
 	if along == axisColumn {
 		mainSize, crossSize = crossSize, mainSize
 		minMain, minCross = minCross, minMain
@@ -980,7 +1126,7 @@ func (c *compiler) layoutChild(node *emitted, child, parent style, path string) 
 	}
 	item.Basis = lengthValue(lengthOf(mainSize))
 	if child.basis.set {
-		item.Basis = lengthValue(lengthOf(child.basis))
+		item.Basis = lengthValue(lengthOf(child.outerSize(child.basis, along == axisRow)))
 	}
 	// The margins across the flow are wrapped round the node as padding, so
 	// the item has to be that much bigger across or the padding pushes the

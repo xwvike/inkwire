@@ -286,3 +286,123 @@ func TestAGridCellMaySayItsSpanAfterTheSlash(t *testing.T) {
 		t.Errorf("the cell is %d wide, want the 60 of three tracks", width)
 	}
 }
+
+// The box model CSS has: a border takes room, a stated width is the content's
+// unless box-sizing says otherwise, and an absolutely positioned child is
+// placed against the padding box — inside the border, outside the padding.
+func TestTheBoxModelIsTheOneCSSHas(t *testing.T) {
+	t.Run("content-box grows the box by its padding and border", func(t *testing.T) {
+		got := boxes(t, `<i class="a"></i>`,
+			`.a { display: block; width: 20px; height: 10px; padding: 4px;
+			      border: 3px solid black; background: red; }`)
+		// 20 + 4 + 4 + 3 + 3 across, 10 + 14 down.
+		if box := got[display.InkBlack]; box.Dx() != 34 || box.Dy() != 24 {
+			t.Errorf("the border box is %dx%d, want 34x24", box.Dx(), box.Dy())
+		}
+	})
+
+	t.Run("border-box states the box itself", func(t *testing.T) {
+		got := boxes(t, `<i class="a"></i>`,
+			`.a { display: block; box-sizing: border-box; width: 34px; height: 24px;
+			      padding: 4px; border: 3px solid black; background: red; }`)
+		if box := got[display.InkBlack]; box.Dx() != 34 || box.Dy() != 24 {
+			t.Errorf("the border box is %dx%d, want 34x24", box.Dx(), box.Dy())
+		}
+	})
+
+	t.Run("a border takes room from the content", func(t *testing.T) {
+		got := boxes(t, `<i class="a"><i class="in"></i></i>`,
+			`.a { display: block; box-sizing: border-box; width: 40px; height: 40px;
+			      border: 5px solid black; }
+			 .in { display: block; width: 4px; height: 4px; background: red; }`)
+		if in := got[display.InkRed]; in.Min.X != 5 || in.Min.Y != 5 {
+			t.Errorf("the content starts at %v, want (5,5) inside the border", in.Min)
+		}
+	})
+
+	t.Run("an absolute child is placed against the padding box", func(t *testing.T) {
+		got := boxes(t, `<i class="host"><i class="pin"></i></i>`,
+			`.host { position: relative; display: block; box-sizing: border-box;
+			         width: 60px; height: 40px; border: 10px solid black; padding: 7px; }
+			 .pin { position: absolute; top: 0; left: 0; width: 6px; height: 6px; background: red; }`)
+		// Inside the border, outside the padding.
+		if pin := got[display.InkRed]; pin.Min != image.Pt(10, 10) {
+			t.Errorf("the pin is at %v, want (10,10): inside the border, not inset by the padding", pin.Min)
+		}
+	})
+}
+
+// The box model applies to every property that states a size, not only width
+// and height, and to the awkward values as well as the ordinary ones.
+func TestBoxSizingReachesEverySizingProperty(t *testing.T) {
+	const frame = `.a { display: block; background: red; padding: 4px; border: 3px solid black; }`
+
+	t.Run("min-width grows by the edges under content-box", func(t *testing.T) {
+		got := boxes(t, `<i class="a"></i>`, frame+` .a { min-width: 20px; height: 10px; }`)
+		// 20 of content, 4 and 4 of padding, 3 and 3 of border.
+		if box := got[display.InkBlack]; box.Dx() != 34 {
+			t.Errorf("the box is %d wide, want 34", box.Dx())
+		}
+	})
+
+	t.Run("max-height is the content's under content-box", func(t *testing.T) {
+		got := boxes(t, `<i class="a"></i>`,
+			frame+` .a { width: 20px; height: 40px; max-height: 10px; }`)
+		if box := got[display.InkBlack]; box.Dy() != 24 {
+			t.Errorf("the box is %d tall, want 24", box.Dy())
+		}
+	})
+
+	t.Run("flex-basis is sized the way a width is", func(t *testing.T) {
+		content := boxes(t, `<i class="a"></i><i class="rest"></i>`,
+			frame+` .a { flex-basis: 20px; } .rest { display: block; flex-grow: 1; background: white; }`)
+		border := boxes(t, `<i class="a"></i><i class="rest"></i>`,
+			frame+` .a { flex-basis: 34px; box-sizing: border-box; }
+			 .rest { display: block; flex-grow: 1; background: white; }`)
+		if content[display.InkBlack].Dx() != border[display.InkBlack].Dx() {
+			t.Errorf("flex-basis 20 content-box covered %d and 34 border-box covered %d; they are the same box",
+				content[display.InkBlack].Dx(), border[display.InkBlack].Dx())
+		}
+	})
+
+	t.Run("a percentage width takes the edges on top of it", func(t *testing.T) {
+		// Half of the hundred pixel page, and the edges outside that.
+		got := boxes(t, `<i class="a"></i>`, frame+` .a { width: 50%; height: 10px; }`)
+		if box := got[display.InkBlack]; box.Dx() != 64 {
+			t.Errorf("the box is %d wide, want 50 of content and 14 of edges", box.Dx())
+		}
+	})
+
+	t.Run("a zero width still draws its edges", func(t *testing.T) {
+		got := boxes(t, `<i class="a"></i>`, frame+` .a { width: 0; height: 10px; }`)
+		if box := got[display.InkBlack]; box.Dx() != 14 {
+			t.Errorf("the box is %d wide, want the 14 its padding and border take", box.Dx())
+		}
+	})
+
+	t.Run("border-box smaller than its own edges does not invert", func(t *testing.T) {
+		got := boxes(t, `<i class="a"></i>`,
+			frame+` .a { box-sizing: border-box; width: 8px; height: 8px; }`)
+		if box := got[display.InkBlack]; box.Dx() != 8 || box.Dy() != 8 {
+			t.Errorf("the box is %dx%d, want the 8x8 it asked for", box.Dx(), box.Dy())
+		}
+	})
+}
+
+// An absolutely positioned child resolves against the padding box of the
+// nearest positioned ancestor, however many unpositioned boxes are between
+// them and whatever padding those carry.
+func TestTheContainingBlockIsTheNearestPositionedPaddingBox(t *testing.T) {
+	got := boxes(t, `<i class="host"><i class="mid"><i class="pin"></i></i></i>`,
+		`.host { position: relative; display: block; box-sizing: border-box;
+		         margin: 6px; width: 80px; height: 40px;
+		         border: 5px solid black; padding: 9px; }
+		 .mid { display: block; padding: 4px; }
+		 .pin { position: absolute; top: 0; left: 0; width: 6px; height: 6px; background: red; }`)
+	// The host's border box starts at the margin, 6; its padding box starts a
+	// border in from that, 11. Neither its own padding nor the wrapper's
+	// moves a placed child.
+	if pin := got[display.InkRed]; pin.Min != image.Pt(11, 11) {
+		t.Errorf("the pin is at %v, want (11,11)", pin.Min)
+	}
+}

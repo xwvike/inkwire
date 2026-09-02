@@ -436,7 +436,7 @@ func (c *compiler) svgPaint(node *html.Node, inherited svgPaint, current style, 
 	if current.strokeWidth != nil {
 		paint.strokeWidth = *current.strokeWidth
 	}
-	if current.dashed {
+	if current.line != borderNone || len(current.dash) > 0 {
 		paint.dash = current.dash
 		paint.dashOffset = current.dashOffset
 	}

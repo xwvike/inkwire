@@ -239,15 +239,19 @@ func countInk(t *testing.T, css string) int {
 	return count
 }
 
-func TestBoxSizingBorderBoxIsAccepted(t *testing.T) {
-	if said := warningsFor(t, `<i class="a"></i>`,
-		` .a { display: block; flex-grow: 1; background: black; box-sizing: border-box; }`); said != "" {
-		t.Errorf("border-box was reported even though it is what happens: %s", said)
+// Both box-sizing values work now, so neither is reported. content-box used to
+// be refused on the grounds that a width here always included the padding and
+// the border, which was half true and is no longer true at all.
+func TestBothBoxSizingValuesWork(t *testing.T) {
+	for _, value := range []string{"border-box", "content-box"} {
+		if said := warningsFor(t, `<i class="a"></i>`,
+			` .a { display: block; flex-grow: 1; background: black; box-sizing: `+value+`; }`); said != "" {
+			t.Errorf("%s was reported: %s", value, said)
+		}
 	}
-	// content-box is not what happens, so it says so.
 	if said := warningsFor(t, `<i class="a"></i>`,
-		` .a { display: block; flex-grow: 1; background: black; box-sizing: content-box; }`); said == "" {
-		t.Error("content-box was accepted silently")
+		` .a { display: block; box-sizing: padding-box; }`); said == "" {
+		t.Error("a box-sizing value that does not exist was accepted silently")
 	}
 }
 

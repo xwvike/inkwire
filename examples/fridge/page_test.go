@@ -60,7 +60,10 @@ func TestPageMatchesReference(t *testing.T) {
 func TestOneColumnHoldsEveryCheckbox(t *testing.T) {
 	frame := renderPage(t).Frame
 	var edges []int
-	for _, top := range []int{118, 145, 172, 199, 226, 253} {
+	// The six rows the grid actually places, read off measure rather than
+	// counted from the top of the card: the bands here used to start a row
+	// late and still passed, because every row it did catch agreed.
+	for _, top := range []int{93, 120, 147, 174, 201, 228} {
 		edges = append(edges, firstMark(t, frame, top, top+14, 18, 60))
 	}
 	for index, edge := range edges {

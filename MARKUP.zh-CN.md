@@ -35,7 +35,8 @@ CLI 的 `render`、`measure` 和 HTTP 的 `render` 必须指定 `size` 或 `pane
 | 文本 | `font` `font-family` `font-size` `line-height` `text-align` `vertical-align` `white-space` |
 | 图片 | `object-fit` |
 
-所有已实现属性都接受 `inherit`、`initial`、`unset` 和 `revert`。会继承的属性是 `color`、
+所有已实现属性都接受 `inherit`、`initial`、`unset` 和 `revert`。关键字、单位和函数名
+按 CSS 的规则大小写不敏感；字体族名同样如此，但报告时按作者书写的原样回显。会继承的属性是 `color`、
 `font-family`、`font-size`、`line-height`、`text-align` 和 `vertical-align`。其他属性在每个
 元素上从默认值开始。
 
@@ -63,8 +64,29 @@ Flex 容器的 `flex-direction` 支持 `row` 和 `column`。`flex-grow` 分配�
 Grid 容器使用 `grid-template-columns` 和 `grid-template-rows` 定义轨道，支持像素、百分比、
 `fr` 和 `auto`。`grid-column` 和 `grid-row` 放置子项，使用 `span` 指定跨越范围。
 
-`box-sizing` 支持 `content-box` 和 `border-box`。`overflow: hidden` 把内容裁剪在盒子内。
-`white-space: pre` 保留连续空格，默认会合并空白字符。
+`overflow: hidden` 把内容裁剪在盒子内。`white-space: pre` 保留连续空格，默认会合并
+空白字符。
+
+### 盒模型
+
+盒子就是 CSS 描述的那个盒子，每一部分都算数。
+
+```css
+.card { width: 100px; padding: 10px; border: 5px solid black; }   /* 宽 130 */
+.same { width: 130px; padding: 10px; border: 5px solid black;
+        box-sizing: border-box; }                                 /* 宽 130 */
+```
+
+`box-sizing` 的起点是 `content-box`，和 CSS 一样：写下的 `width`、`height`、`min-*`、
+`max-*` 和 `flex-basis` 都是**内容**的尺寸，padding 和 border 加在它外面。`border-box`
+让这些属性表示整个盒子，内容拿剩下的部分。大多数样式表开头就写
+`* { box-sizing: border-box; }`，本仓库的示例也是这么写的。
+
+边框占位置。带边框的盒子，内容先躲开边框、再躲开 padding；绝对定位的子元素贴的是
+**内边距盒**——在边框以内、padding 以外——这正是 CSS 放置它的地方。
+
+没有 `border-top`/`border-right`/`border-bottom`/`border-left`：这里的边框是一个矩形，
+所以四条边共用一个宽度、一种颜色、一种线型。想画单独一条边，用一个 1px 的盒子。
 
 ### 定位
 
@@ -80,11 +102,38 @@ Grid 容器使用 `grid-template-columns` 和 `grid-template-rows` 定义轨道�
 
 ### 绘制与变换
 
-`background` 和 `border` 接受上述墨色。边框的 `border-style` 支持 `solid`、`dashed` 和
-`none`，`border-radius` 绘制圆角。`visibility: hidden` 保留盒子但不绘制它的内容。
+`background` 和 `border` 接受上述墨色。`border-style` 支持 `solid`、`dashed`、`dotted`
+和 `none`；点的直径等于边框宽度、间距也相同，和 CSS 一致。`border-radius` 绘制圆角。
+`visibility: hidden` 保留盒子但不绘制它的内容。
+
+没写线型的边框不会被画出来——`border-style` 的初始值是 `none`，所以 `border: 1px` 和
+单独的 `border-width` 都不画线，浏览器里也是这样。需要两条线或两种明暗的线型
+（`double`、`groove`、`ridge`、`inset`、`outset`）会被报告并且不画：没有灰阶的面板没法
+做出明暗，而把它们画成实线等于在页面上放一条作者没要过形状的线。
 
 `transform` 支持 `rotate` 和整数倍 `scale`。`rotate` 接受角度，`transform-origin` 控制
 旋转中心。不支持的变换函数会被报告。
+
+### 盒子里的文字
+
+`line-height` 的行为和 CSS 一致：它与文字自身高度的差值是 leading，一半加在字的上面，
+一半加在下面。所以调大 `line-height` 是把一行在它的行框里居中，而不是把它往下推；每
+一行都按自己的字体指标定位，上下行是什么字体都不会影响它。
+
+`vertical-align` **不是 CSS 的 `vertical-align`**。这是本实现里唯一一处不只是"做得少"、
+而是和浏览器语义不同的属性。
+
+CSS 里它作用于 inline 级和表格单元格盒子，初始值是 `baseline`，在 inline 盒子上它把
+那个盒子相对行的基线抬起或压低。这里没有 inline 盒模型，抬不起任何东西，所以它只保留
+了表格单元格那一半含义：**当盒子比文字高时，文字放在盒子的哪个位置**。
+
+```css
+.chip { height: 20px; vertical-align: middle; }   /* 文字在胶囊里居中 */
+```
+
+默认是 `top`，`middle` 居中，`bottom` 沉底。写在 inline 元素上会被报告，因为那里它做
+不了任何事。想让盒子的**内容**居中而不是文字，用 flex 容器加 `align-items: center`
+——浏览器里这件事也该这么写。
 
 ## SVG
 

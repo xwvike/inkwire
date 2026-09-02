@@ -85,6 +85,9 @@ func compilePage(source string, resources map[string][]byte) ([]byte, []compose.
 	compiler := markup.Compiler{
 		Stylesheets: beside,
 		Drawings:    beside,
+		// The name the sibling would be linked by, so that a page which does
+		// link it gets it once, where the page put it.
+		StylesheetName: filepath.Base(stylesheet),
 	}
 	page, err := compiler.Compile(string(markupSource), string(cssSource))
 	for _, warning := range page.Warnings {

@@ -38,6 +38,9 @@ outside the lists and restrictions below produce a warning and are ignored.
 | Image | `object-fit` |
 
 All implemented properties accept `inherit`, `initial`, `unset` and `revert`.
+Keywords, units and function names are matched without regard to case, as CSS
+matches them; a font family is matched the same way and reported back as the
+author wrote it.
 The inherited properties are `color`, `font-family`, `font-size`, `line-height`,
 `text-align` and `vertical-align`. Other properties start from their default on
 each element.
@@ -72,9 +75,33 @@ Grid containers use `grid-template-columns` and `grid-template-rows` with
 pixel, percentage, `fr` and `auto` tracks. `grid-column` and `grid-row` place
 an item; `span` can specify its extent.
 
-`box-sizing` accepts `content-box` and `border-box`. `overflow: hidden` clips
-content to the box. `white-space: pre` preserves runs of spaces; the default
-collapses whitespace.
+`overflow: hidden` clips content to the box. `white-space: pre` preserves runs
+of spaces; the default collapses whitespace.
+
+### The box model
+
+A box is the one CSS describes, and every part of it counts.
+
+```css
+.card { width: 100px; padding: 10px; border: 5px solid black; }   /* 130 wide */
+.same { width: 130px; padding: 10px; border: 5px solid black;
+        box-sizing: border-box; }                                 /* 130 wide */
+```
+
+`box-sizing` starts at `content-box`, as in CSS: a stated `width`, `height`,
+`min-*`, `max-*` or `flex-basis` is the size of the content, and the padding and
+the border go outside it. `border-box` makes the same properties state the whole
+box and leaves the content whatever is left. Most stylesheets open with
+`* { box-sizing: border-box; }`, and the examples here do.
+
+A border takes room. The content of a bordered box starts inside the border and
+then inside the padding, and an absolutely positioned child is placed against
+the padding box — inside the border, outside the padding — which is where CSS
+places one.
+
+There is no `border-top`, `border-right`, `border-bottom` or `border-left`: a
+border here is drawn as one rectangle, so it is one width, one colour and one
+style on all four sides. A single edge is a one-pixel box of its own.
 
 ### Positioning
 
@@ -91,13 +118,47 @@ the element from flow and places it against the nearest positioned ancestor.
 
 ### Paint and transform
 
-`background` and `border` accept the supported colors. Borders use
-`border-style: solid`, `dashed` or `none`; `border-radius` rounds the corners.
+`background` and `border` accept the supported colors. `border-style` is
+`solid`, `dashed`, `dotted` or `none`, and a dot is as wide as the border and
+spaced by the same, as in CSS. `border-radius` rounds the corners.
 `visibility: hidden` keeps the box but removes its paint.
+
+A border with no style is not drawn — `border-style` starts at `none`, so
+`border: 1px` and a bare `border-width` draw nothing, as in a browser. The
+styles that need two lines or two shades (`double`, `groove`, `ridge`, `inset`,
+`outset`) are reported and not drawn: a panel with no greys has nothing to
+shade one with, and drawing them as solid would put a line on the page in a
+shape nobody asked for.
 
 `transform` accepts `rotate` and whole-number `scale`. `rotate` accepts an
 angle, with `transform-origin` controlling the pivot. Unsupported transform
 functions are reported.
+
+### Text in a box
+
+`line-height` behaves as it does in CSS: the difference between it and the
+text's own height is the leading, and half of it goes above the letters and half
+below. So a larger `line-height` centres a line in its box rather than pushing
+it down, and every line is placed by its own metrics — what is on the line above
+or below cannot move it.
+
+`vertical-align` is **not CSS's `vertical-align`**, and this is the one property
+here that departs from the browser rather than merely doing less than it.
+
+In CSS it applies to inline-level and table-cell boxes, its initial value is
+`baseline`, and on an inline box it lifts that box off the line's baseline. Here
+there is no inline box model to lift anything off, so it means only the
+table-cell half: where a box puts the text inside it, when the box is taller
+than the text.
+
+```css
+.chip { height: 20px; vertical-align: middle; }   /* the text, centred in the chip */
+```
+
+`top` is the default, `middle` centres and `bottom` drops. Written on an inline
+element it is reported, because there it can do nothing. To centre a box's
+contents rather than its text, use a flex container and `align-items: center`,
+which is what a browser wants for that as well.
 
 ## SVG
 

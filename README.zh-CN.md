@@ -423,6 +423,8 @@ curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
 | `unresolved-image` | 图片无法读取 |
 | `no-stylesheet` | 页面无任何样式来源 |
 | `unresolved-stylesheet` | 样式表无法读取 |
+| `duplicate-stylesheet` | 同一份样式表来了两次，只读一次 |
+| `over-constrained` | 一个轴上同时给了两条边和一个尺寸，按 CSS 的规则丢掉末端那条边 |
 | `unsupported-selector` | 选择器无法解析，跳过该规则 |
 | `unreadable-rule` | 语法错误规则，跳过 |
 | `substituted-font-size` | 字体或字号不可用，使用最近值 |

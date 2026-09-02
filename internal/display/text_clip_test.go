@@ -131,17 +131,20 @@ func TestTheLayoutExposesLossRatherThanOverflow(t *testing.T) {
 func TestABoxShorterThanItsLettersReportsTheRowsItTakes(t *testing.T) {
 	cjk := TextRun{Text: "蓝牙", Style: TextStyle{Font: "hzk", Size: 12, Ink: InkBlack}}
 
+	// hzk 12 is ten of ascent, two of descent and two of line gap, and CSS
+	// puts half that gap above the letters — so the twelve rows of ink start
+	// one row down and an eleven row box loses two of them.
 	short := layout(t, image.Rect(0, 0, 60, 11), NoWrap, cjk)
 	columns, lines, rows := short.Clipped()
-	if rows != 1 {
-		t.Fatalf("rows = %d, want 1 row of ink lost", rows)
+	if rows != 2 {
+		t.Fatalf("rows = %d, want 2 rows of ink lost", rows)
 	}
 	if columns != 0 || lines != 0 {
 		t.Fatalf("columns = %d and lines = %d; neither is what this box takes", columns, lines)
 	}
 
-	// One more pixel and the same text keeps everything.
-	exact := layout(t, image.Rect(0, 0, 60, 12), NoWrap, cjk)
+	// The whole line box and the same text keeps everything.
+	exact := layout(t, image.Rect(0, 0, 60, 14), NoWrap, cjk)
 	if columns, lines, rows := exact.Clipped(); columns != 0 || lines != 0 || rows != 0 {
 		t.Fatalf("a box of twelve reported %d, %d, %d; it holds the whole glyph", columns, lines, rows)
 	}
@@ -155,5 +158,60 @@ func TestOverflowingIntoTheLineGapIsNotClipping(t *testing.T) {
 	tight := layout(t, image.Rect(0, 0, 80, 14), NoWrap, mono("0.0428", 12))
 	if _, _, rows := tight.Clipped(); rows != 0 {
 		t.Fatalf("rows = %d, want 0: the three pixels of overflow are empty", rows)
+	}
+}
+
+// Where a block of text sits must not depend on which font ends it.
+//
+// The leading a line-height adds used to hang entirely below the letters, and
+// the correction for that subtracted the last line's share of it — so a block
+// of Chinese then Latin and the same block the other way round sat about two
+// pixels apart, and every line in it moved. CSS puts half the leading above the
+// letters and half below, which makes each line self-contained: the same line
+// lands in the same place whatever is above or below it.
+func TestALineSitsInTheSamePlaceWhateverFollowsIt(t *testing.T) {
+	cjk := TextRun{Text: "中文", Style: TextStyle{Font: "hzk", Size: 12, Ink: InkBlack}}
+	latin := TextRun{Text: "ABC", Style: TextStyle{Font: "monaco", Size: 12, Ink: InkBlack}}
+	newline := TextRun{Text: "\n", Style: TextStyle{Font: "hzk", Size: 12, Ink: InkBlack}}
+
+	// The first line is the same in both; only what follows it differs.
+	inkTopOf := func(t *testing.T, second TextRun) int {
+		t.Helper()
+		box := TextBox{
+			Bounds: image.Rect(0, 0, 180, 40), LineHeight: 16, VerticalAlign: AlignMiddle,
+			Runs: []TextRun{cjk, newline, second},
+		}
+		fonts, err := NewBuiltinFontRegistry()
+		if err != nil {
+			t.Fatal(err)
+		}
+		laid, err := LayoutText(fonts, box)
+		if err != nil {
+			t.Fatal(err)
+		}
+		top := -1
+		laid.eachGlyph(func(at image.Rectangle, p glyphPlacement) {
+			if top >= 0 || at.Min.Y > 20 {
+				return
+			}
+			for y := 0; y < p.glyph.Height; y++ {
+				for x := 0; x < p.glyph.Width; x++ {
+					if p.glyph.On(x, y) {
+						top = at.Min.Y + y
+						return
+					}
+				}
+			}
+		})
+		if top < 0 {
+			t.Fatal("the first line drew no ink")
+		}
+		return top
+	}
+
+	after := inkTopOf(t, cjk)
+	if other := inkTopOf(t, latin); other != after {
+		t.Errorf("the first line's ink starts at %d when Chinese follows it and %d when Latin does",
+			after, other)
 	}
 }

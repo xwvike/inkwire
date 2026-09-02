@@ -448,6 +448,8 @@ Non-fatal.
 | `unresolved-image` | Image cannot be read |
 | `no-stylesheet` | Page has no style source |
 | `unresolved-stylesheet` | Stylesheet cannot be read |
+| `duplicate-stylesheet` | The same stylesheet arrived twice; read once |
+| `over-constrained` | Both edges and a size on one axis; the end edge dropped, as CSS drops it |
 | `unsupported-selector` | Selector cannot be parsed; rule skipped |
 | `unreadable-rule` | Rule has a syntax error; skipped |
 | `substituted-font-size` | Font or size unavailable; nearest value used |

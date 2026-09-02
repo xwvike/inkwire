@@ -48,11 +48,16 @@ func (l length) fixed() bool { return l.set && l.percent == 0 }
 // field left at its zero value was not specified, except where a pointer or a
 // length's set flag records the difference explicitly.
 type style struct {
-	display    displayMode
-	direction  axis
-	basis      length
-	grow       int
-	padding    compose.Insets
+	display   displayMode
+	direction axis
+	basis     length
+	grow      int
+	padding   compose.Insets
+	// borderBox is box-sizing. CSS starts at content-box, where a stated width
+	// is the width of the content and the padding and border go outside it;
+	// border-box is the one nearly every stylesheet opts into, where the width
+	// is the whole box and the content is what is left.
+	borderBox  bool
 	margin     compose.Insets
 	autoLeft   bool
 	autoTop    bool
@@ -87,7 +92,9 @@ type style struct {
 	clip                   bool
 	clipShape              compose.Shape
 	hidden                 bool
-	dashed                 bool
+	// line is border-style. stroke-dasharray states a pattern directly, which
+	// is SVG's spelling of the same thing and overrides the one a style implies.
+	line borderLine
 	// dash is the pattern a stylesheet stated. Empty means the one a dashed
 	// border gets when nobody says: a mark three times the border's width
 	// and a gap twice it, which reads as dashes at any width.
@@ -98,8 +105,13 @@ type style struct {
 	minSize    [2]length // width, height
 	maxSize    [2]length
 	inset      [4]length // top, right, bottom, left
-	layer      int
-	transform  display.Transform
+	// insetFromShorthand records, per edge, that it came from inset rather
+	// than from its own name, so a message about it can say where it is from.
+	// An author who wrote "inset: 0" never typed the word right — and one who
+	// wrote "inset: 0; left: 10px" did type left, so it is theirs by then.
+	insetFromShorthand [4]bool
+	layer              int
+	transform          display.Transform
 	// rotate is an angle in degrees, held apart from transform because the two
 	// are no longer the same kind of thing: a magnification redraws a subtree
 	// onto a larger surface, and a turn puts a turn into the state everything
@@ -143,6 +155,55 @@ type border struct {
 	radius int
 }
 
+// borderLine is border-style. CSS starts it at none, so a border with a width
+// and no style draws nothing — which is what "border: 1px" means, and what a
+// style this cannot draw falls back to rather than being drawn as something
+// else.
+type borderLine uint8
+
+const (
+	borderNone borderLine = iota
+	borderSolid
+	borderDashed
+	borderDotted
+)
+
+// dashOf is the pattern a line style is drawn with, in multiples of the
+// border's own width. CSS makes a dot as wide as the border and spaces it by
+// the same; a dash is longer than it is wide. Solid has no pattern.
+func (l borderLine) dashOf(width int) []int {
+	switch l {
+	case borderDashed:
+		return []int{width * 3, width * 2}
+	case borderDotted:
+		return []int{width, width}
+	}
+	return nil
+}
+
+// parseBorderLine reads a border-style keyword. The ones this cannot draw are
+// told apart from the ones that are not styles at all, because an author who
+// wrote "dotted" wants to know it is a style rather than a colour, and one who
+// wrote "double" wants to know it is a style this does not have.
+func parseBorderLine(value, property string, report func(string)) (borderLine, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "solid":
+		return borderSolid, true
+	case "dashed":
+		return borderDashed, true
+	case "dotted":
+		return borderDotted, true
+	case "none", "hidden":
+		return borderNone, true
+	case "double", "groove", "ridge", "inset", "outset":
+		report(fmt.Sprintf(
+			"%s: %s needs more than one line or more than one shade, so it is not drawn; "+
+				"use solid, dashed, dotted or none", property, value))
+		return borderNone, true
+	}
+	return borderNone, false
+}
+
 // inherited is the subset CSS passes down. Everything else starts fresh on
 // each element.
 // paint is an ink, or the absence of one. fill: none and no fill at all are
@@ -177,10 +238,6 @@ func rootStyle() style {
 		color:      display.InkBlack,
 		fontFamily: display.DefaultFontFamily,
 		fontSize:   display.DefaultFontSize,
-		// Bitmap text has no browser baseline to align against. Middle is the
-		// useful box-model default for a fixed panel and keeps flex/grid labels
-		// visually centred without requiring an inkwire-specific declaration.
-		textVAlign: display.AlignMiddle,
 		// CSS wraps by default. Not wrapping is what white-space: nowrap is
 		// for, and a page that silently refused to wrap would lose text with
 		// nothing but a clipping warning to show for it.
@@ -192,6 +249,12 @@ func rootStyle() style {
 // honour rather than dropping it.
 func (s *style) apply(property, value string, parent style, report func(string)) {
 	value = strings.TrimSpace(value)
+	// CSS matches keywords and units without regard to case, so the keywords
+	// below are compared against this rather than against what was typed. The
+	// value itself is kept as written for the things that are not keywords: a
+	// font family is a name, and an author who asked for "Helvetica Neue"
+	// wants it named back the way they wrote it.
+	keyword := strings.ToLower(value)
 	// A declaration with nothing after the colon says nothing, and no property
 	// here has a meaning for it. Refusing it once is also what keeps the
 	// parsers below from having to: several of them read the first word of the
@@ -204,7 +267,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 	// field alone: an earlier declaration on this element may already have
 	// changed it. initial returns the property's own default; unset inherits
 	// when CSS defines the property as inherited and otherwise resets it.
-	switch value {
+	switch keyword {
 	case "inherit":
 		s.inheritOne(property, parent, report)
 		return
@@ -221,7 +284,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 	}
 	switch property {
 	case "display":
-		switch value {
+		switch keyword {
 		case "block":
 			s.display, s.inline = displayBlock, false
 		case "flex":
@@ -246,7 +309,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 			report(fmt.Sprintf("display: %s is not supported; use block, flex, grid or none", value))
 		}
 	case "flex-direction":
-		switch value {
+		switch keyword {
 		case "row":
 			s.direction = axisRow
 		case "column":
@@ -304,7 +367,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 	case "grid-row":
 		s.cellRow = parseGridLine(value, property, report)
 	case "justify-content":
-		switch value {
+		switch keyword {
 		case "flex-start", "start", "normal":
 			s.justify = compose.MainStart
 		case "center":
@@ -352,7 +415,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 		// The two questions white-space answers are whether runs of spaces
 		// survive and whether a long line wraps, and the values are the four
 		// combinations of those.
-		switch value {
+		switch keyword {
 		case "normal":
 			s.wrap, s.preserve = display.WrapRunes, false
 		case "nowrap":
@@ -368,7 +431,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 	case "clip-path":
 		s.clipShape = parseClipPath(value, property, report)
 	case "overflow":
-		switch value {
+		switch keyword {
 		case "hidden", "clip":
 			s.clip = true
 		case "visible":
@@ -377,7 +440,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 			report(fmt.Sprintf("overflow: %s is not supported; nothing here can scroll", value))
 		}
 	case "object-fit":
-		switch value {
+		switch keyword {
 		case "fill":
 			s.objectFit = fitOf(display.FitStretch)
 		case "contain":
@@ -392,14 +455,14 @@ func (s *style) apply(property, value string, parent style, report func(string))
 			s.justify = mainOfCross(cross)
 		}
 	case "justify-self":
-		if value == "auto" {
+		if keyword == "auto" {
 			return
 		}
 		if cross, ok := parseCross(value, property, report); ok {
 			s.justifySelf = &cross
 		}
 	case "align-self":
-		if value == "auto" {
+		if keyword == "auto" {
 			return
 		}
 		if cross, ok := parseCross(value, "align-self", report); ok {
@@ -410,19 +473,15 @@ func (s *style) apply(property, value string, parent style, report func(string))
 			s.borderStyle().width = width
 		}
 	case "border-style":
-		switch value {
-		case "solid":
-			s.borderStyle()
-			s.dashed = false
-		case "dashed":
-			s.borderStyle()
-			s.dashed = true
-		case "none":
-			s.borderStyle()
-			s.border.width = 0
-			s.dashed, s.dash, s.dashOffset = false, nil, 0
-		default:
-			report(fmt.Sprintf("border-style: %s is not supported; use solid, dashed or none", value))
+		line, ok := parseBorderLine(value, property, report)
+		if !ok {
+			report(fmt.Sprintf("border-style: %s is not a border style; use solid, dashed, dotted or none", value))
+			return
+		}
+		s.borderStyle()
+		s.line = line
+		if line == borderNone {
+			s.dash, s.dashOffset = nil, 0
 		}
 	// SVG's two names for the same thing a border does here. They are used
 	// rather than something of this package's own invention because they are
@@ -432,7 +491,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 		// A drawing's two paints. They inherit, which is what lets a group
 		// state them once for everything inside it.
 		value = strings.TrimSpace(value)
-		if value == "none" || value == "transparent" {
+		if keyword == "none" || keyword == "transparent" {
 			s.setPaint(property, &paint{none: true})
 			return
 		}
@@ -481,7 +540,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 			return
 		}
 		s.borderStyle()
-		s.dashed, s.dash = true, pattern
+		s.line, s.dash = borderDashed, pattern
 	case "stroke-dashoffset":
 		pixels, ok := wholePixels(value)
 		if !ok {
@@ -491,12 +550,13 @@ func (s *style) apply(property, value string, parent style, report func(string))
 		s.borderStyle()
 		s.dashOffset = pixels
 	case "box-sizing":
-		// This is already how every box here behaves: a width is the width of
-		// the border box, padding and border included. Saying so is accepted;
-		// asking for the CSS default is not, because it is not what happens.
-		if value != "border-box" {
-			report(fmt.Sprintf(
-				"box-sizing: %s is not supported; a width here always includes padding and border", value))
+		switch keyword {
+		case "border-box":
+			s.borderBox = true
+		case "content-box":
+			s.borderBox = false
+		default:
+			report(fmt.Sprintf("box-sizing: %s is not supported; use content-box or border-box", value))
 		}
 	case "scale":
 		// Only a whole number: half a pixel has no meaning on a panel with
@@ -525,6 +585,11 @@ func (s *style) apply(property, value string, parent style, report func(string))
 		}
 		s.rotate = degrees
 	case "transform":
+		// none is the initial value and clears whatever was set.
+		if keyword == "none" {
+			s.transform, s.rotate, s.rotateOrigin = display.Transform{}, 0, nil
+			return
+		}
 		// The function form is what most stylesheets say, and it composes:
 		// "rotate(90deg) scale(2)" is both, applied together.
 		for _, call := range strings.Fields(value) {
@@ -533,7 +598,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 				report(fmt.Sprintf("transform: %s is not a function call", call))
 				return
 			}
-			switch name {
+			switch strings.ToLower(strings.TrimSpace(name)) {
 			case "scale":
 				factor, err := strconv.Atoi(argument)
 				if err != nil || factor < 1 {
@@ -571,7 +636,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 		}
 		s.ratio = numerator / denominator
 	case "position":
-		switch value {
+		switch keyword {
 		case "static":
 			s.absolute, s.positioned = false, false
 		case "absolute":
@@ -584,21 +649,22 @@ func (s *style) apply(property, value string, parent style, report func(string))
 			report(fmt.Sprintf("position: %s is not supported; use static, relative or absolute", value))
 		}
 	case "top":
-		s.inset[0] = parseLength(value, property, report)
+		s.inset[0], s.insetFromShorthand[0] = parseLength(value, property, report), false
 	case "right":
-		s.inset[1] = parseLength(value, property, report)
+		s.inset[1], s.insetFromShorthand[1] = parseLength(value, property, report), false
 	case "bottom":
-		s.inset[2] = parseLength(value, property, report)
+		s.inset[2], s.insetFromShorthand[2] = parseLength(value, property, report), false
 	case "left":
-		s.inset[3] = parseLength(value, property, report)
+		s.inset[3], s.insetFromShorthand[3] = parseLength(value, property, report), false
 	case "inset":
 		s.inset = parseInsetLengths(value, property, report)
+		s.insetFromShorthand = [4]bool{true, true, true, true}
 	case "z-index":
 		// Nothing here overlaps except boxes taken out of the flow, and for
 		// those the layer is simply the order they are painted in.
 		s.layer = parseNumber(value, property, report)
 	case "visibility":
-		switch value {
+		switch keyword {
 		case "visible":
 			s.hidden = false
 		case "hidden":
@@ -611,7 +677,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 			s.borderStyle().ink = ink
 		}
 	case "align-items":
-		switch value {
+		switch keyword {
 		default:
 			if cross, ok := parseCross(value, "align-items", report); ok {
 				s.alignItems = cross
@@ -640,7 +706,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 		// longhands are for; this is spacing only.
 		s.margin = parseInsets(value, property, report)
 	case "margin-left":
-		if value == "auto" {
+		if keyword == "auto" {
 			s.autoLeft = true
 			return
 		}
@@ -648,7 +714,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 			s.margin.Left = pixels
 		}
 	case "margin-right":
-		if value == "auto" {
+		if keyword == "auto" {
 			s.autoRight = true
 			return
 		}
@@ -656,7 +722,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 			s.margin.Right = pixels
 		}
 	case "margin-top":
-		if value == "auto" {
+		if keyword == "auto" {
 			s.autoTop = true
 			return
 		}
@@ -664,7 +730,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 			s.margin.Top = pixels
 		}
 	case "margin-bottom":
-		if value == "auto" {
+		if keyword == "auto" {
 			s.autoBottom = true
 			return
 		}
@@ -692,15 +758,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 			s.color = ink
 		}
 	case "border":
-		if strings.EqualFold(strings.TrimSpace(value), "none") {
-			s.border, s.dashed, s.dash, s.dashOffset = nil, false, nil, 0
-			return
-		}
-		s.border = parseBorder(value, s.border, report)
-		// The shorthand's omitted style is solid. Keep radius (which the
-		// shorthand does not reset), but do not let an earlier dashed longhand
-		// leak through it.
-		s.dashed, s.dash, s.dashOffset = false, nil, 0
+		s.parseBorderShorthand(value, report)
 	case "border-radius":
 		radius, ok := wholeLength(value, property, report)
 		if !ok {
@@ -724,11 +782,18 @@ func (s *style) apply(property, value string, parent style, report func(string))
 		// "Helvetica Neue", Arial, sans-serif has said what they want and
 		// what they will settle for, and refusing the whole declaration
 		// because the first name is not here would throw both away.
+		// A family name is matched without regard to case, as CSS matches
+		// one, and reported back the way the author wrote it.
 		chosen, ok := "", false
 		for _, name := range strings.Split(value, ",") {
 			name = strings.Trim(strings.TrimSpace(name), `"'`)
-			if slices.Contains(display.BuiltinFontFamilies(), name) {
-				chosen, ok = name, true
+			for _, have := range display.BuiltinFontFamilies() {
+				if strings.EqualFold(name, have) {
+					chosen, ok = have, true
+					break
+				}
+			}
+			if ok {
 				break
 			}
 		}
@@ -746,7 +811,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 		// CSS gives this meaning inside a table cell: where the content sits
 		// in a box taller than itself. A fixed-height row here is the same
 		// situation, and it is the property an author reaches for.
-		switch value {
+		switch keyword {
 		case "top":
 			s.textVAlign = display.AlignTop
 		case "middle":
@@ -757,7 +822,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 			report(fmt.Sprintf("vertical-align: %s is not supported; use top, middle or bottom", value))
 		}
 	case "text-align":
-		switch value {
+		switch keyword {
 		case "left", "start":
 			s.textAlign = display.AlignStart
 		case "center":
@@ -904,7 +969,10 @@ func parseTransformOrigin(value, property string, report func(string)) (*[2]leng
 // writes with one. Both are accepted because both are what an author will
 // have in front of them: the property is SVG's and the file is a stylesheet.
 func wholePixels(field string) (int, bool) {
-	trimmed := strings.TrimSuffix(strings.TrimSpace(field), "px")
+	trimmed := strings.TrimSpace(field)
+	if hasUnit(trimmed, "px") {
+		trimmed = trimmed[:len(trimmed)-2]
+	}
 	pixels, err := strconv.Atoi(trimmed)
 	if err != nil {
 		return 0, false
@@ -921,6 +989,50 @@ func bareNumberInPixels(value string) string {
 		return value
 	}
 	return trimmed + "px"
+}
+
+// edges are what a box puts between its own outside and its content: the
+// border, and the padding inside it. CSS counts both, and this used to count
+// neither for the border — a border was painted on the box and took no room,
+// so the content of a bordered box sat under its own frame and an absolutely
+// positioned child was placed against the outside of it.
+func (s style) edges() compose.Insets {
+	width := 0
+	if s.border != nil {
+		width = s.border.width
+	}
+	return compose.Insets{
+		Top:    width + s.padding.Top,
+		Right:  width + s.padding.Right,
+		Bottom: width + s.padding.Bottom,
+		Left:   width + s.padding.Left,
+	}
+}
+
+// borderEdges are the border alone, which is what an absolutely positioned
+// child is placed against: CSS resolves it in the padding box, so the border
+// insets it and the padding does not.
+func (s style) borderEdges() compose.Insets {
+	if s.border == nil || s.border.width == 0 {
+		return compose.Insets{}
+	}
+	width := s.border.width
+	return compose.Insets{Top: width, Right: width, Bottom: width, Left: width}
+}
+
+// outerSize grows a stated size by the edges around it when the box is sized
+// the way CSS sizes one by default, where a width is the width of the content.
+func (s style) outerSize(size length, horizontal bool) length {
+	if !size.set || s.borderBox {
+		return size
+	}
+	edges := s.edges()
+	if horizontal {
+		size.pixels += float64(edges.Left + edges.Right)
+	} else {
+		size.pixels += float64(edges.Top + edges.Bottom)
+	}
+	return size
 }
 
 // borderStyle returns the border being built, creating it with the CSS
@@ -1056,20 +1168,19 @@ func (s *style) inheritOne(property string, parent style, report func(string)) {
 	case "aspect-ratio":
 		s.ratio = parent.ratio
 	case "box-sizing":
-		// Nothing to carry: a width here always includes padding and border,
-		// and box-sizing only ever says so or is refused.
+		s.borderBox = parent.borderBox
 	case "position":
 		s.absolute, s.positioned = parent.absolute, parent.positioned
 	case "top":
-		s.inset[0] = parent.inset[0]
+		s.inset[0], s.insetFromShorthand[0] = parent.inset[0], parent.insetFromShorthand[0]
 	case "right":
-		s.inset[1] = parent.inset[1]
+		s.inset[1], s.insetFromShorthand[1] = parent.inset[1], parent.insetFromShorthand[1]
 	case "bottom":
-		s.inset[2] = parent.inset[2]
+		s.inset[2], s.insetFromShorthand[2] = parent.inset[2], parent.insetFromShorthand[2]
 	case "left":
-		s.inset[3] = parent.inset[3]
+		s.inset[3], s.insetFromShorthand[3] = parent.inset[3], parent.insetFromShorthand[3]
 	case "inset":
-		s.inset = parent.inset
+		s.inset, s.insetFromShorthand = parent.inset, parent.insetFromShorthand
 	case "z-index":
 		s.layer = parent.layer
 	case "background", "background-color":
@@ -1078,7 +1189,7 @@ func (s *style) inheritOne(property string, parent style, report func(string)) {
 		s.color = parent.color
 	case "border":
 		s.border = cloneBorder(parent.border)
-		s.dashed, s.dash, s.dashOffset = parent.dashed, slices.Clone(parent.dash), parent.dashOffset
+		s.line, s.dash, s.dashOffset = parent.line, slices.Clone(parent.dash), parent.dashOffset
 	case "border-width":
 		if parent.border != nil {
 			s.borderStyle().width = parent.border.width
@@ -1086,7 +1197,7 @@ func (s *style) inheritOne(property string, parent style, report func(string)) {
 			s.border.width = 1
 		}
 	case "border-style":
-		s.dashed, s.dash, s.dashOffset = parent.dashed, slices.Clone(parent.dash), parent.dashOffset
+		s.line, s.dash, s.dashOffset = parent.line, slices.Clone(parent.dash), parent.dashOffset
 		if parent.border == nil && s.border != nil {
 			s.border.width = 0
 		}
@@ -1127,7 +1238,7 @@ func (s *style) inheritOne(property string, parent style, report func(string)) {
 	case "stroke-width":
 		s.strokeWidth = parent.strokeWidth
 	case "stroke-dasharray":
-		s.dashed, s.dash = parent.dashed, slices.Clone(parent.dash)
+		s.line, s.dash = parent.line, slices.Clone(parent.dash)
 	case "stroke-dashoffset":
 		s.dashOffset = parent.dashOffset
 	case "font":
@@ -1235,19 +1346,19 @@ func (s *style) reset(property string, report func(string)) {
 	case "aspect-ratio":
 		s.ratio = 0
 	case "box-sizing":
-		// Nothing to return: see inheritOne.
+		s.borderBox = false
 	case "position":
 		s.absolute, s.positioned = false, false
 	case "top":
-		s.inset[0] = fresh.inset[0]
+		s.inset[0], s.insetFromShorthand[0] = fresh.inset[0], false
 	case "right":
-		s.inset[1] = fresh.inset[1]
+		s.inset[1], s.insetFromShorthand[1] = fresh.inset[1], false
 	case "bottom":
-		s.inset[2] = fresh.inset[2]
+		s.inset[2], s.insetFromShorthand[2] = fresh.inset[2], false
 	case "left":
-		s.inset[3] = fresh.inset[3]
+		s.inset[3], s.insetFromShorthand[3] = fresh.inset[3], false
 	case "inset":
-		s.inset = fresh.inset
+		s.inset, s.insetFromShorthand = fresh.inset, [4]bool{}
 	case "z-index":
 		s.layer = 0
 	case "background", "background-color":
@@ -1255,7 +1366,7 @@ func (s *style) reset(property string, report func(string)) {
 	case "color":
 		s.color = display.InkBlack
 	case "border":
-		s.border, s.dashed, s.dash, s.dashOffset = nil, false, nil, 0
+		s.border, s.line, s.dash, s.dashOffset = nil, borderNone, nil, 0
 	case "border-width":
 		if s.border != nil {
 			// The implementation's medium border is one pixel. Keeping the
@@ -1263,7 +1374,7 @@ func (s *style) reset(property string, report func(string)) {
 			s.border.width = 1
 		}
 	case "border-style":
-		s.dashed, s.dash, s.dashOffset = false, nil, 0
+		s.line, s.dash, s.dashOffset = borderNone, nil, 0
 		if s.border != nil {
 			// There is no separate style field in the scene schema; zero width
 			// is the representation of CSS's initial border-style: none.
@@ -1298,7 +1409,7 @@ func (s *style) reset(property string, report func(string)) {
 	case "stroke-width":
 		s.strokeWidth = nil
 	case "stroke-dasharray":
-		s.dashed, s.dash = false, nil
+		s.line, s.dash = borderNone, nil
 	case "stroke-dashoffset":
 		s.dashOffset = 0
 	case "font":
@@ -1313,7 +1424,7 @@ func (s *style) reset(property string, report func(string)) {
 	case "text-align":
 		s.textAlign = display.AlignStart
 	case "vertical-align":
-		s.textVAlign = display.AlignMiddle
+		s.textVAlign = display.AlignTop
 	case "white-space":
 		// CSS wraps by default, and WrapRunes is not the zero value, so this
 		// is one of the few that cannot be taken from a fresh style.
@@ -1409,7 +1520,7 @@ func parseGridLine(value, property string, report func(string)) [2]int {
 	}
 	if start, end, ok := strings.Cut(trimmed, "/"); ok {
 		from, errFrom := strconv.Atoi(strings.TrimSpace(start))
-		if counted, spans := strings.CutPrefix(strings.TrimSpace(end), "span "); spans {
+		if counted, spans := cutKeyword(strings.TrimSpace(end), "span"); spans {
 			count, errCount := strconv.Atoi(strings.TrimSpace(counted))
 			if errFrom != nil || errCount != nil || from < 1 || count < 1 {
 				report(fmt.Sprintf("%s: %s needs a line number and a span of at least one", property, value))
@@ -1424,7 +1535,7 @@ func parseGridLine(value, property string, report func(string)) [2]int {
 		}
 		return [2]int{from, to - from}
 	}
-	if rest, ok := strings.CutPrefix(trimmed, "span "); ok {
+	if rest, ok := cutKeyword(trimmed, "span"); ok {
 		count, err := strconv.Atoi(strings.TrimSpace(rest))
 		if err != nil || count < 1 {
 			report(fmt.Sprintf("%s: span needs a whole number, got %s", property, rest))
@@ -1449,6 +1560,7 @@ func parseClipPath(value, property string, report func(string)) compose.Shape {
 		return compose.Shape{}
 	}
 	name, argument, ok := strings.Cut(strings.TrimSuffix(trimmed, ")"), "(")
+	name = strings.ToLower(strings.TrimSpace(name))
 	if !ok {
 		report(fmt.Sprintf("%s: %s is not a shape function", property, value))
 		return compose.Shape{}
@@ -1543,7 +1655,7 @@ func parseClipPath(value, property string, report func(string)) compose.Shape {
 }
 
 func parseCross(value, property string, report func(string)) (compose.CrossAlignment, bool) {
-	switch value {
+	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "stretch":
 		return compose.CrossStretch, true
 	case "flex-start", "start":
@@ -1559,7 +1671,7 @@ func parseCross(value, property string, report func(string)) (compose.CrossAlign
 
 func parseLength(value, property string, report func(string)) length {
 	switch {
-	case value == "auto":
+	case strings.EqualFold(value, "auto"):
 		return length{}
 	case strings.HasPrefix(value, "calc("):
 		return parseCalc(value, property, report)
@@ -1570,8 +1682,8 @@ func parseLength(value, property string, report func(string)) length {
 			return length{}
 		}
 		return length{set: true, percent: number}
-	case strings.HasSuffix(value, "px"):
-		number, err := parseFinite(strings.TrimSuffix(value, "px"))
+	case hasUnit(value, "px"):
+		number, err := parseFinite(value[:len(value)-2])
 		if err != nil {
 			report(fmt.Sprintf("%s: %s is not a pixel length", property, value))
 			return length{}
@@ -1788,22 +1900,39 @@ func parseInk(value, property string, report func(string)) (display.Ink, bool) {
 	return 0, false
 }
 
-func parseBorder(value string, existing *border, report func(string)) *border {
+// parseBorderShorthand reads "1px dashed black" in any order, which is how the
+// shorthand is written.
+//
+// Every field is matched by what it is rather than by elimination: a width is
+// a length, a style is one of the style keywords, and only what is left over
+// is offered to the colour parser. Falling through to colour sent "dashed" to
+// it, which named it as an ink the panel has not got and pointed the author at
+// a colour they had not written wrong.
+//
+// The style a shorthand leaves out is none, as in CSS, so "border: 1px" draws
+// nothing. Keywords and units are matched without regard to case.
+func (s *style) parseBorderShorthand(value string, report func(string)) {
 	fields := strings.Fields(value)
-	if len(fields) == 0 || fields[0] == "none" {
-		return existing
+	if len(fields) == 0 {
+		return
 	}
 	result := &border{ink: display.InkBlack, width: 1}
-	if existing != nil {
-		result.radius = existing.radius
+	if s.border != nil {
+		result.radius = s.border.radius
 	}
+	line := borderNone
 	for _, field := range fields {
+		lower := strings.ToLower(field)
 		switch {
-		case field == "solid":
-		case strings.HasSuffix(field, "px"):
-			width, ok := wholeLength(field, "border", report)
+		case isBorderStyleKeyword(lower):
+			// Reported here rather than silently: a style this cannot draw is
+			// left as none, so the border is not drawn as some other style.
+			line, _ = parseBorderLine(lower, "border", report)
+		case isLength(lower):
+			width, ok := wholeLength(lower, "border", report)
 			if !ok {
-				return result
+				s.border, s.line = result, borderNone
+				return
 			}
 			result.width = width
 		default:
@@ -1812,5 +1941,51 @@ func parseBorder(value string, existing *border, report func(string)) *border {
 			}
 		}
 	}
-	return result
+	s.border, s.line = result, line
+	if line != borderDashed {
+		s.dash, s.dashOffset = nil, 0
+	}
+}
+
+// isBorderStyleKeyword names every CSS border style, drawable here or not, so
+// that each is read as a style rather than handed on to the colour parser and
+// reported as a colour nobody wrote.
+func isBorderStyleKeyword(lower string) bool {
+	switch lower {
+	case "solid", "dashed", "dotted", "none", "hidden",
+		"double", "groove", "ridge", "inset", "outset":
+		return true
+	}
+	return false
+}
+
+// isLength reports a border width: a number, with or without the unit.
+func isLength(lower string) bool {
+	_, err := parseFinite(strings.TrimSuffix(lower, "px"))
+	return err == nil
+}
+
+// cutKeyword strips a leading keyword and the space after it, matching the
+// keyword the way CSS matches one: without regard to case.
+func cutKeyword(value, keyword string) (string, bool) {
+	if len(value) <= len(keyword) || !strings.EqualFold(value[:len(keyword)], keyword) {
+		return value, false
+	}
+	rest := value[len(keyword):]
+	if strings.TrimLeft(rest, " \t") == rest {
+		return value, false
+	}
+	return strings.TrimLeft(rest, " \t"), true
+}
+
+// hasUnit reports a length written with the given unit, whatever case it is
+// written in: CSS matches a unit the way it matches a keyword.
+func hasUnit(value, unit string) bool {
+	return len(value) > len(unit) && strings.EqualFold(value[len(value)-len(unit):], unit)
+}
+
+// isNumber reports a bare number, which is what a width written without px is.
+func isNumber(field string) bool {
+	_, err := parseFinite(field)
+	return err == nil
 }

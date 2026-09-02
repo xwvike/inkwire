@@ -9,6 +9,9 @@
 -->
 
 <style>
+/* Every box measured the way a web page measures one. */
+* { box-sizing: border-box; }
+
 .page {
   display: flex;
   flex-direction: column;
@@ -35,7 +38,7 @@ header .part { color: red; }
 .cjk { font-family: hzk; font-size: 12px; color: red; }
 
 /* The picture ---------------------------------------------------------- */
-.photo { flex-basis: 74px; padding: 5px 5px 0; }
+.photo { flex-basis: 74px; padding: 4px 4px 0; }
 .photo .portrait { position: relative; width: 64px; height: 64px; }
 .photo img { width: 64px; height: 64px; object-fit: cover; clip-path: circle(50%); }
 .photo .rim { position: absolute; top: 0; left: 0; }
@@ -43,11 +46,11 @@ header .part { color: red; }
 .photo .how { margin: 1px 0 0 2px; height: 12px; }
 
 /* The drawing ---------------------------------------------------------- */
-.list { flex-basis: 124px; display: flex; flex-direction: column; padding: 3px 4px 0; }
+.list { flex-basis: 124px; display: flex; flex-direction: column; padding: 2px 3px 0; }
 /* Two spaces before the CJK, and pre is what keeps the second one. */
 .list h2 { flex-basis: 13px; white-space: pre; }
 .list .plot { flex-basis: 57px; margin-top: 2px; }
-.list .readings { flex-basis: 20px; margin-top: 3px; display: flex; gap: 2px; align-items: center; }
+.list .readings { flex-basis: 20px; margin-top: 2px; display: flex; gap: 2px; align-items: center; }
 .list .readings span { height: 14px; }
 .list .amount { flex-basis: 42px; }
 .list .temp { flex-basis: 70px; color: red; }
