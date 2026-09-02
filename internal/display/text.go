@@ -68,6 +68,17 @@ type textLine struct {
 	height  int
 }
 
+// TextLineMetrics exposes the measurements a caller needs to align an
+// individual inline fragment without exposing glyph placement internals.
+// Width is the advance of the line; ascent and descent describe its baseline.
+type TextLineMetrics struct {
+	Width   int
+	Ascent  int
+	Descent int
+	LineGap int
+	Height  int
+}
+
 // halfLeading is the room above this line's letters when the line box is
 // taller than they are.
 //
@@ -210,6 +221,23 @@ func (l *TextLayout) Size() image.Point {
 
 func (l *TextLayout) LineCount() int {
 	return len(l.lines)
+}
+
+// Lines returns a snapshot of the measured line metrics. The layout remains
+// immutable, so callers can use these values while arranging neighbouring
+// fragments without being able to mutate the drawing result.
+func (l *TextLayout) Lines() []TextLineMetrics {
+	if l == nil {
+		return nil
+	}
+	lines := make([]TextLineMetrics, len(l.lines))
+	for index, line := range l.lines {
+		lines[index] = TextLineMetrics{
+			Width: line.width, Ascent: line.ascent, Descent: line.descent,
+			LineGap: line.lineGap, Height: line.height,
+		}
+	}
+	return lines
 }
 
 func (l *TextLayout) MissingRunes() []rune {

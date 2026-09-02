@@ -133,6 +133,12 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 			return nil, nodeError(path, err)
 		}
 		return value.node(path)
+	case "inline":
+		var value inlineJSON
+		if err := decodeStrictBytes(raw, &value); err != nil {
+			return nil, nodeError(path, err)
+		}
+		return d.decodeInline(value, path)
 	case "image":
 		var value imageJSON
 		if err := decodeStrictBytes(raw, &value); err != nil {
@@ -975,6 +981,100 @@ type textJSON struct {
 	Wrap          string    `json:"wrap,omitempty"`
 	LineHeight    int       `json:"lineHeight,omitempty"`
 }
+
+type inlineJSON struct {
+	Type       string           `json:"type"`
+	Size       sizeJSON         `json:"size,omitempty"`
+	Items      []inlineItemJSON `json:"items,omitempty"`
+	Align      string           `json:"align,omitempty"`
+	Wrap       string           `json:"wrap,omitempty"`
+	LineHeight int              `json:"lineHeight,omitempty"`
+}
+
+type inlineItemJSON struct {
+	Runs          []runJSON       `json:"runs,omitempty"`
+	Node          json.RawMessage `json:"node,omitempty"`
+	Break         bool            `json:"break,omitempty"`
+	Padding       insetsJSON      `json:"padding,omitempty"`
+	Margin        insetsJSON      `json:"margin,omitempty"`
+	Background    *string         `json:"background,omitempty"`
+	Border        *strokeJSON     `json:"border,omitempty"`
+	Radius        int             `json:"radius,omitempty"`
+	LineHeight    int             `json:"lineHeight,omitempty"`
+	VerticalAlign string          `json:"verticalAlign,omitempty"`
+	Wrap          string          `json:"wrap,omitempty"`
+	Top           offsetJSON      `json:"top,omitempty"`
+	Right         offsetJSON      `json:"right,omitempty"`
+	Bottom        offsetJSON      `json:"bottom,omitempty"`
+	Left          offsetJSON      `json:"left,omitempty"`
+}
+
+func (d Decoder) decodeInline(value inlineJSON, path string) (compose.Node, error) {
+	align, err := parseHorizontalAlign(value.Align)
+	if err != nil {
+		return nil, fmt.Errorf("%s.align: %w", path, err)
+	}
+	wrap, err := parseWrap(value.Wrap)
+	if err != nil {
+		return nil, fmt.Errorf("%s.wrap: %w", path, err)
+	}
+	items := make([]compose.InlineItem, len(value.Items))
+	for index, source := range value.Items {
+		itemPath := fmt.Sprintf("%s.items[%d]", path, index)
+		runs := make([]display.TextRun, len(source.Runs))
+		for runIndex, run := range source.Runs {
+			ink, err := parseInk(run.Ink)
+			if err != nil {
+				return nil, fmt.Errorf("%s.runs[%d].ink: %w", itemPath, runIndex, err)
+			}
+			runs[runIndex] = display.TextRun{Text: run.Text,
+				Style: display.TextStyle{Font: run.Font, Size: run.Size, Ink: ink}}
+		}
+		var node compose.Node
+		if len(source.Node) != 0 && string(source.Node) != "null" {
+			var err error
+			node, err = d.decodeNode(source.Node, itemPath+".node")
+			if err != nil {
+				return nil, err
+			}
+		}
+		var background *display.Ink
+		if source.Background != nil {
+			ink, err := parseInk(*source.Background)
+			if err != nil {
+				return nil, fmt.Errorf("%s.background: %w", itemPath, err)
+			}
+			background = compose.Ink(ink)
+		}
+		var border *display.StrokeStyle
+		if source.Border != nil {
+			value, err := source.Border.style(itemPath + ".border")
+			if err != nil {
+				return nil, err
+			}
+			border = compose.Stroke(value)
+		}
+		vertical, err := parseInlineVerticalAlign(source.VerticalAlign)
+		if err != nil {
+			return nil, fmt.Errorf("%s.verticalAlign: %w", itemPath, err)
+		}
+		itemWrap, err := parseWrap(source.Wrap)
+		if err != nil {
+			return nil, fmt.Errorf("%s.wrap: %w", itemPath, err)
+		}
+		items[index] = compose.InlineItem{
+			Runs: runs, Node: node, Break: source.Break,
+			Padding:    compose.Insets{Top: source.Padding.Top, Right: source.Padding.Right, Bottom: source.Padding.Bottom, Left: source.Padding.Left},
+			Margin:     compose.Insets{Top: source.Margin.Top, Right: source.Margin.Right, Bottom: source.Margin.Bottom, Left: source.Margin.Left},
+			Background: background, Border: border, Radius: source.Radius,
+			LineHeight: source.LineHeight, VerticalAlign: vertical, Wrap: itemWrap,
+			Top: source.Top.length, Right: source.Right.length,
+			Bottom: source.Bottom.length, Left: source.Left.length,
+		}
+	}
+	return compose.Inline{Size: value.Size.point(), Items: items, Align: align, Wrap: wrap, LineHeight: value.LineHeight}, nil
+}
+
 type runJSON struct {
 	Text string `json:"text"`
 	Font string `json:"font,omitempty"`
@@ -1456,6 +1556,21 @@ func parseVerticalAlign(value string) (display.VerticalAlign, error) {
 		return display.AlignBottom, nil
 	default:
 		return 0, enumError(value, "top", "middle", "bottom")
+	}
+}
+
+func parseInlineVerticalAlign(value string) (compose.InlineVerticalAlign, error) {
+	switch value {
+	case "", "baseline":
+		return compose.InlineBaseline, nil
+	case "top":
+		return compose.InlineTop, nil
+	case "middle":
+		return compose.InlineMiddle, nil
+	case "bottom":
+		return compose.InlineBottom, nil
+	default:
+		return 0, enumError(value, "baseline", "top", "middle", "bottom")
 	}
 }
 

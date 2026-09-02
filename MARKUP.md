@@ -42,7 +42,7 @@ Keywords, units and function names are matched without regard to case, as CSS
 matches them; a font family is matched the same way and reported back as the
 author wrote it.
 The inherited properties are `color`, `font-family`, `font-size`, `line-height`,
-`text-align` and `vertical-align`. Other properties start from their default on
+`text-align` and `white-space`. Other properties start from their default on
 each element.
 
 ### Values
@@ -142,23 +142,19 @@ below. So a larger `line-height` centres a line in its box rather than pushing
 it down, and every line is placed by its own metrics — what is on the line above
 or below cannot move it.
 
-`vertical-align` is **not CSS's `vertical-align`**, and this is the one property
-here that departs from the browser rather than merely doing less than it.
+Inline content is laid out as line boxes. Text runs, `inline-block`,
+`inline-flex`, `inline-grid`, images and inline SVG share the same line and wrap
+when `white-space` permits it. Padding, margin, background, border,
+`position: relative` and `vertical-align` remain attached to the inline item.
 
-In CSS it applies to inline-level and table-cell boxes, its initial value is
-`baseline`, and on an inline box it lifts that box off the line's baseline. Here
-there is no inline box model to lift anything off, so it means only the
-table-cell half: where a box puts the text inside it, when the box is taller
-than the text.
+`vertical-align` follows the CSS inline values `baseline`, `top`, `middle` and
+`bottom`; its initial value is `baseline`. `inline-block`, `inline-flex` and
+`inline-grid` are atomic boxes, so their descendants use the normal block, flex
+or grid rules inside that box.
 
 ```css
-.chip { height: 20px; vertical-align: middle; }   /* the text, centred in the chip */
+.chip { display: inline-block; height: 20px; vertical-align: middle; }
 ```
-
-`top` is the default, `middle` centres and `bottom` drops. Written on an inline
-element it is reported, because there it can do nothing. To centre a box's
-contents rather than its text, use a flex container and `align-items: center`,
-which is what a browser wants for that as well.
 
 ## SVG
 

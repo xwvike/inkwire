@@ -37,7 +37,7 @@ CLI 的 `render`、`measure` 和 HTTP 的 `render` 必须指定 `size` 或 `pane
 
 所有已实现属性都接受 `inherit`、`initial`、`unset` 和 `revert`。关键字、单位和函数名
 按 CSS 的规则大小写不敏感；字体族名同样如此，但报告时按作者书写的原样回显。会继承的属性是 `color`、
-`font-family`、`font-size`、`line-height`、`text-align` 和 `vertical-align`。其他属性在每个
+`font-family`、`font-size`、`line-height`、`text-align` 和 `white-space`。其他属性在每个
 元素上从默认值开始。
 
 ### 取值
@@ -120,20 +120,17 @@ Grid 容器使用 `grid-template-columns` 和 `grid-template-rows` 定义轨道�
 一半加在下面。所以调大 `line-height` 是把一行在它的行框里居中，而不是把它往下推；每
 一行都按自己的字体指标定位，上下行是什么字体都不会影响它。
 
-`vertical-align` **不是 CSS 的 `vertical-align`**。这是本实现里唯一一处不只是"做得少"、
-而是和浏览器语义不同的属性。
+inline 内容按行框排版。文字、`inline-block`、`inline-flex`、`inline-grid`、图片和 inline
+SVG 共用同一行，并在 `white-space` 允许时换行。padding、margin、background、border、
+`position: relative` 和 `vertical-align` 都保留在各自的 inline 项上。
 
-CSS 里它作用于 inline 级和表格单元格盒子，初始值是 `baseline`，在 inline 盒子上它把
-那个盒子相对行的基线抬起或压低。这里没有 inline 盒模型，抬不起任何东西，所以它只保留
-了表格单元格那一半含义：**当盒子比文字高时，文字放在盒子的哪个位置**。
+`vertical-align` 支持 CSS inline 的 `baseline`、`top`、`middle` 和 `bottom`，初始值是
+`baseline`。`inline-block`、`inline-flex` 和 `inline-grid` 是原子盒子，盒内子元素分别按
+普通 block、flex 或 grid 规则排版。
 
 ```css
-.chip { height: 20px; vertical-align: middle; }   /* 文字在胶囊里居中 */
+.chip { display: inline-block; height: 20px; vertical-align: middle; }
 ```
-
-默认是 `top`，`middle` 居中，`bottom` 沉底。写在 inline 元素上会被报告，因为那里它做
-不了任何事。想让盒子的**内容**居中而不是文字，用 flex 容器加 `align-items: center`
-——浏览器里这件事也该这么写。
 
 ## SVG
 

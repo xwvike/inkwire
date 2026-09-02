@@ -51,6 +51,7 @@ var nodeOwners = map[string]owner{
 	"Padding":   layout,
 	"Spacer":    layout,
 	"Text":      layout,
+	"Inline":    layout,
 	"Image":     layout,
 	"Rectangle": layout,
 	"Clip":      layout,

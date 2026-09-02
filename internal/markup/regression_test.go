@@ -412,14 +412,13 @@ func TestTheOverConstrainedMessageNamesOnlyTheEdgesInsetGave(t *testing.T) {
 	}
 }
 
-// vertical-align here is the table-cell half of the CSS property and not the
-// inline half, so on an inline element it can do nothing — and did nothing
-// without saying so, which is the failure this package exists to avoid.
-func TestVerticalAlignOnAnInlineElementIsReported(t *testing.T) {
+// vertical-align is part of the inline formatting context. It is accepted on
+// inline elements and participates in line-box placement.
+func TestVerticalAlignOnAnInlineElementIsApplied(t *testing.T) {
 	said := warningsFor(t, `<p>big <span class="a">X</span></p>`,
 		` .a { vertical-align: middle; }`)
-	if !strings.Contains(said, "vertical-align") {
-		t.Errorf("vertical-align on a span was accepted silently: %q", said)
+	if strings.Contains(said, "vertical-align") {
+		t.Errorf("vertical-align on a span was reported: %q", said)
 	}
 
 	// On the box that holds the text it is what the property is for.

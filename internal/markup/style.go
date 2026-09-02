@@ -70,11 +70,12 @@ type style struct {
 	color      display.Ink
 	border     *border
 
-	fontFamily string
-	fontSize   int
-	textAlign  display.HorizontalAlign
-	textVAlign display.VerticalAlign
-	lineHeight int
+	fontFamily   string
+	fontSize     int
+	textAlign    display.HorizontalAlign
+	textVAlign   display.VerticalAlign
+	inlineVAlign compose.InlineVerticalAlign
+	lineHeight   int
 	// lineHeightMultiple is a line-height written as a bare number. CSS keeps
 	// the number rather than the length it comes to, because it is resolved
 	// against each element's own font size — so it survives here as the number
@@ -146,7 +147,8 @@ type style struct {
 
 	// inline starts from the element's own default and is cleared by any
 	// display declaration, because a span told to be a block is a block.
-	inline bool
+	inline       bool
+	inlineAtomic bool
 }
 
 type border struct {
@@ -222,8 +224,11 @@ func (s style) inherited() style {
 		fontFamily:  s.fontFamily,
 		fontSize:    s.fontSize,
 		textAlign:   s.textAlign,
-		textVAlign:  s.textVAlign,
-		lineHeight:  s.lineHeight,
+		// Keep the existing box-text alignment inheritance for compatibility;
+		// inlineVAlign is intentionally not inherited and follows CSS inline
+		// formatting defaults instead.
+		textVAlign: s.textVAlign,
+		lineHeight: s.lineHeight,
 		// The ratio travels, not the pixels it came to: a child with its own
 		// font size gets its own line from the same ratio.
 		lineHeightMultiple: s.lineHeightMultiple,
@@ -286,25 +291,23 @@ func (s *style) apply(property, value string, parent style, report func(string))
 	case "display":
 		switch keyword {
 		case "block":
-			s.display, s.inline = displayBlock, false
+			s.display, s.inline, s.inlineAtomic = displayBlock, false, false
 		case "flex":
-			s.display, s.inline = displayFlex, false
+			s.display, s.inline, s.inlineAtomic = displayFlex, false, false
 		case "grid":
-			s.display, s.inline = displayGrid, false
+			s.display, s.inline, s.inlineAtomic = displayGrid, false, false
 		case "inline-grid":
-			s.display, s.inline = displayGrid, false
+			s.display, s.inline, s.inlineAtomic = displayGrid, false, true
 		case "contents":
 			s.display, s.inline = displayContents, false
 		case "none":
 			s.display = displayNone
 		case "inline":
-			s.display, s.inline = displayBlock, true
+			s.display, s.inline, s.inlineAtomic = displayBlock, true, false
 		case "inline-block":
-			// Nothing here lays boxes out along a line of text, so an
-			// inline-block is a block that happens to sit in a flex line.
-			s.display, s.inline = displayBlock, false
+			s.display, s.inline, s.inlineAtomic = displayBlock, false, true
 		case "inline-flex":
-			s.display, s.inline = displayFlex, false
+			s.display, s.inline, s.inlineAtomic = displayFlex, false, true
 		default:
 			report(fmt.Sprintf("display: %s is not supported; use block, flex, grid or none", value))
 		}
@@ -808,18 +811,21 @@ func (s *style) apply(property, value string, parent style, report func(string))
 			s.fontSize = pixels
 		}
 	case "vertical-align":
-		// CSS gives this meaning inside a table cell: where the content sits
-		// in a box taller than itself. A fixed-height row here is the same
-		// situation, and it is the property an author reaches for.
 		switch keyword {
+		case "baseline":
+			s.inlineVAlign = compose.InlineBaseline
+			s.textVAlign = display.AlignTop
 		case "top":
+			s.inlineVAlign = compose.InlineTop
 			s.textVAlign = display.AlignTop
 		case "middle":
+			s.inlineVAlign = compose.InlineMiddle
 			s.textVAlign = display.AlignMiddle
 		case "bottom":
+			s.inlineVAlign = compose.InlineBottom
 			s.textVAlign = display.AlignBottom
 		default:
-			report(fmt.Sprintf("vertical-align: %s is not supported; use top, middle or bottom", value))
+			report(fmt.Sprintf("vertical-align: %s is not supported; use baseline, top, middle or bottom", value))
 		}
 	case "text-align":
 		switch keyword {
@@ -1079,7 +1085,7 @@ func crossOfMain(main compose.MainAlignment) compose.CrossAlignment {
 func isInheritedProperty(property string) bool {
 	switch property {
 	case "color", "fill", "stroke", "stroke-width", "stroke-dasharray", "stroke-dashoffset",
-		"font", "font-family", "font-size", "line-height", "text-align", "vertical-align",
+		"font", "font-family", "font-size", "line-height", "text-align",
 		"white-space", "visibility":
 		return true
 	default:
@@ -1100,7 +1106,7 @@ func isInheritedProperty(property string) bool {
 func (s *style) inheritOne(property string, parent style, report func(string)) {
 	switch property {
 	case "display":
-		s.display, s.inline = parent.display, parent.inline
+		s.display, s.inline, s.inlineAtomic = parent.display, parent.inline, parent.inlineAtomic
 	case "flex-direction":
 		s.direction = parent.direction
 	case "flex-basis":
@@ -1253,7 +1259,7 @@ func (s *style) inheritOne(property string, parent style, report func(string)) {
 	case "text-align":
 		s.textAlign = parent.textAlign
 	case "vertical-align":
-		s.textVAlign = parent.textVAlign
+		s.textVAlign, s.inlineVAlign = parent.textVAlign, parent.inlineVAlign
 	case "white-space":
 		s.wrap, s.preserve = parent.wrap, parent.preserve
 	case "object-fit":
@@ -1279,7 +1285,7 @@ func (s *style) reset(property string, report func(string)) {
 		// CSS's initial value, which is inline rather than the element's own
 		// default: revert is the one that would mean the element's default,
 		// and it is treated as initial here.
-		s.display, s.inline = displayBlock, true
+		s.display, s.inline, s.inlineAtomic = displayBlock, true, false
 	case "flex-direction":
 		s.direction = fresh.direction
 	case "flex-basis":
@@ -1424,7 +1430,7 @@ func (s *style) reset(property string, report func(string)) {
 	case "text-align":
 		s.textAlign = display.AlignStart
 	case "vertical-align":
-		s.textVAlign = display.AlignTop
+		s.textVAlign, s.inlineVAlign = display.AlignTop, compose.InlineBaseline
 	case "white-space":
 		// CSS wraps by default, and WrapRunes is not the zero value, so this
 		// is one of the few that cannot be taken from a fresh style.

@@ -42,6 +42,11 @@ type Document struct {
 var inlineByDefault = map[string]bool{
 	"span": true, "b": true, "i": true, "small": true, "em": true,
 	"strong": true, "a": true, "label": true, "code": true,
+	"u": true, "s": true, "del": true, "ins": true, "mark": true,
+	"sub": true, "sup": true, "abbr": true, "cite": true, "q": true,
+	"time": true, "kbd": true, "samp": true, "var": true, "dfn": true,
+	"bdi": true, "bdo": true, "data": true, "ruby": true, "rt": true,
+	"rp": true, "wbr": true, "img": true, "svg": true,
 }
 
 type compiler struct {
@@ -381,22 +386,6 @@ func (c *compiler) computed(node *html.Node, parent style, path string) style {
 	// with the box that was never built.
 	if current.absolute {
 		current.inline = false
-	}
-	// vertical-align here says where a box puts the text inside it, which is
-	// CSS's table-cell case and not its inline one: there is no inline box
-	// model behind this, so a span cannot be lifted off the line's baseline.
-	// Written on a span it did nothing and said nothing, which is the one
-	// thing this package must not do with a declaration.
-	if current.inline {
-		for _, applied := range c.sheet.declarationsFor(node) {
-			if applied.property != "vertical-align" {
-				continue
-			}
-			c.warn(path, "unsupported-declaration", fmt.Sprintf(
-				"%s: vertical-align says where a box puts its text, so it has no effect on an "+
-					"inline element; CSS's baseline alignment of one is not implemented", describe(node)))
-			break
-		}
 	}
 	c.computedFor[node] = current
 	return current
@@ -775,7 +764,12 @@ func pathExtension(source string) string {
 func (c *compiler) children(node *html.Node, current style, path string, containing *childBoxes) (*emitted, bool) {
 	// A flex container lays out boxes, never a line of text, so the inline
 	// path is not even attempted for one.
-	if current.display != displayFlex {
+	if current.display != displayFlex && c.inlineCompatible(node, current, path) {
+		if items, ok, special := c.inlineItems(node, current, path, containing); ok && special {
+			return &emitted{Type: "inline", Items: items,
+				Align: horizontalAlignName(current.textAlign),
+				Wrap:  wrapName(current.wrap), LineHeight: current.lineHeight}, false
+		}
 		if runs := c.textRuns(node, current, path); len(runs) > 0 {
 			// Text sits at the top of its box, as it does in CSS. Centring it
 			// vertically is what vertical-align: middle is for, and the
@@ -850,6 +844,46 @@ func (c *compiler) children(node *html.Node, current style, path string, contain
 		return flow(nil)
 	}
 	return flow(&emitted{Type: "column", Children: items})
+}
+
+// inlineCompatible is a side-effect-free preflight. It prevents the collector
+// from resolving an image or drawing and then resolving it a second time when
+// a later sibling turns the parent back into ordinary block flow.
+func (c *compiler) inlineCompatible(node *html.Node, current style, path string) bool {
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type != html.ElementNode {
+			continue
+		}
+		if notContent[child.Data] || child.Data == "br" {
+			continue
+		}
+		childPath := fmt.Sprintf("%s>%s", path, child.Data)
+		childStyle := c.computed(child, current, childPath)
+		if childStyle.display == displayNone || childStyle.hidden {
+			continue
+		}
+		if childStyle.absolute {
+			return false
+		}
+		if childStyle.inlineAtomic ||
+			(child.Data == "img" && childStyle.inline) ||
+			(child.Namespace == svgNamespace && child.Data == "svg" && childStyle.inline) {
+			continue
+		}
+		if childStyle.display == displayContents {
+			if !c.inlineCompatible(child, contentsContext(current, childStyle), childPath) {
+				return false
+			}
+			continue
+		}
+		if !childStyle.inline || childStyle.display == displayFlex || childStyle.display == displayGrid {
+			return false
+		}
+		if !c.inlineCompatible(child, childStyle, childPath) {
+			return false
+		}
+	}
+	return true
 }
 
 // padded insets an element's content by everything between it and the outside
@@ -1156,6 +1190,185 @@ func lengthOf(size length) compose.Length {
 func (c *compiler) textRuns(node *html.Node, current style, path string) []run {
 	started := false
 	return plainRuns(c.collectRuns(node, current, path, &started))
+}
+
+// inlineItems is the real inline-formatting collector. It keeps the legacy
+// text-run fast path available for ordinary text, but switches to fragment
+// boxes as soon as HTML contains an atomic inline node or box-affecting style.
+func (c *compiler) inlineItems(node *html.Node, current style, path string, containing *childBoxes) ([]inlineItem, bool, bool) {
+	started := false
+	items, ok, special := c.collectInline(node, current, path, containing, &started, false, nil)
+	return items, ok, special
+}
+
+func (c *compiler) collectInline(node *html.Node, current style, path string, containing *childBoxes, started *bool, boxed bool, boxStyle *style) ([]inlineItem, bool, bool) {
+	var items []inlineItem
+	special := false
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		switch child.Type {
+		case html.TextNode:
+			if current.hidden {
+				continue
+			}
+			text := c.spacing(child.Data, current, *started)
+			if text == "" {
+				continue
+			}
+			*started = true
+			effectiveBox := current
+			hasBox := boxed && inlineBoxStyle(current)
+			if boxStyle != nil {
+				effectiveBox = mergeInlineBox(*boxStyle, current)
+				hasBox = true
+			}
+			item := c.inlineTextItem(text, current, effectiveBox, hasBox, path)
+			items = append(items, item)
+			if hasBox {
+				special = true
+			}
+		case html.ElementNode:
+			if notContent[child.Data] {
+				continue
+			}
+			childPath := fmt.Sprintf("%s>%s", path, child.Data)
+			if child.Data == "br" {
+				items = append(items, inlineItem{Break: true})
+				*started = false
+				special = true
+				continue
+			}
+			childStyle := c.computed(child, current, childPath)
+			if childStyle.display == displayNone {
+				continue
+			}
+			if childStyle.hidden {
+				c.warn(childPath, "unsupported-declaration", fmt.Sprintf(
+					"%s: visibility: hidden on text inside a line drops the words rather than keeping the space they took", describe(child)))
+				continue
+			}
+			if childStyle.absolute {
+				return nil, false, false
+			}
+			if childStyle.inlineAtomic ||
+				(child.Data == "img" && childStyle.inline) ||
+				(child.Namespace == svgNamespace && child.Data == "svg" && childStyle.inline) {
+				compiled, _ := c.element(child, current, childPath, containing)
+				if compiled == nil {
+					continue
+				}
+				items = append(items, c.inlineNodeItem(compiled, childStyle))
+				*started = true
+				special = true
+				continue
+			}
+			if childStyle.display == displayContents {
+				nested, ok, nestedSpecial := c.collectInline(child, contentsContext(current, childStyle), childPath, containing, started, boxed, boxStyle)
+				if !ok {
+					return nil, false, false
+				}
+				items = append(items, nested...)
+				special = special || nestedSpecial
+				continue
+			}
+			if !childStyle.inline || childStyle.display == displayFlex || childStyle.display == displayGrid {
+				return nil, false, false
+			}
+			nextBox := boxStyle
+			if inlineBoxStyle(childStyle) {
+				merged := childStyle
+				if boxStyle != nil {
+					merged = mergeInlineBox(*boxStyle, childStyle)
+				}
+				nextBox = &merged
+			}
+			nested, ok, nestedSpecial := c.collectInline(child, childStyle, childPath, containing, started, true, nextBox)
+			if !ok {
+				return nil, false, false
+			}
+			if len(nested) == 0 && inlineBoxStyle(childStyle) {
+				// An empty inline with padding or a background still has a
+				// drawable box. A zero-size spacer gives the compose node the
+				// same content-box semantics without inventing text.
+				empty := c.inlineBoxItem(childStyle)
+				empty.Node = &emitted{Type: "spacer"}
+				nested = append(nested, empty)
+			}
+			items = append(items, nested...)
+			special = special || nestedSpecial || inlineBoxStyle(childStyle) ||
+				childStyle.wrap != current.wrap || childStyle.lineHeight != current.lineHeight
+		}
+	}
+	return items, true, special
+}
+
+func (c *compiler) inlineTextItem(text string, current, box style, boxed bool, path string) inlineItem {
+	item := c.inlineBoxItem(box)
+	item.LineHeight = current.lineHeight
+	item.VerticalAlign = inlineVerticalAlignName(current.inlineVAlign)
+	item.Wrap = wrapName(current.wrap)
+	item.Runs = []run{c.runOf(text, current, path)}
+	if !boxed {
+		item.Padding = nil
+		item.Margin = nil
+		return item
+	}
+	return item
+}
+
+func mergeInlineBox(outer, inner style) style {
+	merged := outer
+	if inner.padding != (compose.Insets{}) {
+		merged.padding = inner.padding
+	}
+	if inner.margin != (compose.Insets{}) {
+		merged.margin = inner.margin
+	}
+	if inner.background != nil {
+		merged.background = inner.background
+	}
+	if inner.border != nil {
+		merged.border, merged.line, merged.dash, merged.dashOffset = inner.border, inner.line, inner.dash, inner.dashOffset
+	}
+	if inner.positioned {
+		merged.positioned, merged.inset = true, inner.inset
+	}
+	return merged
+}
+
+func (c *compiler) inlineBoxItem(current style) inlineItem {
+	item := inlineItem{LineHeight: current.lineHeight,
+		VerticalAlign: inlineVerticalAlignName(current.inlineVAlign), Wrap: wrapName(current.wrap)}
+	item.Padding = insetsOf(current.padding)
+	item.Margin = insetsOf(current.margin)
+	if current.background != nil {
+		item.Background = inkName(*current.background)
+	}
+	if current.border != nil && current.border.width > 0 && current.line != borderNone {
+		item.Border = &stroke{Ink: inkName(current.border.ink), Width: current.border.width,
+			Dash: current.line.dashOf(current.border.width), DashOffset: current.dashOffset}
+		if len(current.dash) > 0 {
+			item.Border.Dash = current.dash
+		}
+	}
+	item.Radius = radiusOf(current)
+	item.Top = lengthValue(lengthOf(current.inset[0]))
+	item.Right = lengthValue(lengthOf(current.inset[1]))
+	item.Bottom = lengthValue(lengthOf(current.inset[2]))
+	item.Left = lengthValue(lengthOf(current.inset[3]))
+	return item
+}
+
+func (c *compiler) inlineNodeItem(node *emitted, current style) inlineItem {
+	item := inlineItem{Node: node, Margin: insetsOf(current.margin),
+		VerticalAlign: inlineVerticalAlignName(current.inlineVAlign)}
+	return item
+}
+
+func inlineBoxStyle(s style) bool {
+	return s.padding != (compose.Insets{}) || s.margin != (compose.Insets{}) ||
+		s.background != nil || (s.border != nil && s.border.width > 0 && s.line != borderNone) ||
+		s.positioned ||
+		s.inlineVAlign != compose.InlineBaseline
 }
 
 // collectRuns walks the inline content of an element. started is shared across

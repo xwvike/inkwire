@@ -61,11 +61,12 @@ type emitted struct {
 	Scale int `json:"scale,omitempty"`
 	Turns int `json:"turns,omitempty"`
 
-	Runs          []run  `json:"runs,omitempty"`
-	Align         string `json:"align,omitempty"`
-	VerticalAlign string `json:"verticalAlign,omitempty"`
-	Wrap          string `json:"wrap,omitempty"`
-	LineHeight    int    `json:"lineHeight,omitempty"`
+	Runs          []run        `json:"runs,omitempty"`
+	Items         []inlineItem `json:"items,omitempty"`
+	Align         string       `json:"align,omitempty"`
+	VerticalAlign string       `json:"verticalAlign,omitempty"`
+	Wrap          string       `json:"wrap,omitempty"`
+	LineHeight    int          `json:"lineHeight,omitempty"`
 
 	Source     string     `json:"source,omitempty"`
 	Processing string     `json:"processing,omitempty"`
@@ -155,6 +156,27 @@ type run struct {
 	Font string `json:"font,omitempty"`
 	Size int    `json:"size,omitempty"`
 	Ink  string `json:"ink,omitempty"`
+}
+
+// inlineItem is one fragment of an inline formatting context. It deliberately
+// mirrors compose.InlineItem without importing any layout decisions into the
+// HTML compiler.
+type inlineItem struct {
+	Runs          []run    `json:"runs,omitempty"`
+	Node          *emitted `json:"node,omitempty"`
+	Break         bool     `json:"break,omitempty"`
+	Padding       *insets  `json:"padding,omitempty"`
+	Margin        *insets  `json:"margin,omitempty"`
+	Background    string   `json:"background,omitempty"`
+	Border        *stroke  `json:"border,omitempty"`
+	Radius        int      `json:"radius,omitempty"`
+	LineHeight    int      `json:"lineHeight,omitempty"`
+	VerticalAlign string   `json:"verticalAlign,omitempty"`
+	Wrap          string   `json:"wrap,omitempty"`
+	Top           any      `json:"top,omitempty"`
+	Right         any      `json:"right,omitempty"`
+	Bottom        any      `json:"bottom,omitempty"`
+	Left          any      `json:"left,omitempty"`
 }
 
 type overrides struct {
@@ -412,6 +434,18 @@ func verticalAlignName(a display.VerticalAlign) string {
 	case display.AlignMiddle:
 		return "middle"
 	case display.AlignBottom:
+		return "bottom"
+	}
+	return ""
+}
+
+func inlineVerticalAlignName(a compose.InlineVerticalAlign) string {
+	switch a {
+	case compose.InlineTop:
+		return "top"
+	case compose.InlineMiddle:
+		return "middle"
+	case compose.InlineBottom:
 		return "bottom"
 	}
 	return ""
