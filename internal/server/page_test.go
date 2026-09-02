@@ -54,7 +54,7 @@ const servedCSS = `.page { display: flex; width: 60px; height: 20px; background:
 func TestRenderTakesAPageAndItsStylesheet(t *testing.T) {
 	handler := New(Config{Logf: func(string, ...any) {}})
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, pageRequest(t, "/v1/render",
+	handler.ServeHTTP(response, pageRequest(t, "/v1/render?size=80x30",
 		map[string]string{"page": servedPage, "stylesheet": servedCSS}, nil))
 	if response.Code != http.StatusOK {
 		t.Fatalf("code = %d, body = %s", response.Code, response.Body.String())
@@ -65,8 +65,8 @@ func TestRenderTakesAPageAndItsStylesheet(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if decoded.Width != 60 || decoded.Height != 20 {
-		t.Errorf("the page rendered at %dx%d, not the size its stylesheet states", decoded.Width, decoded.Height)
+	if decoded.Width != 80 || decoded.Height != 30 {
+		t.Errorf("the page rendered at %dx%d, not the requested target size", decoded.Width, decoded.Height)
 	}
 }
 
@@ -80,7 +80,7 @@ func TestAPageReachesTheDrawingSentWithIt(t *testing.T) {
 	handler := New(Config{Logf: func(string, ...any) {}})
 
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, pageRequest(t, "/v1/render",
+	handler.ServeHTTP(response, pageRequest(t, "/v1/render?size=40x40",
 		map[string]string{"page": withPlot, "stylesheet": css},
 		map[string]string{"assets/dot.svg": `<svg width="40" height="40"><circle cx="20" cy="20" r="15" fill="black"/></svg>`}))
 	if response.Code != http.StatusOK {
@@ -93,7 +93,7 @@ func TestAPageReachesTheDrawingSentWithIt(t *testing.T) {
 	// an author what went missing, and refusing it outright would leave them
 	// with a status code and nothing to look at.
 	missing := httptest.NewRecorder()
-	handler.ServeHTTP(missing, pageRequest(t, "/v1/render",
+	handler.ServeHTTP(missing, pageRequest(t, "/v1/render?size=40x40",
 		map[string]string{"page": withPlot, "stylesheet": css}, nil))
 	if missing.Code != http.StatusOK {
 		t.Fatalf("a page naming a part nobody sent got %d: %s", missing.Code, missing.Body.String())
@@ -109,7 +109,7 @@ func TestAPageReachesTheDrawingSentWithIt(t *testing.T) {
 func TestAPageUsesBitmapSentUnderItsSrcName(t *testing.T) {
 	handler := New(Config{Logf: func(string, ...any) {}})
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, pageRequest(t, "/v1/render",
+	handler.ServeHTTP(response, pageRequest(t, "/v1/render?size=16x16",
 		map[string]string{
 			"page": `<div class="page"><img src="assets/portrait.png"></div>`,
 			"stylesheet": `.page { display: flex; width: 16px; height: 16px; background: white; }
@@ -136,7 +136,7 @@ func TestAPageCannotReadAnImageFromTheServerWorkingDirectory(t *testing.T) {
 
 	handler := New(Config{Logf: func(string, ...any) {}})
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, pageRequest(t, "/v1/render",
+	handler.ServeHTTP(response, pageRequest(t, "/v1/render?size=16x16",
 		map[string]string{
 			"page": `<div class="page"><img src="` + assetName + `"></div>`,
 			"stylesheet": `.page { display: flex; width: 16px; height: 16px; background: white; }

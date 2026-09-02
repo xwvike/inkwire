@@ -32,7 +32,7 @@ const testScene = `{"version":1,"size":{"width":296,"height":128},"root":{"type"
 func TestRenderReturnsJSONReport(t *testing.T) {
 	handler := New(Config{Logf: func(string, ...any) {}})
 
-	render := request(t, handler, "/v1/render", testScene)
+	render := request(t, handler, "/v1/render?size=296x128", testScene)
 	if render.Code != http.StatusOK || render.Header().Get("Content-Type") != "application/json" {
 		t.Fatalf("render = %d %q: %s", render.Code, render.Header().Get("Content-Type"), render.Body.String())
 	}
@@ -55,7 +55,7 @@ func TestHTTPDoesNotExposeRawEncoder(t *testing.T) {
 
 func TestInvalidSceneReturnsJSONError(t *testing.T) {
 	handler := New(Config{Logf: func(string, ...any) {}})
-	response := request(t, handler, "/v1/render", `{"version":1,"root":{"type":"rectangle","colour":"red"}}`)
+	response := request(t, handler, "/v1/render?size=10x10", `{"version":1,"root":{"type":"rectangle","colour":"red"}}`)
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d", response.Code)
 	}
@@ -77,7 +77,7 @@ func TestHTTPAssetRootRejectsTraversalAndAbsolutePaths(t *testing.T) {
 	handler := New(Config{BaseDir: root, Logf: func(string, ...any) {}})
 	for _, source := range []string{"../outside.png", outside, "file://" + outside} {
 		body := `{"version":1,"root":{"type":"image","source":` + quote(source) + `,"size":{"width":10,"height":10}}}`
-		response := request(t, handler, "/v1/render", body)
+		response := request(t, handler, "/v1/render?size=10x10", body)
 		if response.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("source %q status = %d: %s", source, response.Code, response.Body.String())
 		}
@@ -377,7 +377,7 @@ func TestMultipartResourceOverridesAssetDirectory(t *testing.T) {
 	scene := `{"version":1,"size":{"width":16,"height":16},"root":{"type":"image","source":"portrait.png","size":{"width":8,"height":8},"options":{"dither":"threshold"}}}`
 	uploaded := solidPNG(t, color.NRGBA{R: 0xff, A: 0xff})
 	handler := New(Config{BaseDir: root, Logf: func(string, ...any) {}})
-	response := multipartRequest(t, handler, "/v1/render", scene, map[string][]byte{"portrait.png": uploaded})
+	response := multipartRequest(t, handler, "/v1/render?size=16x16", scene, map[string][]byte{"portrait.png": uploaded})
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}
@@ -396,7 +396,7 @@ func TestRenderReportsImplicitGridTracksInBody(t *testing.T) {
 			{"row":1,"node":{"type":"rectangle","size":{"width":10,"height":10},"fill":"red"}}
 		]}
 	}`
-	response := request(t, handler, "/v1/render", scene)
+	response := request(t, handler, "/v1/render?size=100x20", scene)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}
@@ -1122,12 +1122,12 @@ const redScene = `{"version":1,"size":{"width":296,"height":128},"root":{"type":
 func TestRenderTakesASizeOrAPanel(t *testing.T) {
 	handler := New(Config{Logf: func(string, ...any) {}})
 
-	sized := request(t, handler, "/v1/render?size=400x300", testScene)
+	sized := request(t, handler, "/v1/render?size=500x500", testScene)
 	if sized.Code != http.StatusOK {
 		t.Fatalf("sized render = %d: %s", sized.Code, sized.Body.String())
 	}
-	if frame, _ := decodeRenderResponse(t, sized); frame.Bounds().Dx() != 400 || frame.Bounds().Dy() != 300 {
-		t.Errorf("sized render bounds = %v, want 400x300", frame.Bounds())
+	if frame, _ := decodeRenderResponse(t, sized); frame.Bounds().Dx() != 500 || frame.Bounds().Dy() != 500 {
+		t.Errorf("sized render bounds = %v, want 500x500", frame.Bounds())
 	}
 
 	named := request(t, handler, "/v1/render?panel=nrfepd:UC8176_420_BWR", testScene)
@@ -1136,6 +1136,24 @@ func TestRenderTakesASizeOrAPanel(t *testing.T) {
 	}
 	if frame, _ := decodeRenderResponse(t, named); frame.Bounds().Dx() != 400 || frame.Bounds().Dy() != 300 {
 		t.Errorf("named render bounds = %v, want the panel's 400x300", frame.Bounds())
+	}
+}
+
+func TestRenderRequiresAnExplicitTarget(t *testing.T) {
+	handler := New(Config{Logf: func(string, ...any) {}})
+	response := request(t, handler, "/v1/render", testScene)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("render without target = %d, want %d: %s", response.Code, http.StatusBadRequest, response.Body.String())
+	}
+	var body struct {
+		Code  string `json:"code"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Code != "invalid-request" || !strings.Contains(body.Error, "size or panel") {
+		t.Fatalf("body = %+v", body)
 	}
 }
 

@@ -8,9 +8,10 @@ import (
 	"testing"
 )
 
-// A page is a page whichever format it is written in. render and measure are
-// the two that can be checked without a tag in the room; push reads its
-// document through the same loader, which is the point of there being one.
+// A page is a page whichever format it is written in. render and measure use
+// the same explicit target whether the input is HTML or an encoded scene;
+// push reads its document through the same loader and obtains its target from
+// the tag.
 func TestRenderAndMeasureTakeAPageAsWellAsAScene(t *testing.T) {
 	directory := t.TempDir()
 	page := filepath.Join(directory, "page.html")
@@ -22,7 +23,7 @@ func TestRenderAndMeasureTakeAPageAsWellAsAScene(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	preview := filepath.Join(directory, "page.png")
-	if code := run([]string{"render", "-o", preview, page}, &stdout, &stderr); code != 0 {
+	if code := run([]string{"render", "-size", "60x20", "-o", preview, page}, &stdout, &stderr); code != 0 {
 		t.Fatalf("render code = %d, stderr = %s", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "(60x20)") {
@@ -34,7 +35,7 @@ func TestRenderAndMeasureTakeAPageAsWellAsAScene(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := run([]string{"measure", page}, &stdout, &stderr); code != 0 {
+	if code := run([]string{"measure", "-size", "60x20", page}, &stdout, &stderr); code != 0 {
 		t.Fatalf("measure code = %d, stderr = %s", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "text") {
@@ -60,7 +61,7 @@ func TestAPageDrawsTheDrawingItPointsAt(t *testing.T) {
 		`<svg width="40" height="40"><circle cx="20" cy="20" r="15" fill="black"/></svg>`)
 
 	var stdout, stderr bytes.Buffer
-	if code := run([]string{"render", "-o", filepath.Join(directory, "page.png"), page}, &stdout, &stderr); code != 0 {
+	if code := run([]string{"render", "-size", "40x40", "-o", filepath.Join(directory, "page.png"), page}, &stdout, &stderr); code != 0 {
 		t.Fatalf("render code = %d, stderr = %s", code, stderr.String())
 	}
 	said := stdout.String() + stderr.String()
@@ -76,7 +77,7 @@ func TestAPageDrawsTheDrawingItPointsAt(t *testing.T) {
 		`.page { display: flex; width: 40px; height: 40px; background: white; }`)
 	stdout.Reset()
 	stderr.Reset()
-	run([]string{"render", "-o", filepath.Join(directory, "missing.png"), missing}, &stdout, &stderr)
+	run([]string{"render", "-size", "40x40", "-o", filepath.Join(directory, "missing.png"), missing}, &stdout, &stderr)
 	if !strings.Contains(stdout.String()+stderr.String(), "gone.svg") {
 		t.Errorf("the missing drawing was not named: %s", stdout.String()+stderr.String())
 	}
@@ -93,7 +94,7 @@ func TestAPageUsesAnAssetFlagForAResourceOutsideItsDirectory(t *testing.T) {
 	write(t, asset, `<svg width="40" height="40"><circle cx="20" cy="20" r="15" fill="black"/></svg>`)
 
 	var stdout, stderr bytes.Buffer
-	if code := run([]string{"render", "-asset", "assets/dot.svg=" + asset, "-o", filepath.Join(directory, "page.png"), page}, &stdout, &stderr); code != 0 {
+	if code := run([]string{"render", "-size", "40x40", "-asset", "assets/dot.svg=" + asset, "-o", filepath.Join(directory, "page.png"), page}, &stdout, &stderr); code != 0 {
 		t.Fatalf("render code = %d, stderr = %s", code, stderr.String())
 	}
 	if strings.Contains(stdout.String()+stderr.String(), "unresolved-drawing") {
@@ -133,7 +134,7 @@ func TestAPageInOneFileNeedsNothingBesideIt(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	preview := filepath.Join(directory, "page.png")
-	if code := run([]string{"render", "-o", preview, page}, &stdout, &stderr); code != 0 {
+	if code := run([]string{"render", "-size", "60x20", "-o", preview, page}, &stdout, &stderr); code != 0 {
 		t.Fatalf("render code = %d, stderr = %s", code, stderr.String())
 	}
 	if strings.Contains(stderr.String(), "no-stylesheet") {
@@ -156,7 +157,7 @@ func TestALinkedStylesheetIsReadBesideThePage(t *testing.T) {
 		 span { font-family: monaco; font-size: 10px; }`)
 
 	var stdout, stderr bytes.Buffer
-	if code := run([]string{"render", "-o", filepath.Join(directory, "page.png"), page}, &stdout, &stderr); code != 0 {
+	if code := run([]string{"render", "-size", "80x20", "-o", filepath.Join(directory, "page.png"), page}, &stdout, &stderr); code != 0 {
 		t.Fatalf("render code = %d, stderr = %s", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "(80x20)") {

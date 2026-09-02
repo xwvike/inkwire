@@ -1,7 +1,8 @@
 # Markup 手册
 
-页面使用 HTML 编写内容、CSS 负责布局和绘制、SVG 负责几何图形。页面尺寸由根元素
-提供：
+页面使用 HTML 编写内容、CSS 负责布局和绘制、SVG 负责几何图形。渲染目标提供视口尺寸：
+CLI 的 `render`、`measure` 和 HTTP 的 `render` 必须指定 `size` 或 `panel`，`push` 从已连接设备获取面板。
+根元素可以省略 `width` 和 `height`；如果声明，它们只参与 CSS 布局，不选择渲染目标。
 
 ```html
 <main class="page">
@@ -11,8 +12,6 @@
 
 ```css
 .page {
-  width: 296px;
-  height: 128px;
   background: white;
 }
 ```
@@ -126,6 +125,7 @@ CLI 使用可重复的 `-asset SRC=FILE` 注入本地资源：
 
 ```bash
 inkwire render \
+     -size 296x128 \
      -asset assets/portrait.png=photos/portrait.png \
      -asset assets/chart.svg=charts/chart.svg \
      page.html
@@ -141,7 +141,7 @@ inkwire render \
 curl -F 'page=@page.html;type=text/html' \
      -F 'assets/portrait.png=@assets/portrait.png;type=image/png' \
      -F 'assets/chart.svg=@assets/chart.svg;type=image/svg+xml' \
-     http://127.0.0.1:8080/v1/render
+     'http://127.0.0.1:8080/v1/render?size=296x128'
 ```
 
 `link` 的 `href` 遵循相同的相对资源规则，`stylesheet` 也可以作为独立字段传入。

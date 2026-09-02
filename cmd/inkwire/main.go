@@ -124,10 +124,10 @@ func parseFlags(flags *flag.FlagSet, args []string, help io.Writer) (int, bool) 
 // take -settle, and nobody would find that by reading either one, only by
 // reading both and comparing. The order here is the order the summary lists.
 var usageLines = []struct{ name, takes string }{
-	{"render", "[-o preview.png] [-size WxH | -panel family:id] [-asset SRC=FILE] <page.html>"},
+	{"render", "(-size WxH | -panel family:id) [-o preview.png] [-asset SRC=FILE] <page.html>"},
 	{"compile", "[-o scene.json] [-asset SRC=FILE] <page.html>"},
 	{"push", "-device MAC-or-name [-family gicisky|nrfepd] [-settle 30s] [-asset SRC=FILE] <page.html>"},
-	{"measure", "[-size WxH | -panel family:id] [-json] [-asset SRC=FILE] <page.html>"},
+	{"measure", "(-size WxH | -panel family:id) [-json] [-asset SRC=FILE] <page.html>"},
 	{"scan", "[-timeout 15s]"},
 	{"mode", "-device MAC-or-name [-mode picture|calendar|clock] [-week-start sunday|monday] [-settle 30s]"},
 	{"serve", "[-listen address] [-assets directory]"},
@@ -353,7 +353,7 @@ func printDevices(writer io.Writer, devices []gicisky.FoundDevice, others []nrfe
 func runRender(args []string, stdout, stderr io.Writer) int {
 	flags := command("render", stderr)
 	output := flags.String("o", "", "PNG output path")
-	size := flags.String("size", "", "lay the scene out at this size instead of the one it declares, as `WxH`")
+	size := flags.String("size", "", "lay the scene out at this explicit target size, as `WxH`")
 	target := flags.String("panel", "", "lay the scene out for a named `family:id` panel and check its inks, such as gicisky:0x0033 or nrfepd:UC8176_420_BWR")
 	assets := new(assetFlags)
 	flags.Var(assets, "asset", "read a local resource as SRC=FILE; repeat for multiple resources")
@@ -653,7 +653,7 @@ func enableBluetooth(logger *log.Logger) bool {
 // not tell you which node owns it.
 func runMeasure(args []string, stdout, stderr io.Writer) int {
 	flags := command("measure", stderr)
-	size := flags.String("size", "", "lay the scene out at this size instead of the one it declares, as `WxH`")
+	size := flags.String("size", "", "lay the scene out at this explicit target size, as `WxH`")
 	target := flags.String("panel", "", "lay the scene out for a named `family:id` panel, such as gicisky:0x0033")
 	asJSON := flags.Bool("json", false, "write the placements as JSON instead of a tree")
 	assets := new(assetFlags)
@@ -790,11 +790,7 @@ func traceDocument(document compose.Document, size, key string) (scene.Result, e
 		result, err := scene.TraceForSize(document, bounds)
 		return result, err, nil
 	}
-	if document.Size == (image.Point{}) {
-		return scene.Result{}, nil, fmt.Errorf("%w: give the document a size, or measure with -size WxH or -panel family:id", scene.ErrNoSize)
-	}
-	result, err := scene.TraceForSize(document, document.Size)
-	return result, err, nil
+	return scene.Result{}, nil, fmt.Errorf("measure needs -size WxH or -panel family:id")
 }
 
 // renderFile lays a scene out at whichever size was asked for.
@@ -838,13 +834,10 @@ func renderDocument(document compose.Document, size, key string) (scene.Result, 
 		result, err := scene.RenderForSize(document, bounds)
 		return result, err, nil
 	}
-	if document.Size == (image.Point{}) {
-		// A usage error rather than a bad scene: the document is fine, nobody
-		// said how big to draw it, and there are three ways to say.
-		return scene.Result{}, nil, fmt.Errorf("%w: give the document a size, or render with -size WxH or -panel family:id", scene.ErrNoSize)
-	}
-	result, err := scene.RenderForSize(document, document.Size)
-	return result, err, nil
+	// The renderer is for a target, not for a page's private guess at one.
+	// HTML may state width and height for layout, but only -size or -panel says
+	// which viewport this invocation is meant to produce.
+	return scene.Result{}, nil, fmt.Errorf("render needs -size WxH or -panel family:id")
 }
 
 func printWarnings(writer io.Writer, warnings []compose.Warning) {

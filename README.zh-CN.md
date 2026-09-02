@@ -18,9 +18,9 @@ Markup 遵循 Web 布局规则，实现面向电子纸面板的 CSS 子集。支
 | 命令 | 用途 |
 |---|---|
 | `inkwire scan [-timeout 15s]` | 列出当前可扫描的标签 |
-| `inkwire render [-o out.png] [-size WxH \| -panel FAMILY:ID] [-asset SRC=FILE] <page.html>` | 渲染为 PNG |
+| `inkwire render (-size WxH \| -panel FAMILY:ID) [-o out.png] [-asset SRC=FILE] <page.html>` | 渲染为 PNG |
 | `inkwire compile [-o scene.json] [-asset SRC=FILE] <page.html>` | 输出编译结果 |
-| `inkwire measure [-size WxH \| -panel FAMILY:ID] [-json] [-asset SRC=FILE] <page.html>` | 输出节点布局 |
+| `inkwire measure (-size WxH \| -panel FAMILY:ID) [-json] [-asset SRC=FILE] <page.html>` | 输出节点布局 |
 | `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] [-asset SRC=FILE] <page.html>` | 渲染并写入 |
 | `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 时钟/日历 |
 | `inkwire serve [-listen ADDR] [-assets DIR]` | 启动 HTTP 服务 |
@@ -54,33 +54,36 @@ Gicisky 通过厂商数据 `0x5053` 识别，EPD-nRF5 通过 service UUID 或名
 将页面渲染为 PNG。
 
 ```bash
-inkwire render -o preview.png page.html
+inkwire render -size 296x128 -o preview.png page.html
 ```
 
 ```
 wrote preview.png (296x128)
 ```
 
-| 参数 | 默认 | 说明 |
+| 参数 | 要求 | 说明 |
 |---|---|---|
 | `-o` | 页面同名的 `.png` | PNG 输出路径 |
-| `-size` | 页面的根尺寸 | 按 `WxH` 排版 |
-| `-panel` | 未设置 | 按面板排版并检查墨水 |
+| `-size` | `-size`、`-panel` 二选一且必填 | 按任意 `WxH` 视口排版 |
+| `-panel` | `-size`、`-panel` 二选一且必填 | 按指定面板的完整尺寸排版并检查墨水 |
 | `-asset` | 未设置 | 注入本地资源，格式为 `SRC=FILE`，可重复 |
+
+`-size` 与 `-panel` 互斥。`-size` 是完整的输出视口，可大于或小于任意实际面板；
+`-panel` 使用面板表中的完整尺寸和可用墨水。
 
 
 ```
 $ inkwire render page.html
-this page states no size: give the root element a size, or render with -size WxH or -panel family:id
+render needs -size WxH or -panel family:id
 ```
 
-`-size` 指定排版尺寸，不读取面板表：
+`-size` 指定完整的排版和输出尺寸，不读取面板表：
 
 ```bash
 inkwire render -size 400x300 page.html
 ```
 
-`-panel` 按面板型号获取尺寸和可用墨水。
+`-panel` 按面板型号获取完整尺寸和可用墨水。
 
 ```bash
 inkwire render -panel gicisky:0x0033 page.html
@@ -105,8 +108,6 @@ BW panel cannot show red ink at (10,10)
 
 即使面板拒绝，仍输出预览图。面板或尺寸错误时退出码为 2，排版失败时为 1。
 
-`-size` 与 `-panel` 互斥。
-
 页面结构和 CSS 支持范围见 [MARKUP.zh-CN.md](MARKUP.zh-CN.md)。
 
 ### measure
@@ -114,7 +115,7 @@ BW panel cannot show red ink at (10,10)
 输出每个节点的布局框；不渲染。
 
 ```bash
-inkwire measure page.html
+inkwire measure -size 120x40 page.html
 ```
 
 ```
@@ -125,10 +126,10 @@ row         0,0    120x40
 warning root.children[0] [text-clipped]: "LAST REF" does not fit 40x17: 16 pixels along the line cut off
 ```
 
-| 参数 | 默认 | 含义 |
+| 参数 | 要求 | 含义 |
 |---|---|---|
-| `-size` | 页面的根尺寸 | 按 `WxH` 排版 |
-| `-panel` | 未设置 | 按指定面板排版 |
+| `-size` | `-size`、`-panel` 二选一且必填 | 按任意 `WxH` 视口排版 |
+| `-panel` | `-size`、`-panel` 二选一且必填 | 按指定面板的完整尺寸排版 |
 | `-json` | 关 | 输出 JSON 而不是树 |
 | `-asset` | 未设置 | 注入本地资源，格式为 `SRC=FILE`，可重复 |
 
@@ -159,6 +160,8 @@ upload complete, tag is refreshing
 
 页面尺寸与面板不符时按面板重排，并报告 `size-mismatch`。面板不支持的墨水改画为黑色，
 每种墨水报告一条 `unsupported-ink`。
+
+`push` 从已连接设备获取目标尺寸和可用墨水，不接受 `-size` 或 `-panel`。
 
 渲染警告会写入日志，见[警告](#警告)。
 
@@ -371,11 +374,14 @@ inkwire serve -listen 127.0.0.1:8080
 
 所有写入路由必须提供 `?device=`；服务端不自动选择设备。
 
+`/v1/render` 必须且只能提供一个 `?size=WxH` 或 `?panel=family:id`。请求参数提供完整视口，
+HTML 根元素尺寸不能替代它。
+
 ```bash
 curl http://127.0.0.1:8080/v1/scan
 
 curl -F 'page=@examples/desk/tasks.html;type=text/html' \
-  http://127.0.0.1:8080/v1/render
+  'http://127.0.0.1:8080/v1/render?size=296x128'
 
 curl -F 'page=@examples/desk/tasks.html;type=text/html' \
   'http://127.0.0.1:8080/v1/render?panel=gicisky:0x0033'
@@ -388,8 +394,8 @@ curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
 
 | 查询参数 | 用在 | 说明 |
 |---|---|---|
-| `size` | render | 按 `WxH` 排版 |
-| `panel` | render | 按指定面板排版，并检查它的墨水 |
+| `size` | render | 按任意 `WxH` 视口排版 |
+| `panel` | render | 按指定面板的完整尺寸排版，并检查它的墨水 |
 | `device` | push、mode | 广播名或 BLE 地址，必填 |
 | `family` | push | 指定设备家族，跳过自动识别 |
 | `mode` | mode | `picture`、`calendar` 或 `clock`，默认 `calendar` |
@@ -426,7 +432,7 @@ curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
 | `code` | 状态码 | 含义 |
 |---|---|---|
 | `unsupported-media-type` | 415 | 非 JSON 或 multipart |
-| `invalid-request` | 400 | 缺少 `device`、参数值无效或 multipart 结构错误 |
+| `invalid-request` | 400 | 缺少 `device` 或渲染目标、参数值无效或 multipart 结构错误 |
 | `request-too-large` | 413 | 超出体积上限 |
 | `invalid-scene` | 422 | 无法解码或渲染 |
 | `invalid-page` | 422 | `page` 部分无法编译 |
@@ -480,6 +486,7 @@ CLI 使用 `-asset SRC=FILE` 注入相对路径资源，可重复指定：
 
 ```bash
 inkwire render \
+     -size 296x128 \
      -asset assets/portrait.png=photos/portrait.png \
      -asset assets/chart.svg=charts/chart.svg \
      page.html
@@ -495,7 +502,7 @@ inkwire render \
 curl -F 'page=@page.html;type=text/html' \
      -F 'assets/portrait.png=@assets/portrait.png;type=image/png' \
      -F 'assets/chart.svg=@assets/chart.svg;type=image/svg+xml' \
-     http://127.0.0.1:8080/v1/render
+     'http://127.0.0.1:8080/v1/render?size=296x128'
 ```
 
 `link` 的 `href` 遵循相同的相对资源规则，`stylesheet` 也可以作为独立字段传入。

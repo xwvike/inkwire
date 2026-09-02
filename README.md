@@ -19,9 +19,9 @@ differences.
 | Command | Purpose |
 |---|---|
 | `inkwire scan [-timeout 15s]` | List visible tags |
-| `inkwire render [-o out.png] [-size WxH \| -panel FAMILY:ID] [-asset SRC=FILE] <page.html>` | Render to PNG |
+| `inkwire render (-size WxH \| -panel FAMILY:ID) [-o out.png] [-asset SRC=FILE] <page.html>` | Render to PNG |
 | `inkwire compile [-o scene.json] [-asset SRC=FILE] <page.html>` | Output compiler result |
-| `inkwire measure [-size WxH \| -panel FAMILY:ID] [-json] [-asset SRC=FILE] <page.html>` | Output node layout |
+| `inkwire measure (-size WxH \| -panel FAMILY:ID) [-json] [-asset SRC=FILE] <page.html>` | Output node layout |
 | `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] [-asset SRC=FILE] <page.html>` | Render and write |
 | `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 clock / calendar |
 | `inkwire serve [-listen ADDR] [-assets DIR]` | Start the HTTP service |
@@ -57,33 +57,37 @@ Exits 1 when no tags are found.
 Renders a page to PNG.
 
 ```bash
-inkwire render -o preview.png page.html
+inkwire render -size 296x128 -o preview.png page.html
 ```
 
 ```
 wrote preview.png (296x128)
 ```
 
-| Flag | Default | Meaning |
+| Flag | Requirement | Meaning |
 |---|---|---|
 | `-o` | the page's path with `.png` | PNG output path |
-| `-size` | the page's root size | Lay out at `WxH` |
-| `-panel` | unset | Lay out for a named panel and check its inks |
+| `-size` | one of `-size` or `-panel` is required | Lay out at an arbitrary `WxH` viewport |
+| `-panel` | one of `-size` or `-panel` is required | Use a named panel's full size and check its inks |
 | `-asset` | unset | Inject a local resource as `SRC=FILE`; repeatable |
+
+`-size` and `-panel` are mutually exclusive. `-size` is the complete output
+viewport and may be smaller or larger than any physical panel. `-panel` uses the
+panel table's complete dimensions and ink palette.
 
 
 ```
 $ inkwire render page.html
-this page states no size: give the root element a size, or render with -size WxH or -panel family:id
+render needs -size WxH or -panel family:id
 ```
 
-`-size` sets the layout size without consulting the panel table:
+`-size` sets the complete layout and output size without consulting the panel table:
 
 ```bash
 inkwire render -size 400x300 page.html
 ```
 
-`-panel` takes the size and available inks from the named panel.
+`-panel` takes the complete size and available inks from the named panel.
 
 ```bash
 inkwire render -panel gicisky:0x0033 page.html
@@ -109,8 +113,6 @@ BW panel cannot show red ink at (10,10)
 The preview is written even when the panel refuses the page. A bad panel or
 size exits 2; a layout failure exits 1.
 
-`-size` and `-panel` are mutually exclusive.
-
 Page structure and CSS support are documented in [MARKUP.md](MARKUP.md).
 
 ### measure
@@ -118,7 +120,7 @@ Page structure and CSS support are documented in [MARKUP.md](MARKUP.md).
 Prints each node's layout box. Nothing is rendered.
 
 ```bash
-inkwire measure page.html
+inkwire measure -size 120x40 page.html
 ```
 
 ```
@@ -129,10 +131,10 @@ row         0,0    120x40
 warning root.children[0] [text-clipped]: "LAST REF" does not fit 40x17: 16 pixels along the line cut off
 ```
 
-| Flag | Default | Meaning |
+| Flag | Requirement | Meaning |
 |---|---|---|
-| `-size` | the page's root size | Lay out at `WxH` |
-| `-panel` | unset | Lay the page out for a named panel |
+| `-size` | one of `-size` or `-panel` is required | Lay out at an arbitrary `WxH` viewport |
+| `-panel` | one of `-size` or `-panel` is required | Lay the page out at a named panel's full size |
 | `-json` | off | Write the placements as JSON instead of a tree |
 | `-asset` | unset | Inject a local resource as `SRC=FILE`; repeatable |
 
@@ -165,6 +167,9 @@ upload complete, tag is refreshing
 A page size that differs from the panel is laid out again for the panel and
 reported as `size-mismatch`. An unsupported ink is drawn black and reported as
 `unsupported-ink`, once per ink.
+
+`push` obtains the target size and ink palette from the connected device; it does
+not take `-size` or `-panel`.
 
 Render warnings are printed with the write log; see [Warnings](#warnings).
 
@@ -392,11 +397,15 @@ Routes match the same-named CLI subcommands.
 
 Every write route requires `?device=`. The service does not select a tag.
 
+`/v1/render` requires exactly one of `?size=WxH` or `?panel=family:id`. The
+request target supplies the complete viewport; the HTML root size does not
+replace it.
+
 ```bash
 curl http://127.0.0.1:8080/v1/scan
 
 curl -F 'page=@examples/desk/tasks.html;type=text/html' \
-  http://127.0.0.1:8080/v1/render
+  'http://127.0.0.1:8080/v1/render?size=296x128'
 
 curl -F 'page=@examples/desk/tasks.html;type=text/html' \
   'http://127.0.0.1:8080/v1/render?panel=gicisky:0x0033'
@@ -409,8 +418,8 @@ curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
 
 | Query parameter | Used by | Meaning |
 |---|---|---|
-| `size` | render | Lay out at `WxH` |
-| `panel` | render | Lay the page out for a named panel and check its inks |
+| `size` | render | Lay out at an arbitrary `WxH` viewport |
+| `panel` | render | Use a named panel's full size and check its inks |
 | `device` | push, mode | Advertised name or BLE address, required |
 | `family` | push | Selects the device family; skips auto-detection |
 | `mode` | mode | `picture`, `calendar` or `clock`; `calendar` by default |
@@ -448,7 +457,7 @@ Non-fatal.
 | `code` | Status | Meaning |
 |---|---|---|
 | `unsupported-media-type` | 415 | Not JSON or multipart |
-| `invalid-request` | 400 | Missing `device`, invalid parameter value or malformed multipart |
+| `invalid-request` | 400 | Missing `device` or render target, invalid parameter value or malformed multipart |
 | `request-too-large` | 413 | Over the size limit |
 | `invalid-scene` | 422 | Will not decode or render |
 | `invalid-page` | 422 | The `page` part cannot be compiled |
@@ -504,6 +513,7 @@ The CLI injects local resources with repeatable `-asset SRC=FILE` flags:
 
 ```bash
 inkwire render \
+     -size 296x128 \
      -asset assets/portrait.png=photos/portrait.png \
      -asset assets/chart.svg=charts/chart.svg \
      page.html
@@ -521,7 +531,7 @@ uploaded with the request.
 curl -F 'page=@page.html;type=text/html' \
      -F 'assets/portrait.png=@assets/portrait.png;type=image/png' \
      -F 'assets/chart.svg=@assets/chart.svg;type=image/svg+xml' \
-     http://127.0.0.1:8080/v1/render
+     'http://127.0.0.1:8080/v1/render?size=296x128'
 ```
 
 `link` `href` follows the same relative-resource rule, and `stylesheet` may be sent as its own part.

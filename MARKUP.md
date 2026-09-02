@@ -1,7 +1,10 @@
 # Markup Manual
 
 Pages use HTML for content, CSS for layout and paint, and SVG for
-geometry. The page size comes from the root element:
+geometry. The render target supplies the viewport: CLI `render` and `measure`,
+and HTTP `render`, require `size` or `panel`; `push` obtains the panel from the
+connected device. The root element may omit `width` and `height`; when present,
+they are CSS layout properties and do not select the render target.
 
 ```html
 <main class="page">
@@ -11,8 +14,6 @@ geometry. The page size comes from the root element:
 
 ```css
 .page {
-  width: 296px;
-  height: 128px;
   background: white;
 }
 ```
@@ -139,6 +140,7 @@ The CLI injects local resources with repeatable `-asset SRC=FILE` flags:
 
 ```bash
 inkwire render \
+     -size 296x128 \
      -asset assets/portrait.png=photos/portrait.png \
      -asset assets/chart.svg=charts/chart.svg \
      page.html
@@ -156,7 +158,7 @@ uploaded with the request.
 curl -F 'page=@page.html;type=text/html' \
      -F 'assets/portrait.png=@assets/portrait.png;type=image/png' \
      -F 'assets/chart.svg=@assets/chart.svg;type=image/svg+xml' \
-     http://127.0.0.1:8080/v1/render
+     'http://127.0.0.1:8080/v1/render?size=296x128'
 ```
 
 `link` `href` follows the same relative-resource rule, and `stylesheet` may be sent as its own part.

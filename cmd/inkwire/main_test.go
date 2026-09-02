@@ -31,7 +31,7 @@ func TestRenderWritesAPreview(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	pngPath := filepath.Join(directory, "preview.png")
-	if code := run([]string{"render", "-o", pngPath, scenePath}, &stdout, &stderr); code != 0 {
+	if code := run([]string{"render", "-size", "296x128", "-o", pngPath, scenePath}, &stdout, &stderr); code != 0 {
 		t.Fatalf("render code = %d, stderr = %s", code, stderr.String())
 	}
 	if info, err := os.Stat(pngPath); err != nil || info.Size() == 0 {
@@ -113,7 +113,7 @@ func TestRenderReportsInvalidSceneWithoutCreatingOutput(t *testing.T) {
 	}
 	output := filepath.Join(directory, "bad.png")
 	var stdout, stderr bytes.Buffer
-	if code := run([]string{"render", "-o", output, scenePath}, &stdout, &stderr); code != 1 {
+	if code := run([]string{"render", "-size", "296x128", "-o", output, scenePath}, &stdout, &stderr); code != 1 {
 		t.Fatalf("code = %d", code)
 	}
 	if !strings.Contains(stderr.String(), "unknown field") {
@@ -203,20 +203,24 @@ func TestAMistypedPanelOrSizeExitsAsAUsageError(t *testing.T) {
 	}
 }
 
-// There is no default page size any more. There was one, and it was one
-// family's 2.9" panel written into the display layer, so a scene that said
-// nothing got somebody else's tag and was never told. Saying nothing is now a
-// usage error that names all three ways to say something.
-func TestASceneWithNoSizeIsRefusedAndSaysHowToFixIt(t *testing.T) {
+// A renderer always needs an invocation target. A document's own size is a
+// CSS layout value and must not silently choose the output viewport.
+func TestRenderRequiresAnExplicitTarget(t *testing.T) {
 	_, scenePath := writeScene(t, redPage)
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"render", scenePath}, &stdout, &stderr); code != 2 {
 		t.Fatalf("render code = %d, want 2; stderr = %s", code, stderr.String())
 	}
-	for _, wanted := range []string{"states no size", "-size", "-panel"} {
+	for _, wanted := range []string{"render needs", "-size", "-panel"} {
 		if !strings.Contains(stderr.String(), wanted) {
 			t.Errorf("stderr = %q, want it to mention %q", stderr.String(), wanted)
 		}
+	}
+	_, sizedScene := writeScene(t, `{"version":1,"size":{"width":296,"height":128},"root":{"type":"spacer"}}`)
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"render", sizedScene}, &stdout, &stderr); code != 2 {
+		t.Fatalf("a scene's own size was accepted as a target: code = %d, stderr = %s", code, stderr.String())
 	}
 	// Any one of the three is enough.
 	for _, args := range [][]string{
@@ -227,6 +231,17 @@ func TestASceneWithNoSizeIsRefusedAndSaysHowToFixIt(t *testing.T) {
 		if code := run(args, &out, &errOut); code != 0 {
 			t.Errorf("%v = %d, stderr = %s", args[1:], code, errOut.String())
 		}
+	}
+}
+
+func TestMeasureRequiresAnExplicitTarget(t *testing.T) {
+	_, scenePath := writeScene(t, `{"version":1,"size":{"width":296,"height":128},"root":{"type":"spacer"}}`)
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"measure", scenePath}, &stdout, &stderr); code != 2 {
+		t.Fatalf("measure accepted a document's own size: code = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "measure needs -size WxH or -panel family:id") {
+		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 
@@ -261,7 +276,7 @@ func TestMeasureReportsTheBoxAndWhatItWanted(t *testing.T) {
 			{"basis":40,"node":{"type":"text","runs":[{"text":"LAST REF","font":"monaco","size":12}]}}]}}`)
 
 	var stdout, stderr bytes.Buffer
-	if code := run([]string{"measure", scenePath}, &stdout, &stderr); code != 0 {
+	if code := run([]string{"measure", "-size", "120x40", scenePath}, &stdout, &stderr); code != 0 {
 		t.Fatalf("code = %d, stderr = %s", code, stderr.String())
 	}
 	out := stdout.String()
@@ -288,7 +303,7 @@ func TestMeasureReportsTheBoxAndWhatItWanted(t *testing.T) {
 			 "node":{"type":"text","runs":[{"text":"LAST REF","font":"monaco","size":12}]}}]}}`)
 	stdout.Reset()
 	stderr.Reset()
-	if code := run([]string{"measure", tight}, &stdout, &stderr); code != 0 {
+	if code := run([]string{"measure", "-size", "120x40", tight}, &stdout, &stderr); code != 0 {
 		t.Fatalf("code = %d, stderr = %s", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "wants 56x17") {
@@ -303,7 +318,7 @@ func TestMeasureIsSilentAboutNodesThatFit(t *testing.T) {
 		"root":{"type":"text","runs":[{"text":"OK","font":"monaco","size":12}],"size":{"width":120,"height":40}}}`)
 
 	var stdout, stderr bytes.Buffer
-	if code := run([]string{"measure", scenePath}, &stdout, &stderr); code != 0 {
+	if code := run([]string{"measure", "-size", "120x40", scenePath}, &stdout, &stderr); code != 0 {
 		t.Fatalf("code = %d, stderr = %s", code, stderr.String())
 	}
 	if strings.Contains(stdout.String(), "wants") {

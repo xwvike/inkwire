@@ -363,9 +363,8 @@ func (h *Handler) serveRender(writer http.ResponseWriter, request *http.Request)
 			errors.New("give size or panel, not both: they are two ways of saying the same thing"))
 		return
 	}
-	// The three ways a page can be sized, each failing in its own vocabulary:
-	// a key or a size the caller mistyped is a bad request, while a scene that
-	// will not lay out is a bad scene.
+	// A render request must name its target. The page's own size is a CSS layout
+	// value, not a substitute for the viewport this HTTP request produces.
 	var result scene.Result
 	var renderErr error
 	switch {
@@ -384,13 +383,8 @@ func (h *Handler) serveRender(writer http.ResponseWriter, request *http.Request)
 		}
 		result, renderErr = scene.RenderForSize(document, bounds)
 	default:
-		result, renderErr = scene.Render(document)
-	}
-	if errors.Is(renderErr, scene.ErrNoSize) {
-		// The document is fine; nobody said how big to draw it. That is the
-		// request's shape rather than the scene's contents.
 		writeError(writer, http.StatusBadRequest, "invalid-request",
-			fmt.Errorf("%w: give the document a size, or ask for one with ?size=WxH or ?panel=family:id", renderErr))
+			errors.New("render needs size or panel: give ?size=WxH or ?panel=family:id"))
 		return
 	}
 	// What the front end could not honour goes back beside what the layout
