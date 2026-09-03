@@ -1,0 +1,128 @@
+/* Gicisky EPD 2.9" BWR，296x128，型号 0x0033。
+   1-bit 无抗锯齿，差 1px 肉眼可见，尺寸都按整数对齐。
+   .frame 使用 border-box：外框 278x124，内容区扣除边框和内边距后为 256x110。
+   绝对定位的包含块是边框盒，不是 CSS 惯例的内边距盒。 */
+
+* { box-sizing: border-box; }
+
+.page {
+  position: relative;
+  width: 296px;
+  height: 128px;
+  background: white;
+  color: black;
+  font-family: monaco;
+}
+
+/* ── 边框外的竖排刷新戳 ──────────────────────────────────
+   monaco 是唯一有 10 号的字体（ui/hzk 最小 12），且只有 ASCII——时间戳正好全是。
+   实测 6px/字符，"REF 2026.08.25 15:30" 20 字符 120px，刚好单列排下。
+   rotate(-90deg) 后从下往上读，书脊惯例。旋转把局部点 (a,b) 映到 (b,-a)，
+   所以支点放在 span 盒的左上角、而盒本身下沉 120px，转完正好落回 0..120。 */
+.rail {
+  position: absolute;
+  left: 3px; top: 4px;
+  width: 12px; height: 120px;
+}
+.rail span {
+  position: absolute;
+  left: 0; top: 120px;
+  width: 120px; height: 12px;
+  font-size: 10px; line-height: 12px;
+  transform-origin: 0 0;
+  transform: rotate(-90deg);
+}
+
+/* ── 整页外框 ────────────────────────────────────────── */
+.frame {
+  position: absolute;
+  left: 16px; top: 2px;
+  width: 278px; height: 124px;
+  border-width: 1px; border-style: solid; border-color: black;
+  border-radius: 9px;
+  padding: 6px 10px;
+}
+.body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  height: 110px;
+  width: 258px;
+}
+
+/* ── header：负圆角轮廓 + logo + 标题 + 等级 badge + 花费行 ──
+   轮廓是一整条 path（rectangle 的圆角画不了内凹），星星要骑在 badge 边界上，
+   都不是流式能表达的，所以这一块内部全用绝对定位，坐标相对 header 左上角。 */
+.head { position: relative; height: 54px; }
+
+/* SVG 会按 viewBox 裁剪，而 0.7 的 absolute 默认不裁——路径画在边界上（轮廓的
+   右边和底边在 258/54，红星探出顶边 2px）会被切掉。所以每个 svg 都比它的
+   内容多留一圈，缩放仍保持 1:1。 */
+.head svg { position: absolute; }
+.outline { left: 0; top: 0; width: 259px; height: 55px; }
+.outline path { fill: none; stroke: black; stroke-width: 1px; }
+.stars   { left: 0; top: -3px; width: 258px; height: 57px; }
+
+.logo  { position: absolute; left: 6px; top: 6px; width: 43px; height: 43px; }
+.title { position: absolute; left: 66px; top: 0; width: 140px; height: 26px;
+         font-size: 14px; line-height: 26px; }
+
+/* 等级 badge：黑底白字胶囊 */
+.badge {
+  position: absolute;
+  background: black;
+  border-radius: 9px;
+  color: white;
+  font-size: 12px;
+  text-align: center;
+}
+/* 红星骑在胶囊对角，一半压黑底一半落白底；大星会探出 header 顶边，
+   这是它应有的样子，所以这一路上不能有 overflow: hidden。 */
+.stars path { fill: red; }
+/* 压在黑胶囊上的那半改白：红盖黑在三色面板上是「挖」出星形，但红与黑明度
+   太近，远看糊成一团。同一颗星再画一遍白色、裁到胶囊形状盖上去。 */
+.badge-mask { position: absolute; overflow: hidden; border-radius: 9px; }
+.badge-mask path { fill: white; }
+
+.cost {
+  position: absolute;
+  left: 66px; top: 29px;
+  width: 192px; height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px; line-height: 19px;
+}
+.cost .amt { flex-grow: 1; color: red; }
+
+/* ── 额度行：标签 | 进度条 | 右侧读数 ───────────────────── */
+.row {
+  position: relative;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lab  { width: 16px; font-size: 14px; line-height: 17px; }
+.read { position: absolute; right: 0; top: -2px; width: 150px; height: 24px; text-align: right; font-family: monaco; font-size: 20px; line-height: 24px; }
+
+.bar {
+  position: relative;
+  box-sizing: content-box;
+  width: 116px; height: 20px;
+  border-width: 1px; border-style: solid; border-color: black;
+  border-radius: 10px;
+}
+/* 填充窄于一个圆角直径时根本不画，否则圆角会把它压成畸形的点。
+   标签始终在，靠 .off 关掉——这样每次渲染的 DOM 都一样，只有数字在变。
+   必须是 display:none 而不是 width:0，后者会报 empty-layout。 */
+.fill { position: absolute; left: 0; top: 0; height: 20px; border-radius: 10px; }
+.fill.off { display: none; }
+.pcts { position: absolute; left: 0; top: 0; width: 116px; height: 20px; display: flex; }
+/* 每个数字画在它所描述的区段里：填充段写已用、空白段写可用，数字的含义
+   由脚下的底色决定，不需要图例。区段装不下自己的数字就留空。 */
+.pcts span { font-size: 14px; line-height: 17px; text-align: center; }
+.used { color: white; }
+.free { flex-grow: 1; }
+.nosnap { font-family: hzk; font-size: 12px; line-height: 14px; text-align: center; }

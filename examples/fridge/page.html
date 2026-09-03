@@ -1,234 +1,112 @@
-<!--
-  The page a fridge magnet holds up: what has to happen today, what is for
-  dinner, and a note for whoever reads it next.
-
-  Everything here is a list, which is why it is worth having as an example. The
-  six rows are one grid rather than six rows, so the tick column and the name
-  column are measured once across all of them and a longer task cannot push a
-  row out of line with the one under it.
--->
-
+<!-- A quiet 400x300 smart-fridge status board. The temperature is the primary
+     signal; inventory and the next action stay visible without competing with it. -->
 <style>
-/* Every box measured the way a web page measures one. */
 * { box-sizing: border-box; }
 
-.page {
-  position: relative;
-  width: 400px;
-  height: 300px;
-  background: white;
-  color: black;
-  font-family: ui;
-  font-size: 12px;
-}
+.page { width: 400px; height: 300px; padding: 12px; background: white; color: black;
+        font-family: ui; font-size: 12px; }
+.board { position: relative; width: 376px; height: 276px; border: 1px solid black;
+         border-radius: 8px; background: white; }
 
-/* The case, and the two magnets holding it on. Drawn once, under everything. */
-.case { position: absolute; top: 0; left: 0; }
+.top { height: 54px; padding: 8px 14px; display: flex; align-items: center;
+       background: black; color: white; border-bottom: 3px solid red; }
+.top .logo { width: 30px; height: 30px; margin-right: 9px; }
+.top .name { display: flex; flex-direction: column; justify-content: center; }
+.top .eyebrow { font-family: monaco; font-size: 10px; line-height: 12px; color: yellow; }
+.top h1 { margin: 0; font-family: hzk; font-size: 16px; line-height: 20px; }
+.top .meta { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end;
+             font-family: monaco; font-size: 10px; line-height: 14px; }
+.top .meta .ready { color: red; }
+.top .meta .ready.cjk { font-family: hzk; font-size: 12px; }
 
-.sheet {
-  position: absolute;
-  top: 14px; left: 10px;
-  width: 380px; height: 278px;
-  display: flex;
-  flex-direction: column;
-}
+.main { height: 152px; padding: 14px 14px 4px; display: grid; grid-template-columns: 204px 1fr; column-gap: 8px; }
+.hero { position: relative; padding-right: 16px; border-right: 1px solid black; }
+.hero .kicker { display: flex; align-items: center; gap: 5px; font-family: hzk; font-size: 12px; line-height: 15px; }
+.hero .kicker em { font-family: monaco; font-size: 10px; line-height: 12px; color: red; }
+.hero .reading { display: flex; align-items: center; margin-top: 6px; }
+.hero .reading strong { font-family: monaco; font-size: 48px; line-height: 52px; }
+.hero .reading .unit { margin-left: 4px; font-family: monaco; font-size: 16px; line-height: 20px; color: red; }
+.hero .reading .unit .cjk { font-family: hzk; font-size: 16px; }
+.hero .reading .state { position: relative; top: -1px; margin-left: auto; font-family: hzk; font-size: 12px; line-height: 16px; color: red; }
+.hero .scale-wrap { position: relative; width: 180px; height: 28px; margin-top: 8px; }
+.hero .scale { width: 180px; height: 28px; }
+.hero .scale line { stroke: black; stroke-width: 1px; }
+.hero .scale .hot { stroke: red; stroke-width: 3px; }
+.hero .scale circle { fill: red; }
+.hero .scale-label { position: absolute; top: 16px; font-family: monaco; font-size: 10px; line-height: 12px; }
+.hero .scale-zero { left: 0; }
+.hero .scale-max { right: 0; }
+.hero .metrics { position: absolute; left: 0; right: 16px; bottom: 0; display: grid;
+                 grid-template-columns: 1fr 1fr; column-gap: 10px; padding-top: 7px; border-top: 1px solid black; }
+.hero .metric { display: flex; flex-direction: column; }
+.hero .metric label { font-family: hzk; font-size: 12px; line-height: 15px; }
+.hero .metric b { margin-top: 2px; font-family: monaco; font-size: 14px; line-height: 16px; color: red; }
 
-.mono { font-family: monaco; font-size: 10px; }
-.red { color: red; }
+.focus { min-width: 0; padding-left: 0; overflow: hidden; }
+.focus .heading { position: relative; display: flex; align-items: center; height: 18px; gap: 6px; }
+.focus .heading .bar { width: 4px; height: 14px; background: red; }
+.focus h2 { margin: 0; font-family: hzk; font-size: 14px; line-height: 16px; }
+.items { margin-top: 6px; border-top: 1px solid black; }
+.item { height: 26px; display: grid; grid-template-columns: 1fr 52px; align-items: center; border-bottom: 1px solid black; }
+.item .food { font-family: hzk; font-size: 12px; line-height: 15px; }
+.item .food i { margin-left: 4px; font-family: monaco; font-size: 10px; line-height: 12px; color: red; }
+.item .when { text-align: right; font-family: monaco; font-size: 10px; line-height: 12px; }
+.item .when.cjk { font-family: hzk; font-size: 12px; }
+.item .when.hot { color: red; }
+.focus .note { margin-top: 5px; display: block; font-family: hzk; font-size: 12px; line-height: 15px; }
+.focus .note b { display: inline-block; margin-right: 5px; padding: 1px 4px; border: 1px solid black; border-radius: 3px; font-family: monaco; font-size: 10px; line-height: 12px; }
 
-/* The day ---------------------------------------------------------------- */
-header {
-  flex-basis: 36px;
-  display: flex;
-  align-items: center;
-  padding: 4px 8px;
-  border-radius: 5px;
-  background: black;
-  color: white;
-}
-header .today {
-  flex-basis: 36px; height: 20px;
-  line-height: 20px;
-  border-radius: 3px;
-  background: red;
-  text-align: center;
-}
-header .title { margin-left: 6px; font-size: 16px; }
-header .when { margin-left: auto; text-align: right; }
-
-.cards { flex-basis: 210px; margin-top: 4px; display: flex; gap: 4px; }
-.card { border: 1px solid black; border-radius: 5px; background: white; }
-
-/* The list --------------------------------------------------------------- */
-.agenda { flex-basis: 242px; display: flex; flex-direction: column; gap: 3px; padding: 6px 8px; }
-.agenda .head { flex-basis: 20px; display: flex; align-items: center; }
-.agenda .flag { flex-basis: 4px; height: 14px; border-radius: 1px; background: red; }
-.agenda .head h2 { margin-left: 5px; font-size: 14px; }
-.agenda .head .count { margin-left: auto; text-align: right; }
-.agenda .head .count b { font-family: monaco; color: red; }
-
-/* Four columns: the tick, the space after it, the task, and who it is for.
-   Every cell names its own column, because the second one holds nothing. */
-.agenda .list {
-  flex-basis: 159px;
-  display: grid;
-  grid-template-columns: 14px 6px 1fr 20px;
-  grid-template-rows: repeat(6, 24px);
-  row-gap: 3px;
-  align-items: center;
-}
-.agenda .box { grid-column: 1; }
-.agenda .what { grid-column: 3; }
-.agenda .who { grid-column: 4; height: 16px; border-radius: 2px; text-align: center;
-  line-height: 16px;
-}
-.agenda .at { font-family: monaco; font-size: 10px; }
-.outline-black { border: 1px solid black; }
-.outline-red { border: 1px solid red; color: red; }
-.filled-red { background: red; color: white; }
-
-/* Dinner ----------------------------------------------------------------- */
-.side { flex-basis: 134px; display: flex; flex-direction: column; gap: 4px; }
-.menu { flex-basis: 102px; display: flex; flex-direction: column; gap: 3px; padding: 6px 6px 5px; }
-.menu h2 { flex-basis: 16px; color: red; }
-.menu h2 .mono { color: black; }
-.menu .meal { flex-basis: 15px; }
-.menu .short {
-  flex-basis: 22px;
-  border-radius: 3px;
-  background: red;
-  color: white;
-  text-align: center;
-  line-height: 22px;
-}
-
-/* The note --------------------------------------------------------------- */
-.note { flex-basis: 104px; position: relative; }
-.note .tape {
-  position: absolute;
-  top: 0; left: calc(50% - 22px);
-  width: 44px; height: 6px;
-  border-radius: 1px;
-  background: black;
-}
-.note .paper { display: flex; flex-direction: column; gap: 3px; padding: 8px 6px 5px; }
-.note h2 { flex-basis: 15px; }
-.note h2 .mono { color: red; }
-.note .body { flex-basis: 44px; line-height: 14px; }
-.note .sign { flex-basis: 14px; text-align: right; color: red; }
-
-/* Water ------------------------------------------------------------------ */
-footer {
-  flex-basis: 24px;
-  margin-top: 4px;
-  display: flex;
-  align-items: center;
-  padding: 3px 8px;
-  border-radius: 4px;
-  background: black;
-  color: white;
-}
-footer .glasses {
-  margin-left: 4px;
-  display: grid;
-  grid-template-columns: repeat(5, 8px);
-  grid-template-rows: 8px;
-  column-gap: 2px;
-}
-footer .glasses div { border-radius: 1px; }
-footer .drunk { background: red; }
-footer .empty { border: 1px solid white; }
-footer .ml { margin-left: 4px; }
-footer .wish { margin-left: auto; text-align: right; }
+.bottom { height: 68px; margin: 0 14px; padding-top: 8px; display: flex; align-items: flex-start;
+          border-top: 1px solid black; }
+.bottom .next { flex: 1 1 0px; min-width: 0; display: flex; flex-direction: column; }
+.bottom .label { font-family: monaco; font-size: 10px; line-height: 12px; color: red; }
+.bottom .next .label { font-family: monaco; font-size: 10px; }
+.bottom .next strong { margin-top: 2px; font-family: hzk; font-size: 14px; line-height: 17px; }
+.bottom .dish { display: flex; align-items: center; gap: 2px; }
+.bottom .next span { font-family: hzk; font-size: 12px; line-height: 15px; }
+.bottom .next .when { font-family: monaco; font-size: 10px; line-height: 12px; }
+.bottom .sync { flex: 0 0 116px; padding-left: 12px; border-left: 1px solid black; display: flex; flex-direction: column; align-items: flex-end; }
+.bottom .sync b { margin-top: 2px; font-family: monaco; font-size: 16px; line-height: 20px; }
+.bottom .sync span { font-family: hzk; font-size: 12px; line-height: 15px; }
+.bottom .sync .red { color: red; font-family: monaco; font-size: 10px; }
+.cjk { font-family: hzk; font-size: 12px; }
 </style>
 
-<div class="page">
-  <svg class="case" width="400" height="300">
-    <rect x="2" y="2" width="396" height="296" rx="8" fill="none" stroke="black" stroke-width="2"/>
-    <rect x="5" y="5" width="390" height="290" rx="6" fill="none" stroke="black" stroke-width="1" stroke-dasharray="3 2"/>
-    <rect x="24" y="3" width="20" height="10" rx="3" fill="black"/>
-    <rect x="26" y="5" width="16" height="6" rx="2" fill="red"/>
-    <rect x="356" y="3" width="20" height="10" rx="3" fill="black"/>
-    <rect x="358" y="5" width="16" height="6" rx="2" fill="red"/>
-  </svg>
-
-  <div class="sheet">
-    <header>
-      <b class="today">今日</b>
-      <span class="title">家庭当日待办<span class="mono red"> DAILY AGENDA</span></span>
-      <span class="when">08-14 星期五 | <span class="red">晴 28℃</span></span>
+<main class="page">
+  <section class="board">
+    <header class="top">
+      <svg class="logo" viewBox="0 0 30 30"><rect x="3" y="1" width="24" height="28" rx="3" fill="none" stroke="red" stroke-width="2" /><line x1="3" y1="12" x2="27" y2="12" stroke="red" /><line x1="8" y1="5" x2="8" y2="9" stroke="yellow" stroke-width="2" /><line x1="8" y1="16" x2="8" y2="24" stroke="red" stroke-width="2" /></svg>
+      <div class="name"><span class="eyebrow">SMART FRIDGE / 04</span><h1>冷藏状态</h1></div>
+      <div class="meta"><span class="ready cjk">运行正常</span><span>08.14 THU</span></div>
     </header>
 
-    <div class="cards">
-      <section class="card agenda">
-        <div class="head">
-          <div class="flag"></div>
-          <h2>重点事项清单</h2>
-          <span class="count">已完成 <b>3/6</b></span>
-        </div>
-
-        <svg class="rule" width="226" height="1">
-          <line x1="0" y1="0" x2="226" y2="0" stroke="black" stroke-width="1" stroke-dasharray="2 2"/>
-        </svg>
-
-        <div class="list">
-          <svg class="box" width="14" height="14"><rect x="0" y="0" width="14" height="14" rx="2" fill="black"/><path d="M 2 7 L 5 10 L 11 3" fill="none" stroke="white" stroke-width="2"/></svg>
-          <p class="what"><span class="at">07:30 </span>晨起遛狗与喂猫</p>
-          <b class="who outline-black">爸</b>
-
-          <svg class="box" width="14" height="14"><rect x="0" y="0" width="14" height="14" rx="2" fill="black"/><path d="M 2 7 L 5 10 L 11 3" fill="none" stroke="white" stroke-width="2"/></svg>
-          <p class="what"><span class="at">08:15 </span>阳台绿植浇水通风</p>
-          <b class="who outline-black">妈</b>
-
-          <svg class="box" width="14" height="14"><rect x="0" y="0" width="14" height="14" rx="2" fill="black"/><path d="M 2 7 L 5 10 L 11 3" fill="none" stroke="white" stroke-width="2"/></svg>
-          <p class="what"><span class="at">11:30 </span>生鲜超市采购食材</p>
-          <b class="who outline-black">爸</b>
-
-          <svg class="box" width="14" height="14"><rect x="0" y="0" width="14" height="14" rx="2" fill="none" stroke="red" stroke-width="1"/></svg>
-          <p class="what"><span class="at red">16:00 </span>辅导小宝暑假作业</p>
-          <b class="who outline-red">妈</b>
-
-          <svg class="box" width="14" height="14"><rect x="0" y="0" width="14" height="14" rx="2" fill="none" stroke="red" stroke-width="1"/></svg>
-          <p class="what"><span class="at red">19:00 </span>缴纳本月燃气水电</p>
-          <b class="who filled-red">急</b>
-
-          <svg class="box" width="14" height="14"><rect x="0" y="0" width="14" height="14" rx="2" fill="none" stroke="black" stroke-width="1"/></svg>
-          <p class="what"><span class="at">20:30 </span>全家饭后散步垃圾</p>
-          <b class="who outline-black">全</b>
-        </div>
+    <div class="main">
+      <section class="hero">
+        <div class="kicker"><span>冷藏室温度</span><em>LIVE</em></div>
+        <div class="reading"><strong>04</strong><span class="unit"><span class="cjk">°</span>C</span><span class="state">稳定</span></div>
+        <div class="scale-wrap"><svg class="scale" viewBox="0 0 188 28">
+          <line x1="4" y1="11" x2="184" y2="11" />
+          <line x1="4" y1="7" x2="4" y2="15" /><line x1="49" y1="8" x2="49" y2="14" />
+          <line x1="94" y1="8" x2="94" y2="14" /><line x1="139" y1="8" x2="139" y2="14" /><line x1="184" y1="7" x2="184" y2="15" />
+          <line class="hot" x1="4" y1="11" x2="112" y2="11" /><circle cx="112" cy="11" r="4" />
+        </svg><span class="scale-label scale-zero">0</span><span class="scale-label scale-max">8C</span></div>
+        <div class="metrics"><div class="metric"><label>上次开门</label><b>08:42</b></div><div class="metric"><label>今日开门</label><b>06 <span class="cjk">次</span></b></div></div>
       </section>
 
-      <div class="side">
-        <section class="card menu">
-          <h2>今日餐单<span class="mono"> MENU</span></h2>
-          <svg width="122" height="1"><line x1="0" y1="0" x2="122" y2="0" stroke="black" stroke-width="1"/></svg>
-          <p class="meal"><span class="red">午: </span>番茄牛腩 时蔬</p>
-          <p class="meal"><span class="red">晚: </span>清蒸鲈鱼 鸡汤</p>
-          <p class="short">需补: 鲜牛奶 鸡蛋</p>
-        </section>
-
-        <section class="card note">
-          <div class="tape"></div>
-          <div class="paper">
-            <h2>留言便签<span class="mono"> NOTE</span></h2>
-            <svg width="122" height="1">
-              <line x1="0" y1="0" x2="122" y2="0" stroke="black" stroke-width="1" stroke-dasharray="2 2"/>
-            </svg>
-            <p class="body">爸爸今晚加班稍晚回，留好热汤。晚间记得给净水器更换滤芯！</p>
-            <p class="sign">祝好心情 ~</p>
-          </div>
-        </section>
-      </div>
+      <section class="focus">
+        <div class="heading"><i class="bar"></i><h2>优先使用</h2></div>
+        <div class="items">
+          <div class="item"><span class="food">菠菜<i>1</i><span class="cjk">份</span></span><span class="when hot cjk">今天</span></div>
+          <div class="item"><span class="food">牛奶<i>2</i><span class="cjk">盒</span></span><span class="when hot cjk">明天</span></div>
+          <div class="item"><span class="food">鸡蛋<i>08</i><span class="cjk">枚</span></span><span class="when cjk">周日</span></div>
+        </div>
+        <div class="note"><b>TIP</b><span>先用临期食材</span></div>
+      </section>
     </div>
 
-    <footer>
-      <span>饮水打卡</span>
-      <div class="glasses">
-        <div class="drunk"></div><div class="drunk"></div><div class="drunk"></div>
-        <div class="empty"></div><div class="empty"></div>
-      </div>
-      <b class="mono red ml">1500ml</b>
-      <span class="wish">愿今天充满欢声与笑语</span>
+    <footer class="bottom">
+      <div class="next"><span class="label">NEXT ACTION</span><strong>今日晚餐</strong><div class="dish"><span class="cjk">番茄牛腩</span><span class="when">/19:00</span></div></div>
+      <div class="sync"><span>最近同步</span><b>08:45</b><span class="red">ALL SYSTEMS OK</span></div>
     </footer>
-  </div>
-</div>
+  </section>
+</main>

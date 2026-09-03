@@ -540,6 +540,7 @@ curl -F 'page=@page.html;type=text/html' \
 | [markup_quickstart](examples/markup_quickstart/page.html) | 296x128 |
 | [panel_check](examples/panel_check/)：[primitives](examples/panel_check/primitives.html) [polarity](examples/panel_check/polarity.html) | 400x300 |
 | [fridge](examples/fridge/page.html) | 400x300 |
+| [claude_usage](examples/claude_usage/page.html) —— Claude Code 用量快照 | 296x128 |
 | [card_showcase](examples/card_showcase/page.html) | 296x128 |
 | [cookbook](examples/cookbook/main.go) —— display API | 308x944 |
 | [gallery](examples/gallery/main.go) —— 图片资源 | 508x392 |
@@ -562,6 +563,9 @@ curl -F 'page=@page.html;type=text/html' \
   <tr>
     <td><a href="examples/card_showcase/page.html"><img src="examples/card_showcase/card_showcase.png" alt="card"></a></td>
     <td><a href="examples/fridge/page.html"><img src="examples/fridge/fridge.png" alt="fridge" width="400"></a></td>
+  </tr>
+  <tr>
+    <td><a href="examples/claude_usage/page.html"><img src="examples/claude_usage/claude_usage.png" alt="claude usage"></a></td>
   </tr>
 </table>
 

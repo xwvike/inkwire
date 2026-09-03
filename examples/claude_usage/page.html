@@ -1,0 +1,53 @@
+<!-- 296x128 墨水屏页面的模版。render.py 用 string.Template 把占位符换掉，
+     产物是同目录的 page.html。尺寸和位置全在 page.css 里，这里只管结构。
+
+     直接渲染这个文件就能看版面骨架（占位符原样显示），调布局时不用先跑 Python：
+         inkwire render -size 296x128 -o skeleton.png template.html
+
+     两条额度行是刻意摊开写的。这块屏永远只有 5H 和 7D 两行，展开比抽个片段
+     出去更好读——代价是改一行要记得改另一行。 -->
+
+<main class="page">
+  <div class="rail"><span>REF 2026.09.03 14:28</span></div>
+  <section class="frame">
+    <div class="body">
+
+      <div class="head">
+        <!-- logo 方块与右侧胶囊连成一体的轮廓，中间那个拐角向内凹。
+             矩形圆角只能画凸角，所以整条边手工走 path。 -->
+        <svg class="outline" viewBox="0 0 259 55"><path d="M8 0 L250 0 C254 0 258 4 258 8 L258 18 C258 22 254 26 250 26 L62 26 C58 26 54 30 54 34 L54 46 C54 50 50 54 46 54 L8 54 C4 54 0 50 0 46 L0 8 C0 4 4 0 8 0 Z" /></svg>
+        <img class="logo" src="logo.svg" />
+        <div class="title">CLAUDE CODE</div>
+        <div class="badge" style="left:207px; top:4px; width:41px; height:18px; line-height:18px">PRO</div>
+        <!-- 两颗星骑在胶囊对角，各一半压黑底一半落白底。大星探出 header 顶边，
+             这一路上不能有 overflow:hidden。y 是常量：整层 svg 上移 3px 后
+             （viewBox 原点必须是 0,0），星心正好落在 10 和 22。 -->
+        <svg class="stars" viewBox="0 0 258 57"><path transform="translate(245,10)" d="M0 -8 Q0 -9 0 -8 L2 -4 Q3 -3 4 -2 L8 0 Q9 0 8 0 L4 2 Q3 3 2 4 L0 8 Q0 9 0 8 L-2 4 Q-3 3 -4 2 L-8 0 Q-9 0 -8 0 L-4 -2 Q-3 -3 -2 -4 Z" /><path transform="translate(210,22)" d="M0 -4 Q0 -5 0 -4 L1 -2 Q2 -2 2 -1 L4 0 Q5 0 4 0 L2 1 Q2 2 1 2 L0 4 Q0 5 0 4 L-1 2 Q-2 2 -2 1 L-4 0 Q-5 0 -4 0 L-2 -1 Q-2 -2 -1 -2 Z" /></svg>
+        <!-- 压在黑胶囊上的那半改白：红盖黑在三色面板上是「挖」出星形，但红与黑
+             明度太近，远看糊成一团。同一颗星再画一遍白的，裁到胶囊形状盖上去。 -->
+        <div class="badge-mask" style="left:207px; top:4px; width:41px; height:18px">
+          <svg viewBox="0 0 41 18"><path transform="translate(38,3)" d="M0 -8 Q0 -9 0 -8 L2 -4 Q3 -3 4 -2 L8 0 Q9 0 8 0 L4 2 Q3 3 2 4 L0 8 Q0 9 0 8 L-2 4 Q-3 3 -4 2 L-8 0 Q-9 0 -8 0 L-4 -2 Q-3 -3 -2 -4 Z" /><path transform="translate(3,15)" d="M0 -4 Q0 -5 0 -4 L1 -2 Q2 -2 2 -1 L4 0 Q5 0 4 0 L2 1 Q2 2 1 2 L0 4 Q0 5 0 4 L-1 2 Q-2 2 -2 1 L-4 0 Q-5 0 -4 0 L-2 -1 Q-2 -2 -1 -2 Z" /></svg>
+        </div>
+        <div class="cost"><span>9/02</span><span class="amt">$123.28</span></div>
+      </div>
+
+      <div class="row"><span class="lab">5H</span>
+        <div class="bar">
+          <div class="fill " style="width:63px; background:black"></div>
+          <div class="pcts"><span class="used" style="width:63px">54%</span><span
+                            class="free ">46%</span></div>
+        </div>
+        <span class="read">14:30</span></div>
+
+      <div class="row"><span class="lab">7D</span>
+        <div class="bar">
+          <div class="fill " style="width:34px; background:black"></div>
+          <div class="pcts"><span class="used" style="width:34px">29%</span><span
+                            class="free ">71%</span></div>
+        </div>
+        <span class="read">9/9 9:00</span></div>
+
+    </div>
+  </section>
+</main>
+<link rel="stylesheet" href="page.css" />

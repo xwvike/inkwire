@@ -1,6 +1,5 @@
-// Package fridge is a 400x300 smart-fridge dashboard. It keeps the scene
-// useful while exercising the same HTML/CSS/SVG features a real page uses.
-package fridge
+// Package claude_usage is a 296x128 operational usage snapshot.
+package claude_usage
 
 import (
 	"image"
@@ -12,8 +11,8 @@ import (
 
 func TestPageMatchesReference(t *testing.T) {
 	result := testscene.RenderPage(t, ".", "page")
-	if size := result.Frame.Bounds().Size(); size != image.Pt(400, 300) {
-		t.Fatalf("frame is %v, want 400x300", size)
+	if size := result.Frame.Bounds().Size(); size != image.Pt(296, 128) {
+		t.Fatalf("frame is %v, want 296x128", size)
 	}
 	if len(result.Report.Warnings) != 0 {
 		t.Errorf("warnings: %v", result.Report.Warnings)
@@ -21,7 +20,8 @@ func TestPageMatchesReference(t *testing.T) {
 	if len(result.Report.MissingRunes) != 0 {
 		t.Errorf("missing runes: %q", string(result.Report.MissingRunes))
 	}
-	testscene.AssertMatchesPNG(t, "fridge.png", result.Frame)
+	testscene.AssertEncodesFor(t, 0x0033, result.Frame, result.Orientation)
+	testscene.AssertMatchesPNG(t, "claude_usage.png", result.Frame)
 }
 
 func TestPageUsesThePanelInks(t *testing.T) {
@@ -34,9 +34,8 @@ func TestPageUsesThePanelInks(t *testing.T) {
 		}
 	}
 	for ink, name := range map[display.Ink]string{
-		display.InkBlack:  "black",
-		display.InkRed:    "red",
-		display.InkYellow: "yellow",
+		display.InkBlack: "black",
+		display.InkRed:   "red",
 	} {
 		if counts[ink] < 100 {
 			t.Errorf("%s covers only %d pixels", name, counts[ink])
