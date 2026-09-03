@@ -1,30 +1,18 @@
 # Markup Manual
 
-Pages use HTML for content, CSS for layout and paint, and SVG for
-geometry. The render target supplies the viewport: CLI `render` and `measure`,
-and HTTP `render`, require `size` or `panel`; `push` obtains the panel from the
-connected device. The root element may omit `width` and `height`; when present,
-they are CSS layout properties and do not select the render target.
-
-```html
-<main class="page">
-  <h1>Inkwire</h1>
-</main>
-```
-
-```css
-.page {
-  background: white;
-}
-```
+HTML defines content, CSS defines layout and paint, and SVG defines geometry.
+CLI `render` and `measure`, and HTTP `render`, require `size` or `panel`; `push`
+obtains the panel size and inks from the target device. The root element may
+omit `width` and `height`; when present, they affect CSS layout but do not select
+the render target.
 
 `orientation` on the root may be `landscape`, `portrait-cw` or
 `portrait-ccw`. It defaults to `landscape`.
 
 ## Supported properties
 
-The property name does not imply that every browser value is accepted. Values
-outside the lists and restrictions below produce a warning and are ignored.
+Listing a property does not imply that every browser value is accepted. Values
+outside the limits below produce a warning and are ignored.
 
 | Group | Properties |
 |---|---|
@@ -38,16 +26,15 @@ outside the lists and restrictions below produce a warning and are ignored.
 | Image | `object-fit` |
 
 All implemented properties accept `inherit`, `initial`, `unset` and `revert`.
-Keywords, units and function names are matched without regard to case, as CSS
-matches them; a font family is matched the same way and reported back as the
-author wrote it.
-The inherited properties are `color`, `font-family`, `font-size`, `line-height`,
-`text-align` and `white-space`. Other properties start from their default on
-each element.
+Keywords, units and function names are matched case-insensitively, as in CSS;
+font family names are matched the same way and reported as authored. The
+inherited properties are `color`, `font-family`, `font-size`, `line-height`,
+`text-align`, `white-space` and custom properties. Other properties start from
+their initial value on each element.
 
 ### Values
 
-- Lengths support `px`, percentages, and `calc()`.
+- Lengths support `px`, percentages and `calc()`.
 - `width`, `height`, `min-*`, `max-*`, `flex-basis`, `top`, `right`, `bottom`,
   `left`, `inset`, `transform-origin` and track sizes accept percentages.
 - Padding, margins and gaps resolve against the containing block's inline size
@@ -55,11 +42,25 @@ each element.
   are pixel-only.
 - `line-height` accepts a pixel length, a unitless ratio, or a percentage of the
   font size.
-- Colors are `black`, `white`, `red` and `yellow`. Other colors are reported,
-  not approximated.
-- Fonts and sizes are limited to the bitmap strikes bundled with the build. A
-  missing family or size uses the nearest available strike and reports a
-  `substituted-font-size` warning.
+- Colors are `black`, `white`, `red` and `yellow`, including their three- or
+  six-digit hexadecimal forms (for example, `#000` and `#000000`). Other colors
+  are reported, not approximated.
+- Font families are limited to the bitmap fonts bundled with the build. An
+  unavailable family uses the default and reports `unsupported-declaration`; an
+  unavailable size uses the nearest strike and reports `substituted-font-size`.
+
+### Cascade and inheritance
+
+Stylesheets are merged in source order: the stylesheet supplied by the CLI comes
+first, followed by page `<style>` elements and `link rel="stylesheet"` resources
+in document order. For one element, normal declarations are ordered by selector
+specificity; a later declaration wins ties. A normal inline `style` declaration
+outranks normal selector declarations. `!important` declarations outrank all
+normal declarations and are then compared by the same rules.
+
+Custom properties also cascade by the same rules and inherit from the parent.
+`var()` resolves them through that inheritance chain; an undefined or cyclic
+reference produces a warning and drops the declaration that uses it.
 
 ### Display and layout
 
@@ -84,7 +85,7 @@ of spaces; the default collapses whitespace.
 
 ### The box model
 
-A box is the one CSS describes, and every part of it counts.
+The box model follows CSS; size, padding and borders all participate in layout.
 
 ```css
 .card { width: 100px; padding: 10px; border: 5px solid black; }   /* 130 wide */
@@ -92,20 +93,18 @@ A box is the one CSS describes, and every part of it counts.
         box-sizing: border-box; }                                 /* 130 wide */
 ```
 
-`box-sizing` starts at `content-box`, as in CSS: a stated `width`, `height`,
-`min-*`, `max-*` or `flex-basis` is the size of the content, and the padding and
-the border go outside it. `border-box` makes the same properties state the whole
-box and leaves the content whatever is left. Most stylesheets open with
-`* { box-sizing: border-box; }`, and the examples here do.
+`box-sizing` defaults to `content-box`: a stated `width`, `height`, `min-*`,
+`max-*` or `flex-basis` is the content size, with padding and borders added
+outside. `border-box` makes those properties state the whole box and leaves the
+content the remaining space.
 
-A border takes room. The content of a bordered box starts inside the border and
-then inside the padding, and an absolutely positioned child is placed against
-the padding box — inside the border, outside the padding — which is where CSS
-places one.
+A border takes room. Content is inside the border and padding; an absolutely
+positioned child is placed against the padding box, inside the border and
+outside the padding.
 
-`border-top`, `border-right`, `border-bottom` and `border-left` may set each edge
-independently. A side border participates in the box model and supports the
-same width, colour and line styles as `border`.
+`border-top`, `border-right`, `border-bottom` and `border-left` set individual
+edges. A side border participates in the box model and supports the same width,
+colour and line styles as `border`.
 
 ### Positioning
 
@@ -123,16 +122,13 @@ the element from flow and places it against the nearest positioned ancestor.
 ### Paint and transform
 
 `background` and `border` accept the supported colors. `border-style` is
-`solid`, `dashed`, `dotted` or `none`, and a dot is as wide as the border and
-spaced by the same, as in CSS. `border-radius` rounds the corners.
-`visibility: hidden` keeps the box but removes its paint.
+`solid`, `dashed`, `dotted`, `none` or `hidden`; a dotted mark and its gap each
+equal the border width. `border-radius` rounds the corners. `visibility: hidden`
+keeps the box but removes its paint.
 
-A border with no style is not drawn — `border-style` starts at `none`, so
-`border: 1px` and a bare `border-width` draw nothing, as in a browser. The
-styles that need two lines or two shades (`double`, `groove`, `ridge`, `inset`,
-`outset`) are reported and not drawn: a panel with no greys has nothing to
-shade one with, and drawing them as solid would put a line on the page in a
-shape nobody asked for.
+`border-style` starts at `none`; without a line style, `border: 1px` and a bare
+`border-width` draw nothing. Styles that require multiple lines or shades
+(`double`, `groove`, `ridge`, `inset`, `outset`) produce a warning and are skipped.
 
 `transform` accepts `rotate` and whole-number `scale`. `rotate` accepts an
 angle, with `transform-origin` controlling the pivot. Unsupported transform
@@ -140,24 +136,34 @@ functions are reported.
 
 ### Text in a box
 
-`line-height` behaves as it does in CSS: the difference between it and the
-text's own height is the leading, and half of it goes above the letters and half
-below. So a larger `line-height` centres a line in its box rather than pushing
-it down, and every line is placed by its own metrics — what is on the line above
-or below cannot move it.
+`line-height` follows CSS. The difference from the text height is leading, split
+between the top and bottom of the line box. Increasing `line-height` expands the
+line box; it does not move the text downward. Each line uses its own font metrics.
 
-Inline content is laid out as line boxes. Text runs, `inline-block`,
-`inline-flex`, `inline-grid`, images and inline SVG share the same line and wrap
-when `white-space` permits it. Padding, margin, background, border,
-`position: relative` and `vertical-align` remain attached to the inline item.
+Inline content is laid out as line boxes. Text, `inline-block`, `inline-flex`,
+`inline-grid`, images and inline SVG share a line and wrap when `white-space`
+allows it. Padding, margin, background, border, `position: relative` and
+`vertical-align` remain attached to their inline item.
 
-`vertical-align` follows the CSS inline values `baseline`, `top`, `middle` and
-`bottom`; its initial value is `baseline`. `inline-block`, `inline-flex` and
-`inline-grid` are atomic boxes, so their descendants use the normal block, flex
-or grid rules inside that box.
+`vertical-align` accepts `baseline`, `top`, `middle` and `bottom`; its initial
+value is `baseline`. `text-top`, `text-bottom`, `sub`, `super` and length values
+produce a warning and are ignored. The property applies only to inline-level
+boxes and is not inherited; using it on a block, flex item or grid item produces
+a warning.
+
+`inline-block`, `inline-flex` and `inline-grid` are atomic boxes. Their
+descendants use the corresponding block, flex or grid formatting context.
+
+To align content inside a box, use `align-items` on the container,
+`align-self` on the item, or a `line-height` equal to the box height for a
+single text line.
 
 ```css
 .chip { display: inline-block; height: 20px; vertical-align: middle; }
+
+.row    { display: flex; align-items: center; }   /* centre every item */
+.figure { align-self: center; }                   /* centre one item */
+.label  { height: 20px; line-height: 20px; }      /* centre one text line */
 ```
 
 ## SVG
@@ -176,12 +182,14 @@ Supported paint properties are `fill`, `stroke`, `stroke-width`,
 
 `path` accepts `M L H V C S Q T A Z` and relative commands. `translate` and
 whole-number `scale` transforms are supported. A CSS property overrides an SVG
-presentation attribute when both specify the same value.
+presentation attribute when both specify the same property.
+`fill` and `stroke` accept the colors above, `none` and `transparent`; other
+colors produce a warning and skip that paint.
 
 ## Images and files
 
 An `img` references a resource through `src`. `src` may be an HTTP/HTTPS URL or
-a relative path. `.png`, `.jpg` and `.jpeg` are loaded as bitmaps. `.svg` is
+a relative path. `.png`, `.jpg` and `.jpeg` are loaded as bitmaps; `.svg` is
 compiled as an external drawing.
 
 ```
@@ -207,13 +215,11 @@ inkwire render \
      page.html
 ```
 
-When no mapping is given, the CLI still reads relative resources beside the
-page. HTTP uses multipart: `page` is the HTML document; each local resource is a
-binary file part whose field name exactly matches `src`, including any directory
-prefix. HTTP/HTTPS resources need no file part.
-
-A client-local path is not visible to the service; local HTTP resources must be
-uploaded with the request.
+When no mapping is given, the CLI reads relative resources beside the page. HTTP
+uses multipart: `page` is the HTML document; local resources are binary file
+parts whose field names exactly match `src`, including any directory prefix.
+HTTP/HTTPS resources need no file part. Client-local paths are not visible to the
+service.
 
 ```bash
 curl -F 'page=@page.html;type=text/html' \
@@ -222,11 +228,12 @@ curl -F 'page=@page.html;type=text/html' \
      'http://127.0.0.1:8080/v1/render?size=296x128'
 ```
 
-`link` `href` follows the same relative-resource rule, and `stylesheet` may be sent as its own part.
+`link` `href` follows the same relative-resource rule; a stylesheet may be sent
+as its own part.
 
 ## Warnings
 
 Unsupported properties, values, selectors, at-rules, colors, images and fonts
-produce warnings. The rest of the page continues to compile. Layout warnings
+produce warnings; the rest of the page continues to compile. Layout warnings
 such as `text-clipped`, `layout-overflow` and `empty-layout` identify content
-that does not fit the fixed canvas.
+that cannot fit the fixed canvas.

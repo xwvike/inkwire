@@ -19,7 +19,7 @@ Markup 遵循 Web 布局规则，实现面向电子纸面板的 CSS 子集。支
 |---|---|
 | `inkwire scan [-timeout 15s]` | 列出当前可扫描的标签 |
 | `inkwire render (-size WxH \| -panel FAMILY:ID) [-o out.png] [-asset SRC=FILE] <page.html>` | 渲染为 PNG |
-| `inkwire compile [-o scene.json] [-asset SRC=FILE] <page.html>` | 输出编译结果 |
+| `inkwire compile [-o scene.json] [-asset SRC=FILE] <page.html>` | 输出内部场景 JSON |
 | `inkwire measure (-size WxH \| -panel FAMILY:ID) [-json] [-asset SRC=FILE] <page.html>` | 输出节点布局 |
 | `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] [-asset SRC=FILE] <page.html>` | 渲染并写入 |
 | `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 时钟/日历 |
@@ -71,13 +71,12 @@ wrote preview.png (296x128)
 `-size` 与 `-panel` 互斥。`-size` 是完整的输出视口，可大于或小于任意实际面板；
 `-panel` 使用面板表中的完整尺寸和可用墨水。
 
-
 ```
 $ inkwire render page.html
 render needs -size WxH or -panel family:id
 ```
 
-`-size` 指定完整的排版和输出尺寸，不读取面板表：
+`-size` 指定完整的排版和输出尺寸，不读取面板表。
 
 ```bash
 inkwire render -size 400x300 page.html
@@ -213,7 +212,8 @@ listening on http://127.0.0.1:8080
 | `-listen` | `127.0.0.1:8080` | 监听地址，仅限回环 |
 | `-assets` | `.` | JSON 场景相对资源的根目录 |
 
-无鉴权，写入请求直达硬件；仅允许绑定回环地址。路由和错误码见[创建HTTP服务](#创建http服务)。
+无鉴权，写入请求直达硬件；仅允许绑定回环地址。JSON 场景的相对资源从 `-assets` 指定的目录
+读取；multipart 页面必须上传本地资源。路由和错误码见[创建 HTTP 服务](#创建-http-服务)。
 
 ## Gicisky
 
@@ -357,7 +357,7 @@ RSSI 受发射端、天线、路径和接收机影响。以下数据仅适用于
 
 广播窗口外静默是正常现象；扫描不到不代表设备不存在。
 
-## 创建HTTP服务
+## 创建 HTTP 服务
 
 ```bash
 inkwire serve -listen 127.0.0.1:8080
@@ -433,7 +433,7 @@ curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
 
 | `code` | 状态码 | 含义 |
 |---|---|---|
-| `unsupported-media-type` | 415 | 非 JSON 或 multipart |
+| `unsupported-media-type` | 415 | `Content-Type` 不是 `application/json` 或 `multipart/form-data` |
 | `invalid-request` | 400 | 缺少 `device` 或渲染目标、参数值无效或 multipart 结构错误 |
 | `request-too-large` | 413 | 超出体积上限 |
 | `invalid-scene` | 422 | 无法解码或渲染 |
@@ -484,7 +484,7 @@ HTML 使用 `img src` 引用图片。`src` 可以是 HTTP/HTTPS 链接，也可�
 <img src="https://example.com/portrait.png" class="remote">
 ```
 
-SVG 的 `viewBox` 按浏览器默认的 `xMidYMid meet` 映射到元素盒；支持小数缩放、非零原点和带符号的轴向变换。SVG 视口会裁剪其内容。填充和描边颜色必须是面板墨色（`black`、`white`、`red`、`yellow`）；其他颜色会报告并跳过。
+SVG 的 `viewBox` 按浏览器默认的 `xMidYMid meet` 映射到元素盒；支持小数缩放、非零原点和带符号的轴向变换。SVG 视口会裁剪其内容。填充和描边颜色必须是面板墨色（`black`、`white`、`red`、`yellow` 及等价十六进制写法）；其他颜色会报告并跳过。
 
 CLI 使用 `-asset SRC=FILE` 注入相对路径资源，可重复指定：
 
@@ -496,11 +496,11 @@ inkwire render \
      page.html
 ```
 
-未指定映射时，CLI 仍从页面目录读取相对资源。HTTP 使用 multipart：`page` 是 HTML；每个
+未指定映射时，CLI 从页面目录读取相对资源。HTTP 使用 multipart：`page` 是 HTML；每个
 本地资源是二进制文件字段，字段名必须与 `src` 完全一致，包括目录前缀。HTTP/HTTPS
 资源不需要文件字段。
 
-客户端本机路径对服务端不可见；HTTP 本地资源必须随请求上传。
+客户端本机路径对服务端不可见；HTTP 页面引用的本地资源必须随请求上传。
 
 ```bash
 curl -F 'page=@page.html;type=text/html' \

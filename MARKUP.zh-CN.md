@@ -1,28 +1,15 @@
 # Markup 手册
 
-页面使用 HTML 编写内容、CSS 负责布局和绘制、SVG 负责几何图形。渲染目标提供视口尺寸：
-CLI 的 `render`、`measure` 和 HTTP 的 `render` 必须指定 `size` 或 `panel`，`push` 从已连接设备获取面板。
-根元素可以省略 `width` 和 `height`；如果声明，它们只参与 CSS 布局，不选择渲染目标。
-
-```html
-<main class="page">
-  <h1>Inkwire</h1>
-</main>
-```
-
-```css
-.page {
-  background: white;
-}
-```
+HTML 定义内容，CSS 定义布局和绘制，SVG 定义几何图形。CLI 的 `render`、`measure` 和 HTTP
+`render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面板尺寸和墨色。
+根元素可以省略 `width` 和 `height`。声明后，它们只参与 CSS 布局，不决定渲染目标。
 
 根元素的 `orientation` 可以是 `landscape`、`portrait-cw` 或 `portrait-ccw`，默认是
 `landscape`。
 
-
 ## 支持的属性
 
-列出属性名不等于接受浏览器中的所有取值。超出下列范围的取值会产生警告并被忽略。
+属性名仅表示属性已实现，不表示接受浏览器中的全部取值。超出下列范围的取值会产生警告并被忽略。
 
 | 分组 | 属性 |
 |---|---|
@@ -35,22 +22,32 @@ CLI 的 `render`、`measure` 和 HTTP 的 `render` 必须指定 `size` 或 `pane
 | 文本 | `font` `font-family` `font-size` `line-height` `text-align` `vertical-align` `white-space` |
 | 图片 | `object-fit` |
 
-所有已实现属性都接受 `inherit`、`initial`、`unset` 和 `revert`。关键字、单位和函数名
-按 CSS 的规则大小写不敏感；字体族名同样如此，但报告时按作者书写的原样回显。会继承的属性是 `color`、
-`font-family`、`font-size`、`line-height`、`text-align` 和 `white-space`。其他属性在每个
-元素上从默认值开始。
+所有已实现属性均接受 `inherit`、`initial`、`unset` 和 `revert`。关键字、单位和函数名按 CSS
+规则不区分大小写；字体族名同样如此，但警告按作者书写的原样回显。`color`、`font-family`、
+`font-size`、`line-height`、`text-align`、`white-space` 和自定义属性会继承；其他属性从各元素的初始值开始。
 
 ### 取值
 
-- 长度支持 `px`、百分比，`calc()`。
+- 长度支持 `px`、百分比和 `calc()`。
 - `width`、`height`、`min-*`、`max-*`、`flex-basis`、`top`、`right`、`bottom`、`left`、
   `inset`、`transform-origin` 和轨道尺寸接受百分比。
 - 内边距、外边距和间隙按包含块的行向尺寸在布局时解析并取整。边框宽度、圆角和字号
   只接受像素值。
 - `line-height` 接受像素长度、无单位比例，或相对于字号的百分比。
-- 墨色是 `black`、`white`、`red` 和 `yellow`。其他颜色会被报告，不会近似成可用颜色。
-- 字体和字号受当前构建内置的位图字库限制。没有对应字库或字号时使用最接近的字形，并
-  给出 `substituted-font-size` 警告。
+- 墨色支持 `black`、`white`、`red`、`yellow` 及其三位或六位十六进制写法（如 `#000`、`#000000`）。
+  其他颜色会被报告，不会近似成可用颜色。
+- 字体族受构建内置字库限制。未找到字体族时使用默认字体并报告
+  `unsupported-declaration`；字号无对应位图字形时使用最近字号并报告 `substituted-font-size`。
+
+### 层叠与继承
+
+样式表按来源顺序合并：CLI 传入的样式表在前，页面中的 `<style>` 和 `link rel="stylesheet"`
+按文档顺序追加。同一元素的普通声明按选择器优先级排序，优先级相同则后声明生效；普通行内
+`style` 声明优先于普通选择器声明。`!important` 声明优先于所有普通声明，并在 important 声明
+之间按相同规则比较。
+
+自定义属性按相同规则层叠并从父元素继承。`var()` 在继承链上解析自定义属性；未定义或循环引用
+会产生警告并忽略使用它的声明。
 
 ### 显示与布局
 
@@ -72,7 +69,7 @@ Grid 容器使用 `grid-template-columns` 和 `grid-template-rows` 定义轨道�
 
 ### 盒模型
 
-盒子就是 CSS 描述的那个盒子，每一部分都算数。
+盒模型遵循 CSS；尺寸、padding 和 border 均参与布局。
 
 ```css
 .card { width: 100px; padding: 10px; border: 5px solid black; }   /* 宽 130 */
@@ -80,16 +77,14 @@ Grid 容器使用 `grid-template-columns` 和 `grid-template-rows` 定义轨道�
         box-sizing: border-box; }                                 /* 宽 130 */
 ```
 
-`box-sizing` 的起点是 `content-box`，和 CSS 一样：写下的 `width`、`height`、`min-*`、
-`max-*` 和 `flex-basis` 都是**内容**的尺寸，padding 和 border 加在它外面。`border-box`
-让这些属性表示整个盒子，内容拿剩下的部分。大多数样式表开头就写
-`* { box-sizing: border-box; }`，本仓库的示例也是这么写的。
+`box-sizing` 默认是 `content-box`：`width`、`height`、`min-*`、`max-*` 和 `flex-basis` 表示
+内容尺寸，padding 和 border 追加在外部。`border-box` 使这些属性表示整个盒子，内容使用剩余空间。
 
-边框占位置。带边框的盒子，内容先躲开边框、再躲开 padding；绝对定位的子元素贴的是
-**内边距盒**——在边框以内、padding 以外——这正是 CSS 放置它的地方。
+边框占据空间。内容位于边框和 padding 之内；绝对定位的子元素相对于内边距盒定位，即边框
+以内、padding 以外的区域。
 
-`border-top`/`border-right`/`border-bottom`/`border-left` 可以分别设置四条边。单边边框
-参与盒模型，并支持与 `border` 相同的宽度、墨色和线型。
+`border-top`、`border-right`、`border-bottom` 和 `border-left` 可分别设置。单边边框参与盒模型，
+支持与 `border` 相同的宽度、墨色和线型。
 
 ### 定位
 
@@ -99,45 +94,40 @@ Grid 容器使用 `grid-template-columns` 和 `grid-template-rows` 定义轨道�
 .hint { position: relative; left: 2px; top: -1px; }
 ```
 
-`position: relative` 保持元素在正常流中，并按 `top`、`right`、`bottom`、`left` 或 `inset`
-偏移绘制出来的盒子。`position: absolute` 将元素移出正常流，并相对最近的已定位祖先放置。
-`z-index` 控制已定位元素的绘制顺序。
+`position: relative` 保留元素在正常流中的位置，并按 `top`、`right`、`bottom`、`left` 或 `inset`
+偏移绘制盒。`position: absolute` 将元素移出正常流，并相对于最近的已定位祖先放置。`z-index`
+控制已定位元素的绘制顺序。
 
 ### 绘制与变换
 
-`background` 和 `border` 接受上述墨色。`border-style` 支持 `solid`、`dashed`、`dotted`
-和 `none`；点的直径等于边框宽度、间距也相同，和 CSS 一致。`border-radius` 绘制圆角。
-`visibility: hidden` 保留盒子但不绘制它的内容。
+`background` 和 `border` 接受上述墨色。`border-style` 支持 `solid`、`dashed`、`dotted`、`none`
+和 `hidden`；`dotted` 的点和间距均等于边框宽度。`border-radius` 绘制圆角；`visibility: hidden`
+保留盒子但不绘制内容。
 
-没写线型的边框不会被画出来——`border-style` 的初始值是 `none`，所以 `border: 1px` 和
-单独的 `border-width` 都不画线，浏览器里也是这样。需要两条线或两种明暗的线型
-（`double`、`groove`、`ridge`、`inset`、`outset`）会被报告并且不画：没有灰阶的面板没法
-做出明暗，而把它们画成实线等于在页面上放一条作者没要过形状的线。
+`border-style` 的初始值是 `none`；未指定线型时，`border: 1px` 和单独的 `border-width` 均不绘制。
+需要多条线或多种明暗的线型（`double`、`groove`、`ridge`、`inset`、`outset`）会产生警告并跳过。
 
 `transform` 支持 `rotate` 和整数倍 `scale`。`rotate` 接受角度，`transform-origin` 控制
 旋转中心。不支持的变换函数会被报告。
 
 ### 盒子里的文字
 
-`line-height` 的行为和 CSS 一致：它与文字自身高度的差值是 leading，一半加在字的上面，
-一半加在下面。所以调大 `line-height` 是把一行在它的行框里居中，而不是把它往下推；每
-一行都按自己的字体指标定位，上下行是什么字体都不会影响它。
+`line-height` 按 CSS 规则计算。它与文字高度的差值为 leading，平均分配到行框上下；增大
+`line-height` 会扩大行框，不会单独向下移动文字。每行依据自身字体指标定位。
 
-inline 内容按行框排版。文字、`inline-block`、`inline-flex`、`inline-grid`、图片和 inline
-SVG 共用同一行，并在 `white-space` 允许时换行。padding、margin、background、border、
-`position: relative` 和 `vertical-align` 都保留在各自的 inline 项上。
+Inline 内容按行框排版。文本、`inline-block`、`inline-flex`、`inline-grid`、图片和 inline
+SVG 共用行框，并在 `white-space` 允许时换行。padding、margin、background、border、
+`position: relative` 和 `vertical-align` 均作用于各自的 inline 项。
 
-`vertical-align` 支持 CSS inline 的 `baseline`、`top`、`middle` 和 `bottom`，初始值是
-`baseline`；`text-top`、`text-bottom`、`sub`、`super` 和长度值会被报告，而不是近似成
-别的东西。它**只作用于 inline 级盒子**，和 CSS 一样：写在 block、flex item 或 grid
-item 上会被报告，而且它不继承。
+`vertical-align` 支持 `baseline`、`top`、`middle` 和 `bottom`，初始值为 `baseline`。
+`text-top`、`text-bottom`、`sub`、`super` 和长度值会产生警告并被忽略。该属性只作用于
+inline 级盒子，不继承；用于 block、flex item 或 grid item 时会产生警告。
 
 `inline-block`、`inline-flex` 和 `inline-grid` 是原子盒子，盒内子元素分别按普通
 block、flex 或 grid 规则排版。
 
-要摆放盒子**里面**的东西而不是盒子本身，用 CSS 为此准备的属性：容器上的
-`align-items`、单个项目上的 `align-self`，或者给只有一行文字的盒子一个等于盒高的
-`line-height`。
+要在盒内对齐内容，使用容器的 `align-items`、项目的 `align-self`，或为单行文本设置与盒高
+相等的 `line-height`。
 
 ```css
 .chip { display: inline-block; height: 20px; vertical-align: middle; }
@@ -148,7 +138,6 @@ block、flex 或 grid 规则排版。
 ```
 
 ## SVG
-
 
 ```html
 <svg viewBox="0 0 214 74">
@@ -162,12 +151,13 @@ block、flex 或 grid 规则排版。
 `stroke-width`、`stroke-dasharray`、`stroke-dashoffset` 和 `clip-path`。
 
 `path` 支持 `M L H V C S Q T A Z` 及其相对命令。支持 `translate` 和整数倍 `scale` 变换。
-同一个值同时写在 SVG 呈现属性和 CSS 中时，CSS 优先。
+同一属性同时出现在 SVG 呈现属性和 CSS 中时，CSS 优先。
+`fill` 和 `stroke` 仅接受上述墨色、`none` 和 `transparent`；其他颜色会产生警告并跳过该绘制。
 
 ## 图片与文件
 
-`img` 通过 `src` 引用资源。`src` 可以是 HTTP/HTTPS 链接，也可以是相对路径。`.png`、
-`.jpg` 和 `.jpeg` 作为位图加载，`.svg` 作为外部 SVG 编译。
+`img` 通过 `src` 引用资源。`src` 可以是 HTTP/HTTPS 链接或相对路径。`.png`、`.jpg` 和
+`.jpeg` 按位图加载，`.svg` 编译为外部 SVG。
 
 ```
 page.html
@@ -192,11 +182,9 @@ inkwire render \
      page.html
 ```
 
-未指定映射时，CLI 仍从页面目录读取相对资源。HTTP 使用 multipart：`page` 是 HTML；每个
-本地资源是二进制文件字段，字段名必须与 `src` 完全一致，包括目录前缀。HTTP/HTTPS
-资源不需要文件字段。
-
-客户端本机路径对服务端不可见；HTTP 本地资源必须随请求上传。
+未指定映射时，CLI 从页面目录读取相对资源。HTTP 使用 multipart：`page` 是 HTML；本地资源
+作为二进制文件字段上传，字段名必须与 `src` 完全一致，包括目录前缀。HTTP/HTTPS 资源不需要
+文件字段。客户端本机路径不会传递给服务端。
 
 ```bash
 curl -F 'page=@page.html;type=text/html' \
@@ -205,10 +193,9 @@ curl -F 'page=@page.html;type=text/html' \
      'http://127.0.0.1:8080/v1/render?size=296x128'
 ```
 
-`link` 的 `href` 遵循相同的相对资源规则，`stylesheet` 也可以作为独立字段传入。
+`link` 的 `href` 遵循相同的相对资源规则；stylesheet 也可以作为独立字段传入。
 
 ## 警告
 
-不支持的属性、取值、选择器、at-rule、颜色、图片和字体都会产生警告，页面其余部分继续
-编译。`text-clipped`、`layout-overflow` 和 `empty-layout` 等布局警告会指出固定画布中放不下
-的内容。
+不支持的属性、取值、选择器、at-rule、颜色、图片和字体会产生警告，其他内容继续编译。
+`text-clipped`、`layout-overflow` 和 `empty-layout` 等布局警告指出内容无法完整放入固定画布。

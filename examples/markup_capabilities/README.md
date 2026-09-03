@@ -1,8 +1,7 @@
 # Markup capabilities
 
-Most pages are 400x300 reference renders. `potrace.html` is 500x500 so the
-imported SVG can be inspected at the size it was authored for. The HTML uses
-only the CSS and SVG properties listed in `MARKUP.md`.
+Reference pages use 400x300. `potrace.html` uses 500x500 to match its imported
+SVG. Pages use only the CSS and SVG properties listed in `MARKUP.md`.
 
 | Page | Demonstrates |
 |---|---|

@@ -20,7 +20,7 @@ differences.
 |---|---|
 | `inkwire scan [-timeout 15s]` | List visible tags |
 | `inkwire render (-size WxH \| -panel FAMILY:ID) [-o out.png] [-asset SRC=FILE] <page.html>` | Render to PNG |
-| `inkwire compile [-o scene.json] [-asset SRC=FILE] <page.html>` | Output compiler result |
+| `inkwire compile [-o scene.json] [-asset SRC=FILE] <page.html>` | Write internal scene JSON |
 | `inkwire measure (-size WxH \| -panel FAMILY:ID) [-json] [-asset SRC=FILE] <page.html>` | Output node layout |
 | `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] [-asset SRC=FILE] <page.html>` | Render and write |
 | `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 clock / calendar |
@@ -75,13 +75,12 @@ wrote preview.png (296x128)
 viewport and may be smaller or larger than any physical panel. `-panel` uses the
 panel table's complete dimensions and ink palette.
 
-
 ```
 $ inkwire render page.html
 render needs -size WxH or -panel family:id
 ```
 
-`-size` sets the complete layout and output size without consulting the panel table:
+`-size` sets the complete layout and output size without consulting the panel table.
 
 ```bash
 inkwire render -size 400x300 page.html
@@ -222,8 +221,9 @@ listening on http://127.0.0.1:8080
 | `-assets` | `.` | Root directory for relative JSON-scene resources |
 
 There is no authentication and write requests reach hardware directly. Only a
-loopback address is accepted. See [Running the HTTP service](#running-the-http-service)
-for routes and error codes.
+loopback address is accepted. Relative resources in JSON scenes are read below
+the `-assets` directory; multipart pages must upload local resources. See
+[Running the HTTP service](#running-the-http-service) for routes and error codes.
 
 ## Gicisky
 
@@ -458,7 +458,7 @@ Non-fatal.
 
 | `code` | Status | Meaning |
 |---|---|---|
-| `unsupported-media-type` | 415 | Not JSON or multipart |
+| `unsupported-media-type` | 415 | `Content-Type` is not `application/json` or `multipart/form-data` |
 | `invalid-request` | 400 | Missing `device` or render target, invalid parameter value or malformed multipart |
 | `request-too-large` | 413 | Over the size limit |
 | `invalid-scene` | 422 | Will not decode or render |
@@ -514,8 +514,8 @@ drawing.
 SVG `viewBox` coordinates are mapped to the element box with the browser
 default `xMidYMid meet`; fractional scaling, non-zero origins and signed
 axis transforms are supported. The SVG viewport clips its contents. Fill and
-stroke colors must be panel inks (`black`, `white`, `red`, `yellow`); other
-colors are reported and skipped.
+stroke colors must be panel inks (`black`, `white`, `red`, `yellow`, or an
+equivalent hexadecimal form); other colors are reported and skipped.
 
 The CLI injects local resources with repeatable `-asset SRC=FILE` flags:
 
@@ -532,8 +532,8 @@ page. HTTP uses multipart: `page` is the HTML document; each local resource is a
 binary file part whose field name exactly matches `src`, including any directory
 prefix. HTTP/HTTPS resources need no file part.
 
-A client-local path is not visible to the service; local HTTP resources must be
-uploaded with the request.
+A client-local path is not visible to the service; local resources referenced by
+an HTTP page must be uploaded with the request.
 
 ```bash
 curl -F 'page=@page.html;type=text/html' \
