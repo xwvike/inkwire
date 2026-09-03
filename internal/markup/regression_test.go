@@ -78,15 +78,13 @@ func TestNestedAbsolutePositionUsesTheNearestPositionedAncestor(t *testing.T) {
 	expect(t, got, display.InkRed, image.Rect(7, 5, 17, 15), "the pin anchored to frame rather than wrapper")
 }
 
-// Text sits at the top of its box, as it does in CSS, and centring is
-// something a page asks for.
+// Text sits at the top of its box, and nothing about the box moves it.
 //
-// It was defaulted to middle for two days. That is a divergence a web author
-// would not expect, and it had a cost this could not have: a line of Chinese
-// and a line of mixed Chinese and Latin have ink of different heights, so
-// centring settled them a pixel apart whenever the leftover was odd. At the
-// top there is nothing to halve.
-func TestTextSitsAtTheTopOfItsBoxUnlessAsked(t *testing.T) {
+// vertical-align used to do that here: written on a block it centred the text
+// inside it, which is a thing CSS has no way to ask for, so a page written
+// that way could not be carried to a browser. It is an inline-level property
+// now, and centring a box's contents is align-items on its container.
+func TestTextSitsAtTheTopOfItsBox(t *testing.T) {
 	document, err := Compile(`<div class="page"><span class="label">x</span></div>`,
 		`.page { display: flex; width: 40px; height: 20px; }
 		 .label { display: block; flex-grow: 1; }`)
@@ -97,14 +95,12 @@ func TestTextSitsAtTheTopOfItsBoxUnlessAsked(t *testing.T) {
 		t.Fatalf("text that said nothing about alignment was given one:\n%s", document.JSON)
 	}
 
-	centred, err := Compile(`<div class="page"><span class="label">x</span></div>`,
-		`.page { display: flex; width: 40px; height: 20px; }
-		 .label { display: block; flex-grow: 1; vertical-align: middle; }`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if flat := strings.Join(strings.Fields(string(centred.JSON)), ""); !strings.Contains(flat, `"verticalAlign":"middle"`) {
-		t.Fatalf("asking for middle did not produce it:\n%s", centred.JSON)
+	// A container centres its items; that is what the property for it is.
+	got := boxes(t, `<i class="a"></i>`,
+		`.page { align-items: center; }
+		 .a { display: block; flex-grow: 1; height: 10px; background: red; }`)
+	if box := got[display.InkRed]; box.Min.Y != 20 || box.Max.Y != 30 {
+		t.Errorf("align-items: center put the item at %v, want it centred in the fifty pixel line", box)
 	}
 }
 
@@ -412,43 +408,53 @@ func TestTheOverConstrainedMessageNamesOnlyTheEdgesInsetGave(t *testing.T) {
 	}
 }
 
-// vertical-align is part of the inline formatting context. It is accepted on
-// inline elements and participates in line-box placement.
-func TestVerticalAlignOnAnInlineElementIsApplied(t *testing.T) {
-	said := warningsFor(t, `<p>big <span class="a">X</span></p>`,
-		` .a { vertical-align: middle; }`)
-	if strings.Contains(said, "vertical-align") {
-		t.Errorf("vertical-align on a span was reported: %q", said)
+// vertical-align applies to inline-level boxes and to nothing else, as in CSS.
+// Written on a block it used to align the text inside it; now it is reported,
+// because a declaration that does nothing has to say so.
+func TestVerticalAlignAppliesToInlineLevelBoxesOnly(t *testing.T) {
+	for _, display := range []string{"inline", "inline-block", "inline-flex"} {
+		t.Run(display, func(t *testing.T) {
+			said := warningsFor(t, `<p>big <span class="a">x</span></p>`,
+				` .a { display: `+display+`; vertical-align: middle; }`)
+			if said != "" {
+				t.Errorf("vertical-align on an %s box was reported: %q", display, said)
+			}
+		})
 	}
-
-	// On the box that holds the text it is what the property is for.
-	if said := warningsFor(t, `<i class="a">x</i>`,
-		` .a { display: block; height: 20px; vertical-align: middle; }`); said != "" {
-		t.Errorf("vertical-align on a box was reported: %q", said)
+	for _, display := range []string{"block", "flex", "grid"} {
+		t.Run(display, func(t *testing.T) {
+			said := warningsFor(t, `<i class="a">x</i>`,
+				` .a { display: `+display+`; height: 20px; vertical-align: middle; }`)
+			if !strings.Contains(said, "inline-level") {
+				t.Errorf("vertical-align on a %s box was accepted silently: %q", display, said)
+			}
+		})
+	}
+	for _, container := range []string{"flex", "grid"} {
+		t.Run(container+" item blockification", func(t *testing.T) {
+			said := warningsFor(t, `<div class="box"><span class="a">x</span></div>`,
+				` .box { display: `+container+`; }`+
+					` .a { display: inline-block; vertical-align: middle; }`)
+			if !strings.Contains(said, "inline-level") {
+				t.Errorf("vertical-align on an explicitly inline %s item was accepted: %q", container, said)
+			}
+		})
 	}
 }
 
 // A grid item is blockified, as a flex item is and as CSS says. Only flex was
 // doing it, so a span in a grid cell stayed inline and every property that
-// only means something on a box quietly did nothing to it — which is how
-// examples/desk/disk.html came to carry four dead vertical-align declarations
-// nobody could see were dead.
+// only means something on a box quietly did nothing to it.
 func TestAGridItemIsBlockifiedLikeAFlexItem(t *testing.T) {
 	for _, container := range []string{"flex", "grid"} {
 		t.Run(container, func(t *testing.T) {
-			document, err := Compile(
-				`<div class="page"><div class="box"><span class="cell">x</span></div></div>`,
-				`.page { display: flex; width: 60px; height: 40px; }
-				 .box { display: `+container+`; flex-grow: 1; }
-				 .cell { height: 30px; vertical-align: middle; }`)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, warning := range document.Warnings {
-				t.Errorf("a %s item was still inline: %s", container, warning.Message)
-			}
-			if flat := strings.Join(strings.Fields(string(document.JSON)), ""); !strings.Contains(flat, `"verticalAlign":"middle"`) {
-				t.Errorf("the %s item did not take the alignment:\n%s", container, document.JSON)
+			got := boxes(t, `<div class="box"><span class="cell"></span></div>`,
+				`.box { display: `+container+`; flex-grow: 1; }
+				 .cell { width: 12px; height: 30px; align-self: start;
+				         justify-self: start; background: red; }`)
+			// An inline span takes no width or height; a blockified item does.
+			if cell := got[display.InkRed]; cell.Dx() != 12 || cell.Dy() != 30 {
+				t.Errorf("the %s item covered %v, want 12x30: it was still inline", container, cell)
 			}
 		})
 	}
@@ -461,7 +467,7 @@ func TestAGridItemIsBlockifiedLikeAFlexItem(t *testing.T) {
 func TestKeywordsAndUnitsAreMatchedWithoutRegardToCase(t *testing.T) {
 	for _, declaration := range []string{
 		"box-sizing: BORDER-BOX", "display: FLEX", "position: ABSOLUTE", "overflow: HIDDEN",
-		"text-align: CENTER", "vertical-align: MIDDLE", "white-space: NOWRAP",
+		"text-align: CENTER", "white-space: NOWRAP",
 		"visibility: HIDDEN", "border-style: DOTTED", "object-fit: COVER",
 		"width: 50PX", "padding: 5PX", "margin-left: AUTO", "flex-direction: COLUMN",
 		"color: RED", "background: WHITE", "align-items: CENTER", "justify-content: SPACE-BETWEEN",

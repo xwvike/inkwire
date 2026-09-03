@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -333,12 +334,14 @@ func (c *compiler) computed(node *html.Node, parent style, path string) style {
 	current := inherited
 	current.display = displayBlock
 	current.inline = inlineByDefault[node.Data]
+	current.shrink = 1 // flex-shrink's CSS initial value; it is not inherited.
 	// Children of a flex or grid container are blockified: being an item in
 	// one settles the question before the element's own default gets a say.
 	// Grid was missing, so a span in a grid cell was still inline and every
 	// property that only means something on a box did nothing to it.
 	if parent.display == displayFlex || parent.display == displayGrid {
 		current.inline = false
+		current.blockified = true
 	}
 	// Custom properties are resolved against the chain this element sits in,
 	// which is how they inherit: an ancestor's declaration is in scope here
@@ -386,6 +389,23 @@ func (c *compiler) computed(node *html.Node, parent style, path string) style {
 	// with the box that was never built.
 	if current.absolute {
 		current.inline = false
+	}
+	// vertical-align is an inline-level property. On anything else CSS simply
+	// does not apply it, and a declaration that does nothing has to say so —
+	// this used to align the text inside the box instead, which is a thing
+	// CSS has no way to ask for and a page written here could not carry to a
+	// browser. Centring a box's contents is align-items on its container.
+	if current.blockified || (!current.inline && !current.inlineAtomic) {
+		for _, applied := range c.sheet.declarationsFor(node) {
+			if applied.property != "vertical-align" {
+				continue
+			}
+			c.warn(path, "unsupported-declaration", fmt.Sprintf(
+				"%s: vertical-align applies to inline-level boxes, so it has no effect here; "+
+					"to place a box's contents use align-items on its container, or align-self on it",
+				describe(node)))
+			break
+		}
 	}
 	c.computedFor[node] = current
 	return current
@@ -457,7 +477,7 @@ func (c *compiler) element(node *html.Node, parent style, path string, containin
 		current.background, current.border = nil, nil
 	}
 	inner, insetAlready := c.children(node, current, path, containing)
-	if inner == nil && current.background == nil && current.border == nil {
+	if inner == nil && (current.background == nil && !hasBorder(current) || current.hasBoxEdges()) {
 		// An element with nothing to paint still has a box. Dropping it
 		// shifted everything after it along, which in a grid meant a spacer
 		// element vanished and the cell it was holding was taken by the next
@@ -485,16 +505,10 @@ func (c *compiler) element(node *html.Node, parent style, path string, containin
 	// to. Drawing it as solid instead is the one thing that must not happen:
 	// the page would show a line the author asked not to have, or asked for in
 	// a shape this has no way to make.
-	if current.border != nil && current.border.width > 0 && current.line != borderNone {
-		edge := &stroke{Ink: inkName(current.border.ink), Width: current.border.width}
-		edge.Dash = current.line.dashOf(current.border.width)
-		if len(current.dash) > 0 {
-			edge.Dash = current.dash
-		}
-		if len(edge.Dash) > 0 {
-			edge.DashOffset = current.dashOffset
-		}
-		layers = append(layers, &emitted{Type: "rectangle", Radius: current.border.radius, Stroke: edge})
+	if edge, sides := borderStrokes(current); edge != nil || sides != ([4]*stroke{}) {
+		borderLayer := &emitted{Type: "rectangle", Radius: radiusOf(current), Stroke: edge,
+			StrokeTop: sides[0], StrokeRight: sides[1], StrokeBottom: sides[2], StrokeLeft: sides[3]}
+		layers = append(layers, borderLayer)
 	}
 	// overflow confines what is inside the element; the element's own
 	// background and border are drawn regardless. clip-path is the other way
@@ -585,6 +599,43 @@ func radiusOf(s style) int {
 		return 0
 	}
 	return s.border.radius
+}
+
+func hasBorder(s style) bool {
+	for index := 0; index < 4; index++ {
+		if s.effectiveBorderWidth(index) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func borderStrokes(s style) (*stroke, [4]*stroke) {
+	var sides [4]*stroke
+	for index := range sides {
+		side := s.effectiveBorderSide(index)
+		if side.width <= 0 || side.line == borderNone {
+			continue
+		}
+		value := &stroke{Ink: inkName(side.ink), Width: side.width,
+			Dash: side.line.dashOf(side.width), DashOffset: side.dashOffset}
+		if len(side.dash) > 0 {
+			value.Dash = side.dash
+		}
+		sides[index] = value
+	}
+	if sides[0] != nil && strokeEqual(sides[0], sides[1]) &&
+		strokeEqual(sides[0], sides[2]) && strokeEqual(sides[0], sides[3]) {
+		return sides[0], [4]*stroke{}
+	}
+	return nil, sides
+}
+
+func strokeEqual(left, right *stroke) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return left.Ink == right.Ink && left.Width == right.Width && left.DashOffset == right.DashOffset && slices.Equal(left.Dash, right.Dash)
 }
 
 // sized applies an explicit width or height, which compose expresses as a
@@ -778,9 +829,8 @@ func (c *compiler) children(node *html.Node, current style, path string, contain
 			// different heights, so at an even line height the two settled a
 			// pixel apart. At the top they cannot.
 			return &emitted{Type: "text", Runs: runs,
-				Align:         horizontalAlignName(current.textAlign),
-				VerticalAlign: verticalAlignName(current.textVAlign),
-				Wrap:          wrapName(current.wrap), LineHeight: current.lineHeight}, false
+				Align: horizontalAlignName(current.textAlign),
+				Wrap:  wrapName(current.wrap), LineHeight: current.lineHeight}, false
 		}
 	}
 
@@ -819,9 +869,11 @@ func (c *compiler) children(node *html.Node, current style, path string, contain
 		return flow(&emitted{Type: "grid",
 			Columns: tracksOf(current.columns), Rows: tracksOf(current.rows),
 			ColumnGap: current.columnGap, RowGap: current.rowGap,
-			AlignItems:   crossAlignName(current.alignItems),
-			JustifyItems: crossAlignName(crossOfMain(current.justify)),
-			Children:     cells,
+			ColumnGapLength: deferredLengthValue(lengthOf(current.columnGapLength)),
+			RowGapLength:    deferredLengthValue(lengthOf(current.rowGapLength)),
+			AlignItems:      crossAlignName(current.alignItems),
+			JustifyItems:    crossAlignName(crossOfMain(current.justify)),
+			Children:        cells,
 		})
 	}
 	if current.display == displayFlex {
@@ -830,11 +882,11 @@ func (c *compiler) children(node *html.Node, current style, path string, contain
 		}
 		cross := current.alignItems
 		if current.direction == axisColumn {
-			return flow(&emitted{Type: "column", Gap: current.rowGap,
+			return flow(&emitted{Type: "column", Gap: current.rowGap, GapLength: deferredLengthValue(lengthOf(current.rowGapLength)),
 				MainAlign: mainAlignName(current.justify), CrossAlign: crossAlignName(cross),
 				Children: items})
 		}
-		return flow(&emitted{Type: "row", Gap: current.columnGap,
+		return flow(&emitted{Type: "row", Gap: current.columnGap, GapLength: deferredLengthValue(lengthOf(current.columnGapLength)),
 			MainAlign: mainAlignName(current.justify), CrossAlign: crossAlignName(cross),
 			Children: items})
 	}
@@ -889,11 +941,26 @@ func (c *compiler) inlineCompatible(node *html.Node, current style, path string)
 // padded insets an element's content by everything between it and the outside
 // of the box: the border and then the padding, which is what CSS counts.
 func padded(inner *emitted, current style) *emitted {
-	edges := current.edges()
-	if inner == nil || edges == (compose.Insets{}) {
+	edges := current.edgesLengths()
+	if inner == nil || !lengthsSet(edges) {
 		return inner
 	}
-	return &emitted{Type: "padding", Insets: insetsOf(edges), Child: inner}
+	if fixed, ok := fixedInsets(edges); ok {
+		return &emitted{Type: "padding", Insets: insetsOf(fixed), Child: inner}
+	}
+	return &emitted{Type: "padding", LengthInsets: lengthInsetsOf(edges), Child: inner}
+}
+
+func fixedInsets(lengths [4]compose.Length) (compose.Insets, bool) {
+	values := [4]int{}
+	for index, length := range lengths {
+		percent, pixels := length.Parts()
+		if percent != 0 {
+			return compose.Insets{}, false
+		}
+		values[index] = pixels
+	}
+	return compose.Insets{Top: values[0], Right: values[1], Bottom: values[2], Left: values[3]}, true
 }
 
 // anchoredIn places the children that were taken out of the flow. They resolve
@@ -980,7 +1047,7 @@ func contentsContext(container, contents style) style {
 	next.fill, next.stroke, next.strokeWidth = inherited.fill, inherited.stroke, inherited.strokeWidth
 	next.color = inherited.color
 	next.fontFamily, next.fontSize = inherited.fontFamily, inherited.fontSize
-	next.textAlign, next.textVAlign = inherited.textAlign, inherited.textVAlign
+	next.textAlign = inherited.textAlign
 	next.lineHeight, next.lineHeightMultiple = inherited.lineHeight, inherited.lineHeightMultiple
 	next.wrap, next.preserve, next.hidden = inherited.wrap, inherited.preserve, inherited.hidden
 	return next
@@ -1020,10 +1087,9 @@ func (c *compiler) appendChildren(node *html.Node, current style, path string, i
 				continue
 			}
 			anonymous := &emitted{Type: "text",
-				Runs:          plainRuns([]run{c.runOf(text, current, path)}),
-				VerticalAlign: verticalAlignName(current.textVAlign),
-				Wrap:          wrapName(current.wrap),
-				LineHeight:    current.lineHeight,
+				Runs:       plainRuns([]run{c.runOf(text, current, path)}),
+				Wrap:       wrapName(current.wrap),
+				LineHeight: current.lineHeight,
 			}
 			if current.display == displayGrid {
 				into.cells = append(into.cells, gridChild{Node: anonymous})
@@ -1063,23 +1129,13 @@ func (c *compiler) appendChildren(node *html.Node, current style, path string, i
 		// margin-left:auto on a row, or margin-top:auto on a column, pushes
 		// this child and everything after it to the far end. A spacer that
 		// takes all the slack is how compose says the same thing.
-		if (flow == axisRow && childStyle.autoLeft) ||
-			(flow == axisColumn && childStyle.autoTop) {
+		if current.display == displayFlex && ((flow == axisRow && childStyle.autoLeft) ||
+			(flow == axisColumn && childStyle.autoTop)) {
 			into.items = append(into.items, grower())
 		}
-		before, after, across := marginsAlong(childStyle, flow)
-		if across != (compose.Insets{}) {
-			compiled = &emitted{Type: "padding", Insets: insetsOf(across), Child: compiled}
-		}
-		if before > 0 {
-			into.items = append(into.items, layoutChild{Node: &emitted{Type: "spacer"}, Basis: before})
-		}
 		into.items = append(into.items, c.layoutChild(compiled, childStyle, current, childPath))
-		if after > 0 {
-			into.items = append(into.items, layoutChild{Node: &emitted{Type: "spacer"}, Basis: after})
-		}
-		if (flow == axisRow && childStyle.autoRight) ||
-			(flow == axisColumn && childStyle.autoBottom) {
+		if current.display == displayFlex && ((flow == axisRow && childStyle.autoRight) ||
+			(flow == axisColumn && childStyle.autoBottom)) {
 			into.items = append(into.items, grower())
 		}
 	}
@@ -1102,6 +1158,7 @@ func gridCell(node *emitted, child style) gridChild {
 		RowSpan:     child.cellRow[1],
 		AlignSelf:   optionalCrossAlignName(child.alignSelf),
 		JustifySelf: optionalCrossAlignName(child.justifySelf),
+		Margin:      lengthInsetsOf(styleLengths(child.marginLength, child.margin)),
 	}
 }
 
@@ -1121,19 +1178,6 @@ func spread(items []layoutChild) []layoutChild {
 	return spaced
 }
 
-// marginsAlong splits a flex item's margins by axis, because the two need
-// different treatment. Along the container's axis a margin is a fixed gap
-// beside the item, which a spacer expresses exactly. Across it, the item is
-// inset instead, which is what wrapping the built node in padding does.
-func marginsAlong(child style, direction axis) (before, after int, across compose.Insets) {
-	if direction == axisColumn {
-		return child.margin.Top, child.margin.Bottom,
-			compose.Insets{Left: child.margin.Left, Right: child.margin.Right}
-	}
-	return child.margin.Left, child.margin.Right,
-		compose.Insets{Top: child.margin.Top, Bottom: child.margin.Bottom}
-}
-
 // layoutChild hands the child's stated sizes to the layout as lengths, which
 // is where they can finally be resolved. Nothing here decides a pixel.
 func (c *compiler) layoutChild(node *emitted, child, parent style, path string) layoutChild {
@@ -1143,9 +1187,16 @@ func (c *compiler) layoutChild(node *emitted, child, parent style, path string) 
 		along = axisColumn
 	}
 	item := layoutChild{
-		Node: node, Grow: child.grow,
+		Node:      node,
 		AlignSelf: optionalCrossAlignName(child.alignSelf), Ratio: child.ratio,
 	}
+	// Only flex items participate in flex factor distribution. Block flow is
+	// represented by the same column node, but its children keep their measured
+	// sizes and overflow just as ordinary block boxes do.
+	if parent.display == displayFlex {
+		item.Grow, item.Shrink = child.grow, child.shrink
+	}
+	item.Margin = lengthInsetsOf(styleLengths(child.marginLength, child.margin))
 
 	// Every stated size is the content's unless the box says border-box, so
 	// the item the line is given has to be the box around it. flex-basis is
@@ -1162,17 +1213,32 @@ func (c *compiler) layoutChild(node *emitted, child, parent style, path string) 
 	if child.basis.set {
 		item.Basis = lengthValue(lengthOf(child.outerSize(child.basis, along == axisRow)))
 	}
-	// The margins across the flow are wrapped round the node as padding, so
-	// the item has to be that much bigger across or the padding pushes the
-	// box out of the room the item was given. marginsAlong fills only the two
-	// sides across the flow, which are exactly the two that were wrapped.
-	if _, _, across := marginsAlong(child, along); crossSize.set {
-		crossSize.pixels += float64(across.Top + across.Right + across.Bottom + across.Left)
-	}
 	item.Cross = lengthValue(lengthOf(crossSize))
 	item.MinMain, item.MaxMain = lengthValue(lengthOf(minMain)), lengthValue(lengthOf(maxMain))
 	item.MinCross, item.MaxCross = lengthValue(lengthOf(minCross)), lengthValue(lengthOf(maxCross))
 	return item
+}
+
+func styleLengths(lengths [4]length, fallback compose.Insets) [4]compose.Length {
+	result := [4]compose.Length{}
+	values := [4]int{fallback.Top, fallback.Right, fallback.Bottom, fallback.Left}
+	for index, value := range lengths {
+		if value.set {
+			result[index] = lengthOf(value)
+		} else if values[index] != 0 {
+			result[index] = compose.Pixels(values[index])
+		}
+	}
+	return result
+}
+
+func styleLengthsSet(lengths [4]length) bool {
+	for _, length := range lengths {
+		if length.set {
+			return true
+		}
+	}
+	return false
 }
 
 // lengthOf carries a stated size through unresolved. Percentages are kept in
@@ -1320,14 +1386,27 @@ func mergeInlineBox(outer, inner style) style {
 	if inner.padding != (compose.Insets{}) {
 		merged.padding = inner.padding
 	}
+	if styleLengthsSet(inner.paddingLength) {
+		merged.paddingLength = inner.paddingLength
+	}
 	if inner.margin != (compose.Insets{}) {
 		merged.margin = inner.margin
+	}
+	if styleLengthsSet(inner.marginLength) {
+		merged.marginLength = inner.marginLength
 	}
 	if inner.background != nil {
 		merged.background = inner.background
 	}
 	if inner.border != nil {
 		merged.border, merged.line, merged.dash, merged.dashOffset = inner.border, inner.line, inner.dash, inner.dashOffset
+	}
+	for index, side := range inner.borderSide {
+		if side != nil {
+			copy := *side
+			copy.dash = slices.Clone(side.dash)
+			merged.borderSide[index] = &copy
+		}
 	}
 	if inner.positioned {
 		merged.positioned, merged.inset = true, inner.inset
@@ -1339,16 +1418,23 @@ func (c *compiler) inlineBoxItem(current style) inlineItem {
 	item := inlineItem{LineHeight: current.lineHeight,
 		VerticalAlign: inlineVerticalAlignName(current.inlineVAlign), Wrap: wrapName(current.wrap)}
 	item.Padding = insetsOf(current.padding)
+	if styleLengthsSet(current.paddingLength) {
+		// The dynamic representation includes any fixed calc adjustment and is
+		// resolved by compose; do not validate its unresolved pixel part as a
+		// standalone (possibly negative) inset.
+		item.Padding = nil
+	}
 	item.Margin = insetsOf(current.margin)
+	item.PaddingLength = deferredLengthInsetsOf(styleLengths(current.paddingLength, current.padding))
+	item.MarginLength = deferredLengthInsetsOf(styleLengths(current.marginLength, current.margin))
 	if current.background != nil {
 		item.Background = inkName(*current.background)
 	}
-	if current.border != nil && current.border.width > 0 && current.line != borderNone {
-		item.Border = &stroke{Ink: inkName(current.border.ink), Width: current.border.width,
-			Dash: current.line.dashOf(current.border.width), DashOffset: current.dashOffset}
-		if len(current.dash) > 0 {
-			item.Border.Dash = current.dash
-		}
+	if edge, sides := borderStrokes(current); edge != nil {
+		item.Border = edge
+	} else {
+		item.BorderTop, item.BorderRight = sides[0], sides[1]
+		item.BorderBottom, item.BorderLeft = sides[2], sides[3]
 	}
 	item.Radius = radiusOf(current)
 	item.Top = lengthValue(lengthOf(current.inset[0]))
@@ -1360,13 +1446,15 @@ func (c *compiler) inlineBoxItem(current style) inlineItem {
 
 func (c *compiler) inlineNodeItem(node *emitted, current style) inlineItem {
 	item := inlineItem{Node: node, Margin: insetsOf(current.margin),
+		MarginLength:  deferredLengthInsetsOf(styleLengths(current.marginLength, current.margin)),
 		VerticalAlign: inlineVerticalAlignName(current.inlineVAlign)}
 	return item
 }
 
 func inlineBoxStyle(s style) bool {
 	return s.padding != (compose.Insets{}) || s.margin != (compose.Insets{}) ||
-		s.background != nil || (s.border != nil && s.border.width > 0 && s.line != borderNone) ||
+		styleLengthsSet(s.paddingLength) || styleLengthsSet(s.marginLength) ||
+		s.background != nil || hasBorder(s) ||
 		s.positioned ||
 		s.inlineVAlign != compose.InlineBaseline
 }

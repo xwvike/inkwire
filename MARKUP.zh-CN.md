@@ -27,9 +27,9 @@ CLI 的 `render`、`measure` 和 HTTP 的 `render` 必须指定 `size` 或 `pane
 | 分组 | 属性 |
 |---|---|
 | 盒模型 | `display` `width` `height` `min-width` `max-width` `min-height` `max-height` `aspect-ratio` `box-sizing` `padding` `padding-top` `padding-right` `padding-bottom` `padding-left` `margin` `margin-top` `margin-right` `margin-bottom` `margin-left` |
-| flex 与 grid | `flex` `flex-direction` `flex-basis` `flex-grow` `gap` `row-gap` `column-gap` `align-items` `align-self` `justify-content` `justify-items` `justify-self` `grid-template-columns` `grid-template-rows` `grid-column` `grid-row` |
+| flex 与 grid | `flex` `flex-direction` `flex-basis` `flex-grow` `flex-shrink` `gap` `row-gap` `column-gap` `align-items` `align-self` `justify-content` `justify-items` `justify-self` `grid-template-columns` `grid-template-rows` `grid-column` `grid-row` |
 | 定位 | `position` `top` `right` `bottom` `left` `inset` `z-index` |
-| 绘制 | `background` `background-color` `color` `border` `border-width` `border-style` `border-color` `border-radius` `visibility` |
+| 绘制 | `background` `background-color` `color` `border` `border-width` `border-style` `border-color` `border-top` `border-right` `border-bottom` `border-left` `border-top-width` `border-right-width` `border-bottom-width` `border-left-width` `border-top-style` `border-right-style` `border-bottom-style` `border-left-style` `border-top-color` `border-right-color` `border-bottom-color` `border-left-color` `border-radius` `visibility` |
 | 裁剪与变换 | `overflow` `clip-path` `transform` `rotate` `transform-origin` `scale` |
 | SVG 绘制 | `fill` `stroke` `stroke-width` `stroke-dasharray` `stroke-dashoffset` |
 | 文本 | `font` `font-family` `font-size` `line-height` `text-align` `vertical-align` `white-space` |
@@ -45,7 +45,8 @@ CLI 的 `render`、`measure` 和 HTTP 的 `render` 必须指定 `size` 或 `pane
 - 长度支持 `px`、百分比，`calc()`。
 - `width`、`height`、`min-*`、`max-*`、`flex-basis`、`top`、`right`、`bottom`、`left`、
   `inset`、`transform-origin` 和轨道尺寸接受百分比。
-- 内边距、外边距、间隙、边框宽度、圆角和字号按整像素计算。间距使用百分比会被拒绝。
+- 内边距、外边距和间隙按包含块的行向尺寸在布局时解析并取整。边框宽度、圆角和字号
+  只接受像素值。
 - `line-height` 接受像素长度、无单位比例，或相对于字号的百分比。
 - 墨色是 `black`、`white`、`red` 和 `yellow`。其他颜色会被报告，不会近似成可用颜色。
 - 字体和字号受当前构建内置的位图字库限制。没有对应字库或字号时使用最接近的字形，并
@@ -57,7 +58,9 @@ CLI 的 `render`、`measure` 和 HTTP 的 `render` 必须指定 `size` 或 `pane
 `inline-grid`、`contents` 和 `none`。
 
 Flex 容器的 `flex-direction` 支持 `row` 和 `column`。`flex-grow` 分配剩余空间，
-`flex-basis` 设置初始尺寸，`gap`、`row-gap` 和 `column-gap` 分隔子项。`align-items`、
+`flex-shrink` 吸收不足空间，`flex-basis` 设置初始尺寸。`flex` 简写支持 CSS 的
+`flex: <grow>`、`<grow> <shrink>` 和 `<grow> <shrink> <basis>` 形式；单数字形式使用
+`0%` basis，与浏览器一致。`gap`、`row-gap` 和 `column-gap` 分隔子项。`align-items`、
 `align-self`、`justify-content`、`justify-items` 和 `justify-self` 控制对齐。
 `margin: auto` 可以把子项推到容器另一侧。
 
@@ -85,8 +88,8 @@ Grid 容器使用 `grid-template-columns` 和 `grid-template-rows` 定义轨道�
 边框占位置。带边框的盒子，内容先躲开边框、再躲开 padding；绝对定位的子元素贴的是
 **内边距盒**——在边框以内、padding 以外——这正是 CSS 放置它的地方。
 
-没有 `border-top`/`border-right`/`border-bottom`/`border-left`：这里的边框是一个矩形，
-所以四条边共用一个宽度、一种颜色、一种线型。想画单独一条边，用一个 1px 的盒子。
+`border-top`/`border-right`/`border-bottom`/`border-left` 可以分别设置四条边。单边边框
+参与盒模型，并支持与 `border` 相同的宽度、墨色和线型。
 
 ### 定位
 
@@ -125,11 +128,23 @@ SVG 共用同一行，并在 `white-space` 允许时换行。padding、margin、
 `position: relative` 和 `vertical-align` 都保留在各自的 inline 项上。
 
 `vertical-align` 支持 CSS inline 的 `baseline`、`top`、`middle` 和 `bottom`，初始值是
-`baseline`。`inline-block`、`inline-flex` 和 `inline-grid` 是原子盒子，盒内子元素分别按
-普通 block、flex 或 grid 规则排版。
+`baseline`；`text-top`、`text-bottom`、`sub`、`super` 和长度值会被报告，而不是近似成
+别的东西。它**只作用于 inline 级盒子**，和 CSS 一样：写在 block、flex item 或 grid
+item 上会被报告，而且它不继承。
+
+`inline-block`、`inline-flex` 和 `inline-grid` 是原子盒子，盒内子元素分别按普通
+block、flex 或 grid 规则排版。
+
+要摆放盒子**里面**的东西而不是盒子本身，用 CSS 为此准备的属性：容器上的
+`align-items`、单个项目上的 `align-self`，或者给只有一行文字的盒子一个等于盒高的
+`line-height`。
 
 ```css
 .chip { display: inline-block; height: 20px; vertical-align: middle; }
+
+.row    { display: flex; align-items: center; }   /* 每一项都居中 */
+.figure { align-self: center; }                   /* 只让这一项居中 */
+.label  { height: 20px; line-height: 20px; }      /* 单行文字在盒子里居中 */
 ```
 
 ## SVG

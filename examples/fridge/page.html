@@ -20,7 +20,6 @@
   color: black;
   font-family: ui;
   font-size: 12px;
-  vertical-align: middle;
 }
 
 /* The case, and the two magnets holding it on. Drawn once, under everything. */
@@ -49,6 +48,7 @@ header {
 }
 header .today {
   flex-basis: 36px; height: 20px;
+  line-height: 20px;
   border-radius: 3px;
   background: red;
   text-align: center;
@@ -79,7 +79,9 @@ header .when { margin-left: auto; text-align: right; }
 }
 .agenda .box { grid-column: 1; }
 .agenda .what { grid-column: 3; }
-.agenda .who { grid-column: 4; height: 16px; border-radius: 2px; text-align: center; }
+.agenda .who { grid-column: 4; height: 16px; border-radius: 2px; text-align: center;
+  line-height: 16px;
+}
 .agenda .at { font-family: monaco; font-size: 10px; }
 .outline-black { border: 1px solid black; }
 .outline-red { border: 1px solid red; color: red; }
@@ -97,6 +99,7 @@ header .when { margin-left: auto; text-align: right; }
   background: red;
   color: white;
   text-align: center;
+  line-height: 22px;
 }
 
 /* The note --------------------------------------------------------------- */

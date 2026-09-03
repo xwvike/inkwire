@@ -23,7 +23,7 @@
 }
 
 header, footer { flex-basis: 44px; background: black; color: white; }
-header { display: flex; align-items: center; padding: 0 14px; vertical-align: middle; }
+header { display: flex; align-items: center; padding: 0 14px; }
 header b { font-size: 24px; }
 header .plan {
   margin-left: auto;
@@ -68,12 +68,14 @@ main {
   color: white;
   font-size: 16px;
   text-align: center;
-  vertical-align: middle;
+  line-height: 26px;
 }
 .gauge { margin-right: 10px; }
-.pct { flex-grow: 1; text-align: right; font-family: monaco; font-size: 24px; vertical-align: middle; }
+/* The figure is taller than the row, so it hugs its own height and is
+   centred in the line rather than being squeezed into it. */
+.pct { flex-grow: 1; text-align: right; font-family: monaco; font-size: 24px; align-self: center; }
 
-footer { display: flex; align-items: center; padding: 0 14px; vertical-align: middle; }
+footer { display: flex; align-items: center; padding: 0 14px; }
 .lines { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
 .lines span { flex-basis: 16px; }
 footer .now { margin-left: auto; font-family: monaco; font-size: 24px; }

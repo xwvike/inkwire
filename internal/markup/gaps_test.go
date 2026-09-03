@@ -322,9 +322,8 @@ func TestCustomPropertyFallbackAndMissing(t *testing.T) {
 // otherwise grow to fill the line.
 func TestMaximumCapsAGrowingItem(t *testing.T) {
 	got := boxes(t, twoBoxes, inks+` .a { flex-grow: 1; max-width: 30px; } .b { flex-grow: 1; }`)
-	if width := got[display.InkBlack].Dx(); width > 30 {
-		t.Errorf("a grew to %d pixels past its 30 pixel maximum", width)
-	}
+	expect(t, got, display.InkBlack, image.Rect(0, 0, 30, 50), "a stops at its 30 pixel maximum")
+	expect(t, got, display.InkRed, image.Rect(30, 0, 100, 50), "b receives the space released by a")
 }
 
 // inherit takes the parent's value. Leaving the field alone is not the same
@@ -884,17 +883,12 @@ func TestInheritAndInitialWorkOnPropertiesThatDoNotInherit(t *testing.T) {
 	}
 }
 
-// A length that has to be a whole number of pixels refuses a share of the box
-// by name. It used to take the pixel half of what it parsed, so "padding: 50%"
-// was padding: 0 and nothing said so.
-//
-// The paren-aware split that came with it is why "padding: calc(10px + 2px)"
-// works: a shorthand used to come apart on the spaces inside calc as well as
-// the ones between its sides.
-func TestASpacingLengthRefusesAShareAndAcceptsCalc(t *testing.T) {
+// Percentages in spacing stay unresolved until the containing box exists.
+// Values that belong to a pixel-only property still report the unsupported
+// percentage instead of silently truncating it.
+func TestSpacingPercentagesResolveAtLayoutTime(t *testing.T) {
 	for _, declaration := range []string{
-		"padding: 50%", "margin: 25%", "gap: 10%", "row-gap: 10%", "column-gap: 10%",
-		"border-radius: 50%", "border-width: 10%", "font-size: 50%", "padding-top: 50%",
+		"border-radius: 50%", "border-width: 10%", "font-size: 50%",
 	} {
 		t.Run(declaration, func(t *testing.T) {
 			said := warningsFor(t, `<i class="a">x</i>`, ` .a { display: block; `+declaration+`; }`)
@@ -903,6 +897,24 @@ func TestASpacingLengthRefusesAShareAndAcceptsCalc(t *testing.T) {
 			}
 		})
 	}
+
+	got := boxes(t, `<i class="a"><i class="b"></i></i>`,
+		inks+` .a { display: flex; flex-grow: 1; padding: 5%; } .b { flex-grow: 1; background: red; }`)
+	expect(t, got, display.InkRed, image.Rect(5, 5, 95, 45), "padding percentage uses the containing width")
+
+	got = boxes(t, twoBoxes, inks+` .page { gap: 10%; } .a { flex-grow: 1; } .b { flex-grow: 1; }`)
+	expect(t, got, display.InkBlack, image.Rect(0, 0, 45, 50), "gap percentage resolves against the row")
+	expect(t, got, display.InkRed, image.Rect(55, 0, 100, 50), "gap percentage leaves the matching space")
+
+	got = boxes(t, twoBoxes, inks+` .a { flex-basis: 20px; margin-left: 10%; } .b { flex-grow: 1; }`)
+	expect(t, got, display.InkBlack, image.Rect(10, 0, 30, 50), "margin percentage offsets the item")
+
+	got = boxes(t, twoBoxes, inks+` .a { padding: 10%; } .b { flex-grow: 1; }`)
+	expect(t, got, display.InkBlack, image.Rect(0, 0, 20, 50), "flex item padding uses the containing width")
+	expect(t, got, display.InkRed, image.Rect(20, 0, 100, 50), "the sibling receives the remaining space")
+
+	got = boxes(t, `<span class="a">x</span>`, `.page { display: block; } .a { padding: 10%; background: red; }`)
+	expect(t, got, display.InkRed, image.Rect(0, 0, 26, 34), "inline padding percentage uses the containing width")
 
 	document, err := Compile(`<div class="page"><i class="a"><b>x</b></i></div>`,
 		`.page { display: flex; width: 100px; height: 40px; }

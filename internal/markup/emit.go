@@ -50,11 +50,16 @@ type emitted struct {
 	// an anchored box.
 	Children any `json:"children,omitempty"`
 
-	Insets *insets `json:"insets,omitempty"`
+	Insets       *insets       `json:"insets,omitempty"`
+	LengthInsets *lengthInsets `json:"lengthInsets,omitempty"`
 
-	Radius int     `json:"radius,omitempty"`
-	Fill   string  `json:"fill,omitempty"`
-	Stroke *stroke `json:"stroke,omitempty"`
+	Radius       int     `json:"radius,omitempty"`
+	Fill         string  `json:"fill,omitempty"`
+	Stroke       *stroke `json:"stroke,omitempty"`
+	StrokeTop    *stroke `json:"strokeTop,omitempty"`
+	StrokeRight  *stroke `json:"strokeRight,omitempty"`
+	StrokeBottom *stroke `json:"strokeBottom,omitempty"`
+	StrokeLeft   *stroke `json:"strokeLeft,omitempty"`
 
 	Shape *shape `json:"shape,omitempty"`
 
@@ -98,15 +103,18 @@ type emitted struct {
 	Left   any      `json:"left,omitempty"`
 
 	Gap        int    `json:"gap,omitempty"`
+	GapLength  any    `json:"gapLength,omitempty"`
 	MainAlign  string `json:"mainAlign,omitempty"`
 	CrossAlign string `json:"crossAlign,omitempty"`
 
-	Columns      []any  `json:"columns,omitempty"`
-	Rows         []any  `json:"rows,omitempty"`
-	ColumnGap    int    `json:"columnGap,omitempty"`
-	RowGap       int    `json:"rowGap,omitempty"`
-	AlignItems   string `json:"alignItems,omitempty"`
-	JustifyItems string `json:"justifyItems,omitempty"`
+	Columns         []any  `json:"columns,omitempty"`
+	Rows            []any  `json:"rows,omitempty"`
+	ColumnGap       int    `json:"columnGap,omitempty"`
+	RowGap          int    `json:"rowGap,omitempty"`
+	ColumnGapLength any    `json:"columnGapLength,omitempty"`
+	RowGapLength    any    `json:"rowGapLength,omitempty"`
+	AlignItems      string `json:"alignItems,omitempty"`
+	JustifyItems    string `json:"justifyItems,omitempty"`
 
 	// Raw is the description a scene element handed over, spliced in whole.
 	// A page that embeds a drawing embeds the drawing, so what leaves here is
@@ -144,6 +152,13 @@ type insets struct {
 	Left   int `json:"left"`
 }
 
+type lengthInsets struct {
+	Top    any `json:"top"`
+	Right  any `json:"right"`
+	Bottom any `json:"bottom"`
+	Left   any `json:"left"`
+}
+
 type stroke struct {
 	Ink        string `json:"ink"`
 	Width      int    `json:"width"`
@@ -162,21 +177,27 @@ type run struct {
 // mirrors compose.InlineItem without importing any layout decisions into the
 // HTML compiler.
 type inlineItem struct {
-	Runs          []run    `json:"runs,omitempty"`
-	Node          *emitted `json:"node,omitempty"`
-	Break         bool     `json:"break,omitempty"`
-	Padding       *insets  `json:"padding,omitempty"`
-	Margin        *insets  `json:"margin,omitempty"`
-	Background    string   `json:"background,omitempty"`
-	Border        *stroke  `json:"border,omitempty"`
-	Radius        int      `json:"radius,omitempty"`
-	LineHeight    int      `json:"lineHeight,omitempty"`
-	VerticalAlign string   `json:"verticalAlign,omitempty"`
-	Wrap          string   `json:"wrap,omitempty"`
-	Top           any      `json:"top,omitempty"`
-	Right         any      `json:"right,omitempty"`
-	Bottom        any      `json:"bottom,omitempty"`
-	Left          any      `json:"left,omitempty"`
+	Runs          []run         `json:"runs,omitempty"`
+	Node          *emitted      `json:"node,omitempty"`
+	Break         bool          `json:"break,omitempty"`
+	Padding       *insets       `json:"padding,omitempty"`
+	Margin        *insets       `json:"margin,omitempty"`
+	PaddingLength *lengthInsets `json:"paddingLength,omitempty"`
+	MarginLength  *lengthInsets `json:"marginLength,omitempty"`
+	Background    string        `json:"background,omitempty"`
+	Border        *stroke       `json:"border,omitempty"`
+	BorderTop     *stroke       `json:"borderTop,omitempty"`
+	BorderRight   *stroke       `json:"borderRight,omitempty"`
+	BorderBottom  *stroke       `json:"borderBottom,omitempty"`
+	BorderLeft    *stroke       `json:"borderLeft,omitempty"`
+	Radius        int           `json:"radius,omitempty"`
+	LineHeight    int           `json:"lineHeight,omitempty"`
+	VerticalAlign string        `json:"verticalAlign,omitempty"`
+	Wrap          string        `json:"wrap,omitempty"`
+	Top           any           `json:"top,omitempty"`
+	Right         any           `json:"right,omitempty"`
+	Bottom        any           `json:"bottom,omitempty"`
+	Left          any           `json:"left,omitempty"`
 }
 
 type overrides struct {
@@ -196,6 +217,22 @@ func insetsOf(i compose.Insets) *insets {
 		return nil
 	}
 	return &insets{Top: i.Top, Right: i.Right, Bottom: i.Bottom, Left: i.Left}
+}
+
+func lengthInsetsOf(lengths [4]compose.Length) *lengthInsets {
+	if !lengthsSet(lengths) {
+		return nil
+	}
+	return &lengthInsets{Top: lengthValue(lengths[0]), Right: lengthValue(lengths[1]), Bottom: lengthValue(lengths[2]), Left: lengthValue(lengths[3])}
+}
+
+func lengthsSet(lengths [4]compose.Length) bool {
+	for _, length := range lengths {
+		if length.IsSet() {
+			return true
+		}
+	}
+	return false
 }
 
 type point struct {
@@ -259,27 +296,30 @@ type shape struct {
 
 // layoutChild is one item of a row or a column.
 type layoutChild struct {
-	Node      *emitted `json:"node"`
-	Basis     any      `json:"basis,omitempty"`
-	Cross     any      `json:"cross,omitempty"`
-	Grow      int      `json:"grow,omitempty"`
-	MinMain   any      `json:"minMain,omitempty"`
-	MaxMain   any      `json:"maxMain,omitempty"`
-	MinCross  any      `json:"minCross,omitempty"`
-	MaxCross  any      `json:"maxCross,omitempty"`
-	AlignSelf string   `json:"alignSelf,omitempty"`
-	Ratio     float64  `json:"ratio,omitempty"`
+	Node      *emitted      `json:"node"`
+	Basis     any           `json:"basis,omitempty"`
+	Cross     any           `json:"cross,omitempty"`
+	Grow      float64       `json:"grow,omitempty"`
+	Shrink    float64       `json:"shrink,omitempty"`
+	Margin    *lengthInsets `json:"margin,omitempty"`
+	MinMain   any           `json:"minMain,omitempty"`
+	MaxMain   any           `json:"maxMain,omitempty"`
+	MinCross  any           `json:"minCross,omitempty"`
+	MaxCross  any           `json:"maxCross,omitempty"`
+	AlignSelf string        `json:"alignSelf,omitempty"`
+	Ratio     float64       `json:"ratio,omitempty"`
 }
 
 // gridChild is one cell.
 type gridChild struct {
-	Node        *emitted `json:"node"`
-	Column      int      `json:"column,omitempty"`
-	Row         int      `json:"row,omitempty"`
-	ColumnSpan  int      `json:"columnSpan,omitempty"`
-	RowSpan     int      `json:"rowSpan,omitempty"`
-	AlignSelf   string   `json:"alignSelf,omitempty"`
-	JustifySelf string   `json:"justifySelf,omitempty"`
+	Node        *emitted      `json:"node"`
+	Column      int           `json:"column,omitempty"`
+	Row         int           `json:"row,omitempty"`
+	ColumnSpan  int           `json:"columnSpan,omitempty"`
+	RowSpan     int           `json:"rowSpan,omitempty"`
+	AlignSelf   string        `json:"alignSelf,omitempty"`
+	JustifySelf string        `json:"justifySelf,omitempty"`
+	Margin      *lengthInsets `json:"margin,omitempty"`
 }
 
 // anchor is a box placed against the container's edges.
@@ -316,6 +356,27 @@ func lengthValue(l compose.Length) any {
 	default:
 		return fmt.Sprintf("calc(%s%% - %dpx)", trimTenths(tenths), -pixels)
 	}
+}
+
+// deferredLengthValue is for fields that already have a legacy pixel form.
+// Keep that form for fixed lengths and add the unresolved representation only
+// when a percentage needs the containing box at layout time.
+func deferredLengthValue(l compose.Length) any {
+	percent, _ := l.Parts()
+	if percent == 0 {
+		return nil
+	}
+	return lengthValue(l)
+}
+
+func deferredLengthInsetsOf(lengths [4]compose.Length) *lengthInsets {
+	for _, length := range lengths {
+		percent, _ := length.Parts()
+		if percent != 0 {
+			return lengthInsetsOf(lengths)
+		}
+	}
+	return nil
 }
 
 // trimTenths writes a tenth of a percent without a trailing zero, so that the

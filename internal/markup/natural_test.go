@@ -79,6 +79,12 @@ func TestBorderLonghands(t *testing.T) {
 	expect(t, got, display.InkBlack, image.Rect(0, 0, 100, 50), "a border set through longhands")
 }
 
+func TestSingleSideBorderIsPaintedAndCountsInTheBox(t *testing.T) {
+	got := boxes(t, `<i class="a"></i>`,
+		`.a { display: block; flex-grow: 1; border-bottom: 1px solid black; }`)
+	expect(t, got, display.InkBlack, image.Rect(0, 49, 100, 50), "border-bottom paints the bottom edge")
+}
+
 // Specificity decides which rule wins, and getting it wrong shows up as a
 // colour or a size quietly coming from the wrong place.
 func TestSpecificity(t *testing.T) {

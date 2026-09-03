@@ -12,7 +12,6 @@
 }
 
 header {
-  vertical-align: middle;
   flex-basis: 18px;
   display: flex;
   align-items: center;
@@ -45,7 +44,8 @@ main {
 
 /* The whole reason the strikes are offered at whole-number multiples. */
 .price {
-  vertical-align: middle;
+  /* Taller than its letters, so the item is centred on its line. */
+  align-self: center;
   flex-grow: 1;
   font-family: monaco;
   font-size: 48px;
@@ -61,7 +61,11 @@ main {
 }
 
 .badge {
-  vertical-align: middle;
+  /* A filled chip keeps its height and centres what is in it, which is
+     what a flex container does for its own contents. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-basis: 20px;
   background: red;
   border-radius: 2px;

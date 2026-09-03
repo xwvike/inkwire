@@ -29,9 +29,9 @@ outside the lists and restrictions below produce a warning and are ignored.
 | Group | Properties |
 |---|---|
 | Box | `display` `width` `height` `min-width` `max-width` `min-height` `max-height` `aspect-ratio` `box-sizing` `padding` `padding-top` `padding-right` `padding-bottom` `padding-left` `margin` `margin-top` `margin-right` `margin-bottom` `margin-left` |
-| Flex and grid | `flex` `flex-direction` `flex-basis` `flex-grow` `gap` `row-gap` `column-gap` `align-items` `align-self` `justify-content` `justify-items` `justify-self` `grid-template-columns` `grid-template-rows` `grid-column` `grid-row` |
+| Flex and grid | `flex` `flex-direction` `flex-basis` `flex-grow` `flex-shrink` `gap` `row-gap` `column-gap` `align-items` `align-self` `justify-content` `justify-items` `justify-self` `grid-template-columns` `grid-template-rows` `grid-column` `grid-row` |
 | Position | `position` `top` `right` `bottom` `left` `inset` `z-index` |
-| Paint | `background` `background-color` `color` `border` `border-width` `border-style` `border-color` `border-radius` `visibility` |
+| Paint | `background` `background-color` `color` `border` `border-width` `border-style` `border-color` `border-top` `border-right` `border-bottom` `border-left` `border-top-width` `border-right-width` `border-bottom-width` `border-left-width` `border-top-style` `border-right-style` `border-bottom-style` `border-left-style` `border-top-color` `border-right-color` `border-bottom-color` `border-left-color` `border-radius` `visibility` |
 | Clipping and transform | `overflow` `clip-path` `transform` `rotate` `transform-origin` `scale` |
 | SVG paint | `fill` `stroke` `stroke-width` `stroke-dasharray` `stroke-dashoffset` |
 | Text | `font` `font-family` `font-size` `line-height` `text-align` `vertical-align` `white-space` |
@@ -50,8 +50,9 @@ each element.
 - Lengths support `px`, percentages, and `calc()`.
 - `width`, `height`, `min-*`, `max-*`, `flex-basis`, `top`, `right`, `bottom`,
   `left`, `inset`, `transform-origin` and track sizes accept percentages.
-- Padding, margins, gaps, border widths, radii and font sizes resolve to whole
-  pixels. Percentage spacing is rejected.
+- Padding, margins and gaps resolve against the containing block's inline size
+  and settle to whole pixels at layout time. Border widths, radii and font sizes
+  are pixel-only.
 - `line-height` accepts a pixel length, a unitless ratio, or a percentage of the
   font size.
 - Colors are `black`, `white`, `red` and `yellow`. Other colors are reported,
@@ -66,10 +67,13 @@ each element.
 `grid`, `inline-grid`, `contents` and `none`.
 
 Flex containers use `flex-direction: row` or `column`. `flex-grow` divides
-remaining space, `flex-basis` sets an initial size, and `gap`, `row-gap` and
-`column-gap` separate items. `align-items`, `align-self`, `justify-content`,
-`justify-items` and `justify-self` control alignment. `margin: auto` can push an
-item to the far side of its container.
+remaining space and `flex-shrink` absorbs negative free space. `flex-basis` sets
+the initial size. The `flex` shorthand accepts the CSS forms `flex: <grow>`,
+`<grow> <shrink>`, and `<grow> <shrink> <basis>`; a one-number form uses a zero
+percent basis, as in a browser. `gap`, `row-gap` and `column-gap` separate items.
+`align-items`, `align-self`, `justify-content`, `justify-items` and `justify-self`
+control alignment. `margin: auto` can push an item to the far side of its
+container.
 
 Grid containers use `grid-template-columns` and `grid-template-rows` with
 pixel, percentage, `fr` and `auto` tracks. `grid-column` and `grid-row` place
@@ -99,9 +103,9 @@ then inside the padding, and an absolutely positioned child is placed against
 the padding box — inside the border, outside the padding — which is where CSS
 places one.
 
-There is no `border-top`, `border-right`, `border-bottom` or `border-left`: a
-border here is drawn as one rectangle, so it is one width, one colour and one
-style on all four sides. A single edge is a one-pixel box of its own.
+`border-top`, `border-right`, `border-bottom` and `border-left` may set each edge
+independently. A side border participates in the box model and supports the
+same width, colour and line styles as `border`.
 
 ### Positioning
 

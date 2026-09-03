@@ -22,13 +22,15 @@ header {
   padding: 0 8px;
   background: black;
   color: white;
-  vertical-align: middle;
 }
 
 header .mark { color: red; }
 
 .content {
+  /* Zero basis so the bars above and below settle the height, not the tallest
+     thing that happens to be inside. */
   flex-grow: 1;
+  flex-basis: 0px;
   display: flex;
   gap: 6px;
   padding: 4px 6px;
@@ -42,7 +44,6 @@ header .mark { color: red; }
   padding: 5px 7px;
   border: 1px solid black;
   border-radius: 4px;
-  vertical-align: middle;
   flex-basis: 140px;
   flex-grow: 0;
   min-width: 0;
@@ -57,7 +58,6 @@ header .mark { color: red; }
 .copy p {
   margin: 3px 0 0;
   line-height: 12px;
-  vertical-align: middle;
 }
 
 .badge {
@@ -71,7 +71,7 @@ header .mark { color: red; }
   background: red;
   color: white;
   font-size: 10px;
-  vertical-align: middle;
+  line-height: 14px;
 }
 
 .visual {
@@ -99,7 +99,7 @@ header .mark { color: red; }
   padding: 1px 2px;
   background: white;
   color: black;
-  vertical-align: middle;
+  line-height: 14px;
 }
 
 footer {
@@ -108,7 +108,6 @@ footer {
   align-items: center;
   justify-content: space-between;
   padding: 0 8px;
-  vertical-align: middle;
 }
 
 footer .ready { color: red; }

@@ -64,6 +64,18 @@ func TestFlexGrowSharesWhatIsLeft(t *testing.T) {
 	expect(t, got, display.InkRed, image.Rect(20, 0, 100, 50), "b takes the rest")
 }
 
+func TestFlexShorthandKeepsTheBasisAndShrinkFactor(t *testing.T) {
+	got := boxes(t, twoBoxes, inks+` .page { width: 100px; }`+
+		` .a { flex: 0 0 40px; } .b { flex: 1; }`)
+	expect(t, got, display.InkBlack, image.Rect(0, 0, 40, 50), "a keeps the fixed basis")
+	expect(t, got, display.InkRed, image.Rect(40, 0, 100, 50), "b takes the remaining space")
+
+	got = boxes(t, twoBoxes, inks+` .page { width: 40px; }`+
+		` .a { flex: 0 1 30px; } .b { flex: 0 1 30px; }`)
+	expect(t, got, display.InkBlack, image.Rect(0, 0, 20, 50), "a shrinks by its weighted basis")
+	expect(t, got, display.InkRed, image.Rect(20, 0, 40, 50), "b shrinks by its weighted basis")
+}
+
 func TestGrowWeightsAreProportional(t *testing.T) {
 	got := boxes(t, twoBoxes, inks+` .a { flex-grow: 1; } .b { flex-grow: 3; }`)
 	expect(t, got, display.InkBlack, image.Rect(0, 0, 25, 50), "a takes one quarter")
@@ -113,7 +125,7 @@ func TestStretchFillsAnItemWithNoCrossSize(t *testing.T) {
 
 func TestPaddingInsetsTheContent(t *testing.T) {
 	got := boxes(t, `<i class="a"><i class="b"></i></i>`,
-		inks+` .a { flex-grow: 1; padding: 5px 10px; } .b { flex-grow: 1; }`)
+		inks+` .a { display: flex; flex-grow: 1; padding: 5px 10px; } .b { flex-grow: 1; }`)
 	expect(t, got, display.InkRed, image.Rect(10, 5, 90, 45), "b inside a's padding")
 }
 

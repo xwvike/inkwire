@@ -249,12 +249,34 @@ type compileContext struct {
 	compiler *Compiler
 	report   Report
 	seenRune map[rune]bool
+	// measureInline is the containing block's inline size while a flex item
+	// is measured for its intrinsic main size. The main-axis maximum is opened
+	// during that measurement so text can report its natural width; percentages
+	// must still resolve against the real containing block, not that sentinel.
+	measureInline int
 	// containing is the box against which a positioned child's percentages
 	// resolve.
 	containing image.Rectangle
 	// wanted is what a node said it needed, before whatever it was given.
 	// Only nodes that know an answer worth reporting fill it in.
 	wanted map[string]image.Point
+}
+
+const unboundedMeasure = 1 << 30
+
+func (c *compileContext) pushMeasureInline(width int) func() {
+	previous := c.measureInline
+	if width > 0 && width < unboundedMeasure {
+		c.measureInline = width
+	}
+	return func() { c.measureInline = previous }
+}
+
+func (c *compileContext) measureInlineWidth(maximum image.Point) int {
+	if maximum.X > 0 && maximum.X < unboundedMeasure {
+		return maximum.X
+	}
+	return c.measureInline
 }
 
 // paint places a node and records where, then paints it.

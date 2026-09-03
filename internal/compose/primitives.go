@@ -38,16 +38,35 @@ func (p Pixel) paint(_ *compileContext, list *display.DisplayList, bounds image.
 
 // Rectangle paints its allocated bounds. Radius zero selects a plain rectangle.
 type Rectangle struct {
-	Size   image.Point
-	Radius int
-	Fill   *display.Ink
-	Stroke *display.StrokeStyle
+	Size         image.Point
+	Radius       int
+	Fill         *display.Ink
+	Stroke       *display.StrokeStyle
+	StrokeTop    *display.StrokeStyle
+	StrokeRight  *display.StrokeStyle
+	StrokeBottom *display.StrokeStyle
+	StrokeLeft   *display.StrokeStyle
 }
 
 func (Rectangle) composeNode() {}
 func (r Rectangle) measure(_ *compileContext, maximum image.Point, path string) (image.Point, error) {
-	if err := validateBoxPaint(path, r.Size, r.Radius, r.Fill, r.Stroke); err != nil {
-		return image.Point{}, err
+	if !validSize(r.Size) {
+		return image.Point{}, fmt.Errorf("%s: size must not be negative, got %v", path, r.Size)
+	}
+	if r.Radius < 0 {
+		return image.Point{}, fmt.Errorf("%s: radius must not be negative", path)
+	}
+	if r.Fill != nil || r.Stroke != nil {
+		if err := validatePaint(path, r.Fill, r.Stroke); err != nil {
+			return image.Point{}, err
+		}
+	}
+	for name, stroke := range map[string]*display.StrokeStyle{"strokeTop": r.StrokeTop, "strokeRight": r.StrokeRight, "strokeBottom": r.StrokeBottom, "strokeLeft": r.StrokeLeft} {
+		if stroke != nil {
+			if err := validateStroke(path+"."+name, *stroke); err != nil {
+				return image.Point{}, err
+			}
+		}
 	}
 	return preferredSize(r.Size, r.Size, maximum)
 }
@@ -66,7 +85,53 @@ func (r Rectangle) paint(_ *compileContext, list *display.DisplayList, bounds im
 			list.StrokeRect(bounds, *r.Stroke)
 		}
 	}
+	if r.StrokeTop != nil {
+		strokeSide(list, bounds, 0, *r.StrokeTop)
+	}
+	if r.StrokeRight != nil {
+		strokeSide(list, bounds, 1, *r.StrokeRight)
+	}
+	if r.StrokeBottom != nil {
+		strokeSide(list, bounds, 2, *r.StrokeBottom)
+	}
+	if r.StrokeLeft != nil {
+		strokeSide(list, bounds, 3, *r.StrokeLeft)
+	}
 	return nil
+}
+
+// strokeSide paints one border edge inside the rectangle. Solid edges are
+// filled bands; dashed and dotted edges use the display list's stroked line
+// path so their pattern semantics stay identical to ordinary strokes.
+func strokeSide(list *display.DisplayList, bounds image.Rectangle, side int, stroke display.StrokeStyle) {
+	if stroke.Width <= 0 || bounds.Empty() {
+		return
+	}
+	width := min(stroke.Width, min(bounds.Dx(), bounds.Dy()))
+	if len(stroke.Dash) == 0 {
+		switch side {
+		case 0:
+			list.FillRect(image.Rect(bounds.Min.X, bounds.Min.Y, bounds.Max.X, bounds.Min.Y+width), stroke.Ink)
+		case 1:
+			list.FillRect(image.Rect(bounds.Max.X-width, bounds.Min.Y, bounds.Max.X, bounds.Max.Y), stroke.Ink)
+		case 2:
+			list.FillRect(image.Rect(bounds.Min.X, bounds.Max.Y-width, bounds.Max.X, bounds.Max.Y), stroke.Ink)
+		case 3:
+			list.FillRect(image.Rect(bounds.Min.X, bounds.Min.Y, bounds.Min.X+width, bounds.Max.Y), stroke.Ink)
+		}
+		return
+	}
+	half := width / 2
+	switch side {
+	case 0:
+		list.DrawLine(image.Pt(bounds.Min.X+half, bounds.Min.Y+half), image.Pt(bounds.Max.X-half-1, bounds.Min.Y+half), stroke)
+	case 1:
+		list.DrawLine(image.Pt(bounds.Max.X-half-1, bounds.Min.Y+half), image.Pt(bounds.Max.X-half-1, bounds.Max.Y-half-1), stroke)
+	case 2:
+		list.DrawLine(image.Pt(bounds.Min.X+half, bounds.Max.Y-half-1), image.Pt(bounds.Max.X-half-1, bounds.Max.Y-half-1), stroke)
+	case 3:
+		list.DrawLine(image.Pt(bounds.Min.X+half, bounds.Min.Y+half), image.Pt(bounds.Min.X+half, bounds.Max.Y-half-1), stroke)
+	}
 }
 
 type Line struct {

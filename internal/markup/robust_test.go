@@ -154,10 +154,13 @@ func TestNoDeclarationCanPanic(t *testing.T) {
 	properties := strings.Fields(`display width height min-width max-width min-height max-height
 		aspect-ratio box-sizing padding padding-top padding-right padding-bottom padding-left
 		margin margin-top margin-right margin-bottom margin-left flex flex-direction flex-basis
-		flex-grow gap row-gap column-gap align-items align-self justify-content justify-items
+		flex-grow flex-shrink gap row-gap column-gap align-items align-self justify-content justify-items
 		justify-self grid-template-columns grid-template-rows grid-column grid-row position top
 		right bottom left inset z-index background background-color color border border-width
-		border-style border-color border-radius visibility overflow clip-path transform rotate
+		border-style border-color border-top border-right border-bottom border-left
+		border-top-width border-right-width border-bottom-width border-left-width
+		border-top-style border-right-style border-bottom-style border-left-style
+		border-top-color border-right-color border-bottom-color border-left-color border-radius visibility overflow clip-path transform rotate
 		transform-origin scale fill stroke stroke-width stroke-dasharray stroke-dashoffset font
 		font-family font-size line-height text-align vertical-align white-space object-fit`)
 	values := []string{"", " ", "/", "(", ")", "()", "calc(", "calc()", "calc(1px +", "-",

@@ -48,32 +48,35 @@ func (l length) fixed() bool { return l.set && l.percent == 0 }
 // field left at its zero value was not specified, except where a pointer or a
 // length's set flag records the difference explicitly.
 type style struct {
-	display   displayMode
-	direction axis
-	basis     length
-	grow      int
-	padding   compose.Insets
+	display       displayMode
+	direction     axis
+	basis         length
+	grow          float64
+	shrink        float64
+	padding       compose.Insets
+	paddingLength [4]length
 	// borderBox is box-sizing. CSS starts at content-box, where a stated width
 	// is the width of the content and the padding and border go outside it;
 	// border-box is the one nearly every stylesheet opts into, where the width
 	// is the whole box and the content is what is left.
-	borderBox  bool
-	margin     compose.Insets
-	autoLeft   bool
-	autoTop    bool
-	autoRight  bool
-	autoBottom bool
-	width      length
-	height     length
+	borderBox    bool
+	margin       compose.Insets
+	marginLength [4]length
+	autoLeft     bool
+	autoTop      bool
+	autoRight    bool
+	autoBottom   bool
+	width        length
+	height       length
 
 	background *display.Ink
 	color      display.Ink
 	border     *border
+	borderSide [4]*borderSide
 
 	fontFamily   string
 	fontSize     int
 	textAlign    display.HorizontalAlign
-	textVAlign   display.VerticalAlign
 	inlineVAlign compose.InlineVerticalAlign
 	lineHeight   int
 	// lineHeightMultiple is a line-height written as a bare number. CSS keeps
@@ -118,14 +121,16 @@ type style struct {
 	// onto a larger surface, and a turn puts a turn into the state everything
 	// under it works its own geometry out through. One is exact at whole
 	// numbers, the other at any angle at all.
-	rotate       float64
-	rotateOrigin *[2]length
-	ratio        float64
-	columns      []compose.Track
-	rows         []compose.Track
-	rowGap       int
-	columnGap    int
-	gapSet       bool
+	rotate          float64
+	rotateOrigin    *[2]length
+	ratio           float64
+	columns         []compose.Track
+	rows            []compose.Track
+	rowGap          int
+	columnGap       int
+	rowGapLength    length
+	columnGapLength length
+	gapSet          bool
 	// The three properties a drawing is painted with. SVG states them as
 	// attributes and CSS states them as properties, and CSS wins — a
 	// presentation attribute is a rule of no specificity, so any selector
@@ -149,12 +154,24 @@ type style struct {
 	// display declaration, because a span told to be a block is a block.
 	inline       bool
 	inlineAtomic bool
+	// blockified records the outer display adjustment imposed on a flex/grid
+	// item. Its inner formatting mode remains available for descendants, but
+	// inline-only properties do not apply to the item box itself.
+	blockified bool
 }
 
 type border struct {
 	width  int
 	ink    display.Ink
 	radius int
+}
+
+type borderSide struct {
+	width      int
+	ink        display.Ink
+	line       borderLine
+	dash       []int
+	dashOffset int
 }
 
 // borderLine is border-style. CSS starts it at none, so a border with a width
@@ -224,10 +241,8 @@ func (s style) inherited() style {
 		fontFamily:  s.fontFamily,
 		fontSize:    s.fontSize,
 		textAlign:   s.textAlign,
-		// Keep the existing box-text alignment inheritance for compatibility;
-		// inlineVAlign is intentionally not inherited and follows CSS inline
-		// formatting defaults instead.
-		textVAlign: s.textVAlign,
+		// vertical-align is not inherited, as in CSS: it says where one
+		// inline box sits on its own line and means nothing to a descendant.
 		lineHeight: s.lineHeight,
 		// The ratio travels, not the pixels it came to: a child with its own
 		// font size gets its own line from the same ratio.
@@ -299,7 +314,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 		case "inline-grid":
 			s.display, s.inline, s.inlineAtomic = displayGrid, false, true
 		case "contents":
-			s.display, s.inline = displayContents, false
+			s.display, s.inline, s.inlineAtomic = displayContents, false, false
 		case "none":
 			s.display = displayNone
 		case "inline":
@@ -323,43 +338,60 @@ func (s *style) apply(property, value string, parent style, report func(string))
 	case "flex-basis":
 		s.basis = parseLength(value, property, report)
 	case "flex-grow":
-		s.grow = parseNumber(value, property, report)
+		s.grow = parseFlexFactor(value, property, report)
+	case "flex-shrink":
+		s.shrink = parseFlexFactor(value, property, report)
 	case "flex":
-		// Only the single-number form, which sets grow.
-		s.grow = parseNumber(value, property, report)
+		grow, shrink, basis, ok := parseFlexShorthand(value, property, report)
+		if !ok {
+			return
+		}
+		s.grow, s.shrink, s.basis = grow, shrink, basis
 	case "gap":
-		fields := strings.Fields(value)
+		fields := splitSides(value)
 		if len(fields) == 0 {
 			report(fmt.Sprintf("gap: %q is not a length", value))
 			return
 		}
-		rowGap, ok := wholeLength(fields[0], property, report)
-		if !ok {
+		rowLength := parseLength(fields[0], property, report)
+		if !rowLength.set || negativeLength(rowLength) {
+			if rowLength.set && negativeLength(rowLength) {
+				report(fmt.Sprintf("%s: %s must not be negative", property, fields[0]))
+			}
 			return
 		}
-		s.rowGap = rowGap
-		s.columnGap = s.rowGap
+		s.rowGapLength, s.columnGapLength = rowLength, rowLength
+		s.rowGap, s.columnGap = int(rowLength.pixels), int(rowLength.pixels)
 		if len(fields) > 1 {
-			columnGap, ok := wholeLength(fields[1], property, report)
-			if !ok {
+			columnLength := parseLength(fields[1], property, report)
+			if !columnLength.set || negativeLength(columnLength) {
+				if columnLength.set && negativeLength(columnLength) {
+					report(fmt.Sprintf("%s: %s must not be negative", property, fields[1]))
+				}
 				return
 			}
-			s.columnGap = columnGap
+			s.columnGapLength, s.columnGap = columnLength, int(columnLength.pixels)
 		}
 		s.gapSet = true
 	case "row-gap":
-		rowGap, ok := wholeLength(value, property, report)
-		if !ok {
+		rowLength := parseLength(value, property, report)
+		if !rowLength.set || negativeLength(rowLength) {
+			if rowLength.set && negativeLength(rowLength) {
+				report(fmt.Sprintf("%s: %s must not be negative", property, value))
+			}
 			return
 		}
-		s.rowGap = rowGap
+		s.rowGapLength, s.rowGap = rowLength, int(rowLength.pixels)
 		s.gapSet = true
 	case "column-gap":
-		columnGap, ok := wholeLength(value, property, report)
-		if !ok {
+		columnLength := parseLength(value, property, report)
+		if !columnLength.set || negativeLength(columnLength) {
+			if columnLength.set && negativeLength(columnLength) {
+				report(fmt.Sprintf("%s: %s must not be negative", property, value))
+			}
 			return
 		}
-		s.columnGap = columnGap
+		s.columnGapLength, s.columnGap = columnLength, int(columnLength.pixels)
 		s.gapSet = true
 	case "grid-template-columns":
 		s.columns = parseTracks(value, property, report)
@@ -474,6 +506,11 @@ func (s *style) apply(property, value string, parent style, report func(string))
 	case "border-width":
 		if width, ok := wholeLength(value, property, report); ok {
 			s.borderStyle().width = width
+			for index := range s.borderSide {
+				if s.borderSide[index] != nil {
+					s.borderSide[index].width = width
+				}
+			}
 		}
 	case "border-style":
 		line, ok := parseBorderLine(value, property, report)
@@ -483,6 +520,12 @@ func (s *style) apply(property, value string, parent style, report func(string))
 		}
 		s.borderStyle()
 		s.line = line
+		for index := range s.borderSide {
+			if s.borderSide[index] != nil {
+				s.borderSide[index].line = line
+				s.borderSide[index].dash, s.borderSide[index].dashOffset = nil, 0
+			}
+		}
 		if line == borderNone {
 			s.dash, s.dashOffset = nil, 0
 		}
@@ -678,6 +721,11 @@ func (s *style) apply(property, value string, parent style, report func(string))
 	case "border-color":
 		if ink, ok := parseInk(value, property, report); ok {
 			s.borderStyle().ink = ink
+			for index := range s.borderSide {
+				if s.borderSide[index] != nil {
+					s.borderSide[index].ink = ink
+				}
+			}
 		}
 	case "align-items":
 		switch keyword {
@@ -687,58 +735,68 @@ func (s *style) apply(property, value string, parent style, report func(string))
 			}
 		}
 	case "padding":
-		s.padding = parseInsets(value, property, report)
+		s.padding, s.paddingLength = parseStyleInsets(value, property, report)
 	case "padding-top":
-		if pixels, ok := wholeLength(value, property, report); ok {
-			s.padding.Top = pixels
+		parsed := parseLength(value, property, report)
+		if parsed.set && !negativeLength(parsed) {
+			s.paddingLength[0], s.padding.Top = parsed, int(parsed.pixels)
+		} else if parsed.set {
+			report(fmt.Sprintf("%s: %s must not be negative", property, value))
 		}
 	case "padding-right":
-		if pixels, ok := wholeLength(value, property, report); ok {
-			s.padding.Right = pixels
+		parsed := parseLength(value, property, report)
+		if parsed.set && !negativeLength(parsed) {
+			s.paddingLength[1], s.padding.Right = parsed, int(parsed.pixels)
+		} else if parsed.set {
+			report(fmt.Sprintf("%s: %s must not be negative", property, value))
 		}
 	case "padding-bottom":
-		if pixels, ok := wholeLength(value, property, report); ok {
-			s.padding.Bottom = pixels
+		parsed := parseLength(value, property, report)
+		if parsed.set && !negativeLength(parsed) {
+			s.paddingLength[2], s.padding.Bottom = parsed, int(parsed.pixels)
+		} else if parsed.set {
+			report(fmt.Sprintf("%s: %s must not be negative", property, value))
 		}
 	case "padding-left":
-		if pixels, ok := wholeLength(value, property, report); ok {
-			s.padding.Left = pixels
+		parsed := parseLength(value, property, report)
+		if parsed.set && !negativeLength(parsed) {
+			s.paddingLength[3], s.padding.Left = parsed, int(parsed.pixels)
+		} else if parsed.set {
+			report(fmt.Sprintf("%s: %s must not be negative", property, value))
 		}
 	case "margin":
-		// The shorthand cannot express auto alignment, which is what the
-		// longhands are for; this is spacing only.
-		s.margin = parseInsets(value, property, report)
+		s.margin, s.marginLength, s.autoTop, s.autoRight, s.autoBottom, s.autoLeft = parseMarginInsets(value, property, report)
 	case "margin-left":
 		if keyword == "auto" {
-			s.autoLeft = true
+			s.autoLeft, s.marginLength[3], s.margin.Left = true, length{}, 0
 			return
 		}
-		if pixels, ok := wholeLength(value, property, report); ok {
-			s.margin.Left = pixels
+		if value := parseLength(value, property, report); value.set {
+			s.autoLeft, s.marginLength[3], s.margin.Left = false, value, int(value.pixels)
 		}
 	case "margin-right":
 		if keyword == "auto" {
-			s.autoRight = true
+			s.autoRight, s.marginLength[1], s.margin.Right = true, length{}, 0
 			return
 		}
-		if pixels, ok := wholeLength(value, property, report); ok {
-			s.margin.Right = pixels
+		if value := parseLength(value, property, report); value.set {
+			s.autoRight, s.marginLength[1], s.margin.Right = false, value, int(value.pixels)
 		}
 	case "margin-top":
 		if keyword == "auto" {
-			s.autoTop = true
+			s.autoTop, s.marginLength[0], s.margin.Top = true, length{}, 0
 			return
 		}
-		if pixels, ok := wholeLength(value, property, report); ok {
-			s.margin.Top = pixels
+		if value := parseLength(value, property, report); value.set {
+			s.autoTop, s.marginLength[0], s.margin.Top = false, value, int(value.pixels)
 		}
 	case "margin-bottom":
 		if keyword == "auto" {
-			s.autoBottom = true
+			s.autoBottom, s.marginLength[2], s.margin.Bottom = true, length{}, 0
 			return
 		}
-		if pixels, ok := wholeLength(value, property, report); ok {
-			s.margin.Bottom = pixels
+		if value := parseLength(value, property, report); value.set {
+			s.autoBottom, s.marginLength[2], s.margin.Bottom = false, value, int(value.pixels)
 		}
 	case "min-width":
 		s.minSize[0] = parseLength(value, property, report)
@@ -762,6 +820,28 @@ func (s *style) apply(property, value string, parent style, report func(string))
 		}
 	case "border":
 		s.parseBorderShorthand(value, report)
+	case "border-top", "border-right", "border-bottom", "border-left":
+		s.parseBorderSideShorthand(borderSideIndex(property), value, report)
+	case "border-top-width", "border-right-width", "border-bottom-width", "border-left-width":
+		index := borderSideIndex(property)
+		if width, ok := wholeLength(value, property, report); ok {
+			s.ensureBorderSide(index).width = width
+		}
+	case "border-top-style", "border-right-style", "border-bottom-style", "border-left-style":
+		index := borderSideIndex(property)
+		line, ok := parseBorderLine(value, property, report)
+		if ok {
+			side := s.ensureBorderSide(index)
+			side.line = line
+			if line == borderNone {
+				side.dash, side.dashOffset = nil, 0
+			}
+		}
+	case "border-top-color", "border-right-color", "border-bottom-color", "border-left-color":
+		index := borderSideIndex(property)
+		if ink, ok := parseInk(value, property, report); ok {
+			s.ensureBorderSide(index).ink = ink
+		}
 	case "border-radius":
 		radius, ok := wholeLength(value, property, report)
 		if !ok {
@@ -811,19 +891,17 @@ func (s *style) apply(property, value string, parent style, report func(string))
 			s.fontSize = pixels
 		}
 	case "vertical-align":
+		// An inline-level box only, as in CSS. Where it applies is checked
+		// once the display is settled, because a declaration can change it.
 		switch keyword {
 		case "baseline":
 			s.inlineVAlign = compose.InlineBaseline
-			s.textVAlign = display.AlignTop
 		case "top":
 			s.inlineVAlign = compose.InlineTop
-			s.textVAlign = display.AlignTop
 		case "middle":
 			s.inlineVAlign = compose.InlineMiddle
-			s.textVAlign = display.AlignMiddle
 		case "bottom":
 			s.inlineVAlign = compose.InlineBottom
-			s.textVAlign = display.AlignBottom
 		default:
 			report(fmt.Sprintf("vertical-align: %s is not supported; use baseline, top, middle or bottom", value))
 		}
@@ -1003,15 +1081,58 @@ func bareNumberInPixels(value string) string {
 // so the content of a bordered box sat under its own frame and an absolutely
 // positioned child was placed against the outside of it.
 func (s style) edges() compose.Insets {
-	width := 0
-	if s.border != nil {
-		width = s.border.width
-	}
+	top := s.effectiveBorderWidth(0)
+	right := s.effectiveBorderWidth(1)
+	bottom := s.effectiveBorderWidth(2)
+	left := s.effectiveBorderWidth(3)
 	return compose.Insets{
-		Top:    width + s.padding.Top,
-		Right:  width + s.padding.Right,
-		Bottom: width + s.padding.Bottom,
-		Left:   width + s.padding.Left,
+		Top:    top + s.padding.Top,
+		Right:  right + s.padding.Right,
+		Bottom: bottom + s.padding.Bottom,
+		Left:   left + s.padding.Left,
+	}
+}
+
+func (s style) edgesLengths() [4]compose.Length {
+	result := [4]compose.Length{}
+	if !s.hasBoxEdges() {
+		return result
+	}
+	for index, padding := range s.paddingLength {
+		var value compose.Length
+		if padding.set {
+			value = compose.Calc(int(padding.percent*10), int(padding.pixels))
+		} else {
+			value = compose.Pixels(s.paddingEdge(index))
+		}
+		percent, pixels := value.Parts()
+		result[index] = compose.Calc(percent, pixels+s.effectiveBorderWidth(index))
+	}
+	return result
+}
+
+func (s style) hasBoxEdges() bool {
+	if s.padding != (compose.Insets{}) || hasBorder(s) {
+		return true
+	}
+	for _, length := range s.paddingLength {
+		if length.set {
+			return true
+		}
+	}
+	return false
+}
+
+func (s style) paddingEdge(index int) int {
+	switch index {
+	case 0:
+		return s.padding.Top
+	case 1:
+		return s.padding.Right
+	case 2:
+		return s.padding.Bottom
+	default:
+		return s.padding.Left
 	}
 }
 
@@ -1019,11 +1140,18 @@ func (s style) edges() compose.Insets {
 // child is placed against: CSS resolves it in the padding box, so the border
 // insets it and the padding does not.
 func (s style) borderEdges() compose.Insets {
-	if s.border == nil || s.border.width == 0 {
-		return compose.Insets{}
+	return compose.Insets{
+		Top: s.effectiveBorderWidth(0), Right: s.effectiveBorderWidth(1),
+		Bottom: s.effectiveBorderWidth(2), Left: s.effectiveBorderWidth(3),
 	}
-	width := s.border.width
-	return compose.Insets{Top: width, Right: width, Bottom: width, Left: width}
+}
+
+func (s style) effectiveBorderWidth(index int) int {
+	side := s.effectiveBorderSide(index)
+	if side.line == borderNone {
+		return 0
+	}
+	return side.width
 }
 
 // outerSize grows a stated size by the edges around it when the box is sized
@@ -1032,11 +1160,17 @@ func (s style) outerSize(size length, horizontal bool) length {
 	if !size.set || s.borderBox {
 		return size
 	}
-	edges := s.edges()
+	edges := s.edgesLengths()
 	if horizontal {
-		size.pixels += float64(edges.Left + edges.Right)
+		leftPercent, leftPixels := edges[3].Parts()
+		rightPercent, rightPixels := edges[1].Parts()
+		size.percent += float64(leftPercent+rightPercent) / 10
+		size.pixels += float64(leftPixels + rightPixels)
 	} else {
-		size.pixels += float64(edges.Top + edges.Bottom)
+		topPercent, topPixels := edges[0].Parts()
+		bottomPercent, bottomPixels := edges[2].Parts()
+		size.percent += float64(topPercent+bottomPercent) / 10
+		size.pixels += float64(topPixels + bottomPixels)
 	}
 	return size
 }
@@ -1048,6 +1182,41 @@ func (s *style) borderStyle() *border {
 		s.border = &border{width: 1, ink: display.InkBlack}
 	}
 	return s.border
+}
+
+func borderSideIndex(property string) int {
+	switch strings.TrimPrefix(property, "border-") {
+	case "top", "top-width", "top-style", "top-color":
+		return 0
+	case "right", "right-width", "right-style", "right-color":
+		return 1
+	case "bottom", "bottom-width", "bottom-style", "bottom-color":
+		return 2
+	case "left", "left-width", "left-style", "left-color":
+		return 3
+	}
+	return 0
+}
+
+func (s *style) ensureBorderSide(index int) *borderSide {
+	if s.borderSide[index] == nil {
+		effective := s.effectiveBorderSide(index)
+		s.borderSide[index] = &effective
+	}
+	return s.borderSide[index]
+}
+
+func (s style) effectiveBorderSide(index int) borderSide {
+	result := borderSide{}
+	if s.border != nil {
+		result.width, result.ink = s.border.width, s.border.ink
+	}
+	result.line, result.dash, result.dashOffset = s.line, slices.Clone(s.dash), s.dashOffset
+	if side := s.borderSide[index]; side != nil {
+		result = *side
+		result.dash = slices.Clone(side.dash)
+	}
+	return result
 }
 
 func cloneBorder(value *border) *border {
@@ -1111,14 +1280,18 @@ func (s *style) inheritOne(property string, parent style, report func(string)) {
 		s.direction = parent.direction
 	case "flex-basis":
 		s.basis = parent.basis
-	case "flex", "flex-grow":
+	case "flex":
+		s.grow, s.shrink, s.basis = parent.grow, parent.shrink, parent.basis
+	case "flex-grow":
 		s.grow = parent.grow
+	case "flex-shrink":
+		s.shrink = parent.shrink
 	case "gap":
-		s.rowGap, s.columnGap, s.gapSet = parent.rowGap, parent.columnGap, parent.gapSet
+		s.rowGap, s.columnGap, s.rowGapLength, s.columnGapLength, s.gapSet = parent.rowGap, parent.columnGap, parent.rowGapLength, parent.columnGapLength, parent.gapSet
 	case "row-gap":
-		s.rowGap, s.gapSet = parent.rowGap, parent.gapSet
+		s.rowGap, s.rowGapLength, s.gapSet = parent.rowGap, parent.rowGapLength, parent.gapSet
 	case "column-gap":
-		s.columnGap, s.gapSet = parent.columnGap, parent.gapSet
+		s.columnGap, s.columnGapLength, s.gapSet = parent.columnGap, parent.columnGapLength, parent.gapSet
 	case "grid-template-columns":
 		s.columns = parent.columns
 	case "grid-template-rows":
@@ -1138,27 +1311,27 @@ func (s *style) inheritOne(property string, parent style, report func(string)) {
 	case "align-self":
 		s.alignSelf = parent.alignSelf
 	case "padding":
-		s.padding = parent.padding
+		s.padding, s.paddingLength = parent.padding, parent.paddingLength
 	case "padding-top":
-		s.padding.Top = parent.padding.Top
+		s.padding.Top, s.paddingLength[0] = parent.padding.Top, parent.paddingLength[0]
 	case "padding-right":
-		s.padding.Right = parent.padding.Right
+		s.padding.Right, s.paddingLength[1] = parent.padding.Right, parent.paddingLength[1]
 	case "padding-bottom":
-		s.padding.Bottom = parent.padding.Bottom
+		s.padding.Bottom, s.paddingLength[2] = parent.padding.Bottom, parent.paddingLength[2]
 	case "padding-left":
-		s.padding.Left = parent.padding.Left
+		s.padding.Left, s.paddingLength[3] = parent.padding.Left, parent.paddingLength[3]
 	case "margin":
-		s.margin = parent.margin
+		s.margin, s.marginLength = parent.margin, parent.marginLength
 		s.autoTop, s.autoRight, s.autoBottom, s.autoLeft =
 			parent.autoTop, parent.autoRight, parent.autoBottom, parent.autoLeft
 	case "margin-top":
-		s.margin.Top, s.autoTop = parent.margin.Top, parent.autoTop
+		s.margin.Top, s.marginLength[0], s.autoTop = parent.margin.Top, parent.marginLength[0], parent.autoTop
 	case "margin-right":
-		s.margin.Right, s.autoRight = parent.margin.Right, parent.autoRight
+		s.margin.Right, s.marginLength[1], s.autoRight = parent.margin.Right, parent.marginLength[1], parent.autoRight
 	case "margin-bottom":
-		s.margin.Bottom, s.autoBottom = parent.margin.Bottom, parent.autoBottom
+		s.margin.Bottom, s.marginLength[2], s.autoBottom = parent.margin.Bottom, parent.marginLength[2], parent.autoBottom
 	case "margin-left":
-		s.margin.Left, s.autoLeft = parent.margin.Left, parent.autoLeft
+		s.margin.Left, s.marginLength[3], s.autoLeft = parent.margin.Left, parent.marginLength[3], parent.autoLeft
 	case "width":
 		s.width = parent.width
 	case "height":
@@ -1195,6 +1368,14 @@ func (s *style) inheritOne(property string, parent style, report func(string)) {
 		s.color = parent.color
 	case "border":
 		s.border = cloneBorder(parent.border)
+		for index, side := range parent.borderSide {
+			if side == nil {
+				continue
+			}
+			copy := *side
+			copy.dash = slices.Clone(side.dash)
+			s.borderSide[index] = &copy
+		}
 		s.line, s.dash, s.dashOffset = parent.line, slices.Clone(parent.dash), parent.dashOffset
 	case "border-width":
 		if parent.border != nil {
@@ -1223,6 +1404,28 @@ func (s *style) inheritOne(property string, parent style, report func(string)) {
 				s.border.radius = 0
 			}
 		}
+	case "border-top", "border-right", "border-bottom", "border-left":
+		index := borderSideIndex(property)
+		if side := parent.borderSide[index]; side != nil {
+			copy := *side
+			copy.dash = slices.Clone(side.dash)
+			s.borderSide[index] = &copy
+		} else {
+			effective := parent.effectiveBorderSide(index)
+			s.borderSide[index] = &effective
+		}
+	case "border-top-width", "border-right-width", "border-bottom-width", "border-left-width":
+		index := borderSideIndex(property)
+		effective := parent.effectiveBorderSide(index)
+		s.borderSide[index] = &effective
+	case "border-top-style", "border-right-style", "border-bottom-style", "border-left-style":
+		index := borderSideIndex(property)
+		effective := parent.effectiveBorderSide(index)
+		s.borderSide[index] = &effective
+	case "border-top-color", "border-right-color", "border-bottom-color", "border-left-color":
+		index := borderSideIndex(property)
+		effective := parent.effectiveBorderSide(index)
+		s.borderSide[index] = &effective
 	case "visibility":
 		s.hidden = parent.hidden
 	case "overflow":
@@ -1259,7 +1462,7 @@ func (s *style) inheritOne(property string, parent style, report func(string)) {
 	case "text-align":
 		s.textAlign = parent.textAlign
 	case "vertical-align":
-		s.textVAlign, s.inlineVAlign = parent.textVAlign, parent.inlineVAlign
+		s.inlineVAlign = parent.inlineVAlign
 	case "white-space":
 		s.wrap, s.preserve = parent.wrap, parent.preserve
 	case "object-fit":
@@ -1290,14 +1493,18 @@ func (s *style) reset(property string, report func(string)) {
 		s.direction = fresh.direction
 	case "flex-basis":
 		s.basis = fresh.basis
-	case "flex", "flex-grow":
+	case "flex":
+		s.grow, s.shrink, s.basis = fresh.grow, 1, fresh.basis
+	case "flex-grow":
 		s.grow = fresh.grow
+	case "flex-shrink":
+		s.shrink = 1
 	case "gap":
-		s.rowGap, s.columnGap, s.gapSet = 0, 0, false
+		s.rowGap, s.columnGap, s.rowGapLength, s.columnGapLength, s.gapSet = 0, 0, length{}, length{}, false
 	case "row-gap":
-		s.rowGap, s.gapSet = 0, false
+		s.rowGap, s.rowGapLength, s.gapSet = 0, length{}, false
 	case "column-gap":
-		s.columnGap, s.gapSet = 0, false
+		s.columnGap, s.columnGapLength, s.gapSet = 0, length{}, false
 	case "grid-template-columns":
 		s.columns = nil
 	case "grid-template-rows":
@@ -1317,26 +1524,26 @@ func (s *style) reset(property string, report func(string)) {
 	case "align-self":
 		s.alignSelf = nil
 	case "padding":
-		s.padding = fresh.padding
+		s.padding, s.paddingLength = fresh.padding, [4]length{}
 	case "padding-top":
-		s.padding.Top = 0
+		s.padding.Top, s.paddingLength[0] = 0, length{}
 	case "padding-right":
-		s.padding.Right = 0
+		s.padding.Right, s.paddingLength[1] = 0, length{}
 	case "padding-bottom":
-		s.padding.Bottom = 0
+		s.padding.Bottom, s.paddingLength[2] = 0, length{}
 	case "padding-left":
-		s.padding.Left = 0
+		s.padding.Left, s.paddingLength[3] = 0, length{}
 	case "margin":
-		s.margin = fresh.margin
+		s.margin, s.marginLength = fresh.margin, [4]length{}
 		s.autoTop, s.autoRight, s.autoBottom, s.autoLeft = false, false, false, false
 	case "margin-top":
-		s.margin.Top, s.autoTop = 0, false
+		s.margin.Top, s.marginLength[0], s.autoTop = 0, length{}, false
 	case "margin-right":
-		s.margin.Right, s.autoRight = 0, false
+		s.margin.Right, s.marginLength[1], s.autoRight = 0, length{}, false
 	case "margin-bottom":
-		s.margin.Bottom, s.autoBottom = 0, false
+		s.margin.Bottom, s.marginLength[2], s.autoBottom = 0, length{}, false
 	case "margin-left":
-		s.margin.Left, s.autoLeft = 0, false
+		s.margin.Left, s.marginLength[3], s.autoLeft = 0, length{}, false
 	case "width":
 		s.width = fresh.width
 	case "height":
@@ -1372,12 +1579,17 @@ func (s *style) reset(property string, report func(string)) {
 	case "color":
 		s.color = display.InkBlack
 	case "border":
-		s.border, s.line, s.dash, s.dashOffset = nil, borderNone, nil, 0
+		s.border, s.borderSide, s.line, s.dash, s.dashOffset = nil, [4]*borderSide{}, borderNone, nil, 0
 	case "border-width":
 		if s.border != nil {
 			// The implementation's medium border is one pixel. Keeping the
 			// border object preserves color and radius set by other longhands.
 			s.border.width = 1
+			for index := range s.borderSide {
+				if s.borderSide[index] != nil {
+					s.borderSide[index].width = 1
+				}
+			}
 		}
 	case "border-style":
 		s.line, s.dash, s.dashOffset = borderNone, nil, 0
@@ -1385,15 +1597,33 @@ func (s *style) reset(property string, report func(string)) {
 			// There is no separate style field in the scene schema; zero width
 			// is the representation of CSS's initial border-style: none.
 			s.border.width = 0
+			for index := range s.borderSide {
+				if s.borderSide[index] != nil {
+					s.borderSide[index].line = borderNone
+				}
+			}
 		}
 	case "border-color":
 		if s.border != nil {
 			s.border.ink = display.InkBlack
+			for index := range s.borderSide {
+				if s.borderSide[index] != nil {
+					s.borderSide[index].ink = display.InkBlack
+				}
+			}
 		}
 	case "border-radius":
 		if s.border != nil {
 			s.border.radius = 0
 		}
+	case "border-top", "border-right", "border-bottom", "border-left":
+		s.borderSide[borderSideIndex(property)] = nil
+	case "border-top-width", "border-right-width", "border-bottom-width", "border-left-width":
+		s.ensureBorderSide(borderSideIndex(property)).width = 1
+	case "border-top-style", "border-right-style", "border-bottom-style", "border-left-style":
+		s.ensureBorderSide(borderSideIndex(property)).line = borderNone
+	case "border-top-color", "border-right-color", "border-bottom-color", "border-left-color":
+		s.ensureBorderSide(borderSideIndex(property)).ink = display.InkBlack
 	case "visibility":
 		s.hidden = false
 	case "overflow":
@@ -1430,7 +1660,7 @@ func (s *style) reset(property string, report func(string)) {
 	case "text-align":
 		s.textAlign = display.AlignStart
 	case "vertical-align":
-		s.textVAlign, s.inlineVAlign = display.AlignTop, compose.InlineBaseline
+		s.inlineVAlign = compose.InlineBaseline
 	case "white-space":
 		// CSS wraps by default, and WrapRunes is not the zero value, so this
 		// is one of the few that cannot be taken from a fresh style.
@@ -1676,10 +1906,12 @@ func parseCross(value, property string, report func(string)) (compose.CrossAlign
 }
 
 func parseLength(value, property string, report func(string)) length {
+	value = strings.TrimSpace(value)
+	lower := strings.ToLower(value)
 	switch {
-	case strings.EqualFold(value, "auto"):
+	case lower == "auto":
 		return length{}
-	case strings.HasPrefix(value, "calc("):
+	case strings.HasPrefix(lower, "calc("):
 		return parseCalc(value, property, report)
 	case strings.HasSuffix(value, "%"):
 		number, err := parseFinite(strings.TrimSuffix(value, "%"))
@@ -1704,13 +1936,17 @@ func parseLength(value, property string, report func(string)) length {
 	return length{}
 }
 
+func negativeLength(value length) bool {
+	return value.set && (value.percent < 0 || (value.percent == 0 && value.pixels < 0))
+}
+
 // parseCalc reads the sums of lengths that calc() is used for here. Only
 // addition and subtraction of percentages and pixels are accepted: the rest of
 // the grammar multiplies and divides by unitless numbers, which nothing in
 // this vocabulary needs and which would invite expressions no panel can
 // answer, such as a length divided by a length.
 func parseCalc(value, property string, report func(string)) length {
-	inner := strings.TrimSuffix(strings.TrimPrefix(value, "calc("), ")")
+	inner := strings.TrimSuffix(strings.TrimPrefix(strings.ToLower(strings.TrimSpace(value)), "calc("), ")")
 	fields := strings.Fields(inner)
 	if len(fields) == 0 {
 		report(fmt.Sprintf("%s: calc() is empty", property))
@@ -1780,6 +2016,74 @@ func parseNumber(value, property string, report func(string)) int {
 	return int(number)
 }
 
+func parseFlexFactor(value, property string, report func(string)) float64 {
+	fields := strings.Fields(value)
+	if len(fields) != 1 {
+		report(fmt.Sprintf("%s: %s is not a single non-negative number", property, value))
+		return 0
+	}
+	number, err := parseFinite(fields[0])
+	if err != nil || number < 0 {
+		report(fmt.Sprintf("%s: %s is not a single non-negative number", property, value))
+		return 0
+	}
+	return number
+}
+
+// parseFlexShorthand keeps all three CSS flex components. In particular,
+// flex: 1 expands to 1 1 0%, while flex: 0 0 40px retains its fixed basis
+// and zero shrink factor instead of silently reducing to flex-grow alone.
+func parseFlexShorthand(value, property string, report func(string)) (float64, float64, length, bool) {
+	fields := splitSides(value)
+	if len(fields) == 1 {
+		switch strings.ToLower(fields[0]) {
+		case "none":
+			return 0, 0, length{}, true
+		case "auto":
+			return 1, 1, length{}, true
+		}
+		grow, ok := flexFactor(fields[0])
+		if !ok {
+			report(fmt.Sprintf("%s: %s is not a valid flex shorthand", property, value))
+			return 0, 0, length{}, false
+		}
+		return grow, 1, length{set: true}, true // 0%: resolve from the flex container
+	}
+	if len(fields) < 2 || len(fields) > 3 {
+		report(fmt.Sprintf("%s: %s needs one to three components", property, value))
+		return 0, 0, length{}, false
+	}
+	grow, ok := flexFactor(fields[0])
+	if !ok {
+		report(fmt.Sprintf("%s: %s has an invalid grow factor", property, value))
+		return 0, 0, length{}, false
+	}
+	if shrink, numeric := flexFactor(fields[1]); numeric {
+		if len(fields) == 2 {
+			return grow, shrink, length{set: true}, true
+		}
+		basis := parseLength(fields[2], property, report)
+		if !basis.set && !strings.EqualFold(fields[2], "auto") {
+			return 0, 0, length{}, false
+		}
+		return grow, shrink, basis, true
+	}
+	if len(fields) != 2 {
+		report(fmt.Sprintf("%s: %s has an invalid shrink factor", property, value))
+		return 0, 0, length{}, false
+	}
+	basis := parseLength(fields[1], property, report)
+	if !basis.set && !strings.EqualFold(fields[1], "auto") {
+		return 0, 0, length{}, false
+	}
+	return grow, 1, basis, true
+}
+
+func flexFactor(value string) (float64, bool) {
+	number, err := parseFinite(value)
+	return number, err == nil && number >= 0
+}
+
 // wholeLength reads a length for one of the fields that is counted in whole
 // pixels and cannot hold anything else: a gap, an inset, a border, a strike.
 //
@@ -1796,6 +2100,10 @@ func wholeLength(value, property string, report func(string)) (int, bool) {
 		report(fmt.Sprintf(
 			"%s: %s cannot be a share of the box here; %s is counted in whole pixels",
 			property, value, property))
+		return 0, false
+	}
+	if size.pixels < 0 {
+		report(fmt.Sprintf("%s: %s must not be negative", property, value))
 		return 0, false
 	}
 	return int(size.pixels), true
@@ -1833,28 +2141,75 @@ func splitSides(value string) []string {
 	return sides
 }
 
-func parseInsets(value, property string, report func(string)) compose.Insets {
+func parseStyleInsets(value, property string, report func(string)) (compose.Insets, [4]length) {
 	fields := splitSides(value)
-	sides := make([]int, 0, 4)
+	sides := make([]length, 0, 4)
 	for _, field := range fields {
-		pixels, ok := wholeLength(field, property, report)
-		if !ok {
-			return compose.Insets{}
+		parsed := parseLength(field, property, report)
+		if !parsed.set {
+			report(fmt.Sprintf("%s: %s must be a non-negative length", property, field))
+			return compose.Insets{}, [4]length{}
 		}
-		sides = append(sides, pixels)
+		if property == "padding" && (parsed.percent < 0 || parsed.pixels < 0) {
+			report(fmt.Sprintf("%s: %s must be a non-negative length", property, field))
+			return compose.Insets{}, [4]length{}
+		}
+		sides = append(sides, parsed)
 	}
-	switch len(sides) {
-	case 1:
-		return compose.Insets{Top: sides[0], Right: sides[0], Bottom: sides[0], Left: sides[0]}
-	case 2:
-		return compose.Insets{Top: sides[0], Right: sides[1], Bottom: sides[0], Left: sides[1]}
-	case 3:
-		return compose.Insets{Top: sides[0], Right: sides[1], Bottom: sides[2], Left: sides[1]}
-	case 4:
-		return compose.Insets{Top: sides[0], Right: sides[1], Bottom: sides[2], Left: sides[3]}
+	if len(sides) == 0 || len(sides) > 4 {
+		report(fmt.Sprintf("%s: %q needs one to four lengths", property, value))
+		return compose.Insets{}, [4]length{}
 	}
-	report(fmt.Sprintf("%s: %q needs one to four lengths", property, value))
-	return compose.Insets{}
+	result := [4]length{sides[0], sides[0], sides[0], sides[0]}
+	if len(sides) > 1 {
+		result[1], result[3] = sides[1], sides[1]
+	}
+	if len(sides) > 2 {
+		result[2] = sides[2]
+	}
+	if len(sides) > 3 {
+		result[3] = sides[3]
+	}
+	return compose.Insets{Top: int(result[0].pixels), Right: int(result[1].pixels), Bottom: int(result[2].pixels), Left: int(result[3].pixels)}, result
+}
+
+// parseMarginInsets is the margin counterpart to parseStyleInsets. Unlike
+// padding, CSS margins accept auto, which is represented by a separate flag so
+// flex flow can distribute the free space instead of treating it as zero.
+func parseMarginInsets(value, property string, report func(string)) (compose.Insets, [4]length, bool, bool, bool, bool) {
+	fields := splitSides(value)
+	if len(fields) == 0 || len(fields) > 4 {
+		report(fmt.Sprintf("%s: %q needs one to four lengths", property, value))
+		return compose.Insets{}, [4]length{}, false, false, false, false
+	}
+	sides := make([]length, len(fields))
+	auto := make([]bool, len(fields))
+	for index, field := range fields {
+		if strings.EqualFold(field, "auto") {
+			auto[index] = true
+			continue
+		}
+		parsed := parseLength(field, property, report)
+		if !parsed.set {
+			report(fmt.Sprintf("%s: %s must be a length or auto", property, field))
+			return compose.Insets{}, [4]length{}, false, false, false, false
+		}
+		sides[index] = parsed
+	}
+	values := [4]length{sides[0], sides[0], sides[0], sides[0]}
+	autos := [4]bool{auto[0], auto[0], auto[0], auto[0]}
+	if len(sides) > 1 {
+		values[1], values[3] = sides[1], sides[1]
+		autos[1], autos[3] = auto[1], auto[1]
+	}
+	if len(sides) > 2 {
+		values[2], autos[2] = sides[2], auto[2]
+	}
+	if len(sides) > 3 {
+		values[3], autos[3] = sides[3], auto[3]
+	}
+	return compose.Insets{Top: int(values[0].pixels), Right: int(values[1].pixels), Bottom: int(values[2].pixels), Left: int(values[3].pixels)}, values,
+		autos[0], autos[1], autos[2], autos[3]
 }
 
 func parseInsetLengths(value, property string, report func(string)) [4]length {
@@ -1918,13 +2273,31 @@ func parseInk(value, property string, report func(string)) (display.Ink, bool) {
 // The style a shorthand leaves out is none, as in CSS, so "border: 1px" draws
 // nothing. Keywords and units are matched without regard to case.
 func (s *style) parseBorderShorthand(value string, report func(string)) {
-	fields := strings.Fields(value)
-	if len(fields) == 0 {
+	result, line, dash, dashOffset, ok := parseBorderValue(value, "border", s.border, report)
+	if !ok {
 		return
 	}
+	s.borderSide = [4]*borderSide{}
+	s.border, s.line, s.dash, s.dashOffset = result, line, dash, dashOffset
+}
+
+func (s *style) parseBorderSideShorthand(index int, value string, report func(string)) {
+	base := s.border
+	result, line, dash, dashOffset, ok := parseBorderValue(value, "border-"+[]string{"top", "right", "bottom", "left"}[index], base, report)
+	if !ok {
+		return
+	}
+	s.borderSide[index] = &borderSide{width: result.width, ink: result.ink, line: line, dash: dash, dashOffset: dashOffset}
+}
+
+func parseBorderValue(value, property string, previous *border, report func(string)) (*border, borderLine, []int, int, bool) {
+	fields := strings.Fields(value)
+	if len(fields) == 0 {
+		return nil, borderNone, nil, 0, false
+	}
 	result := &border{ink: display.InkBlack, width: 1}
-	if s.border != nil {
-		result.radius = s.border.radius
+	if previous != nil {
+		result.radius = previous.radius
 	}
 	line := borderNone
 	for _, field := range fields {
@@ -1935,22 +2308,22 @@ func (s *style) parseBorderShorthand(value string, report func(string)) {
 			// left as none, so the border is not drawn as some other style.
 			line, _ = parseBorderLine(lower, "border", report)
 		case isLength(lower):
-			width, ok := wholeLength(lower, "border", report)
+			width, ok := wholeLength(lower, property, report)
 			if !ok {
-				s.border, s.line = result, borderNone
-				return
+				return nil, borderNone, nil, 0, false
 			}
 			result.width = width
 		default:
-			if ink, ok := parseInk(field, "border", report); ok {
+			if ink, ok := parseInk(field, property, report); ok {
 				result.ink = ink
 			}
 		}
 	}
-	s.border, s.line = result, line
+	var dash []int
 	if line != borderDashed {
-		s.dash, s.dashOffset = nil, 0
+		dash = nil
 	}
+	return result, line, dash, 0, true
 }
 
 // isBorderStyleKeyword names every CSS border style, drawable here or not, so

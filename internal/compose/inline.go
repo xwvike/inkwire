@@ -27,10 +27,16 @@ type InlineItem struct {
 	Break   bool
 	Padding Insets
 	Margin  Insets
+	// PaddingLengths and MarginLengths retain percentages until the inline
+	// containing block is known. Their integer counterparts keep the legacy
+	// scene form for fixed pixel values.
+	PaddingLengths [4]Length
+	MarginLengths  [4]Length
 
-	Background *display.Ink
-	Border     *display.StrokeStyle
-	Radius     int
+	Background                                       *display.Ink
+	Border                                           *display.StrokeStyle
+	BorderTop, BorderRight, BorderBottom, BorderLeft *display.StrokeStyle
+	Radius                                           int
 
 	LineHeight               int
 	VerticalAlign            InlineVerticalAlign
@@ -92,7 +98,7 @@ func (i Inline) validate(path string) error {
 		if item.Node != nil && len(item.Runs) != 0 {
 			return fmt.Errorf("%s: inline item cannot carry both text and a node", itemPath)
 		}
-		if !item.Padding.valid() || !item.Margin.valid() {
+		if !item.Padding.valid() || !lengthsValid(item.PaddingLengths) {
 			return fmt.Errorf("%s: padding and margin must not be negative", itemPath)
 		}
 		if item.LineHeight < 0 || item.VerticalAlign > InlineBottom || item.Wrap > display.WrapRunes || item.Radius < 0 {
@@ -105,6 +111,13 @@ func (i Inline) validate(path string) error {
 			for _, dash := range item.Border.Dash {
 				if dash <= 0 {
 					return fmt.Errorf("%s.border: dash lengths must be positive", itemPath)
+				}
+			}
+		}
+		for name, stroke := range map[string]*display.StrokeStyle{"borderTop": item.BorderTop, "borderRight": item.BorderRight, "borderBottom": item.BorderBottom, "borderLeft": item.BorderLeft} {
+			if stroke != nil {
+				if err := validateStroke(itemPath+"."+name, *stroke); err != nil {
+					return err
 				}
 			}
 		}
@@ -131,7 +144,10 @@ func (i Inline) measure(ctx *compileContext, maximum image.Point, path string) (
 	if width <= 0 || maximum.Y <= 0 {
 		return image.Point{}, nil
 	}
-	_, naturalWidth, naturalHeight, err := i.layout(ctx, width, path)
+	percentWidth := ctx.measureInlineWidth(maximum)
+	restoreInline := ctx.pushMeasureInline(percentWidth)
+	_, naturalWidth, naturalHeight, err := i.layout(ctx, width, percentWidth, path)
+	restoreInline()
 	if err != nil {
 		return image.Point{}, err
 	}
@@ -151,7 +167,7 @@ func (i Inline) paint(ctx *compileContext, list *display.DisplayList, bounds ima
 		ctx.warn(path, "empty-layout", "inline content has no drawable area")
 		return nil
 	}
-	lines, _, _, err := i.layout(ctx, bounds.Dx(), path)
+	lines, _, _, err := i.layout(ctx, bounds.Dx(), bounds.Dx(), path)
 	if err != nil {
 		return err
 	}
@@ -186,12 +202,7 @@ func (i Inline) paint(ctx *compileContext, list *display.DisplayList, bounds ima
 			dx := relativeShift(fragment.item.Left, fragment.item.Right, bounds.Dx())
 			dy := relativeShift(fragment.item.Top, fragment.item.Bottom, bounds.Dy())
 			box = box.Add(image.Pt(dx, dy))
-			content := box.Inset(borderWidth(fragment.item.Border))
-			if content.Empty() {
-				ctx.warn(fragmentPath, "empty-layout", "inline item border leaves no content area")
-				cursor += fragment.width + fragment.item.Margin.Right
-				continue
-			}
+			content := inlineContentBox(box, fragment.item)
 			if fragment.item.Background != nil {
 				list.FillRoundRect(box, fragment.item.Radius, *fragment.item.Background)
 			}
@@ -201,6 +212,23 @@ func (i Inline) paint(ctx *compileContext, list *display.DisplayList, bounds ima
 				} else {
 					list.StrokeRect(box, *fragment.item.Border)
 				}
+			}
+			if fragment.item.BorderTop != nil {
+				strokeSide(list, box, 0, *fragment.item.BorderTop)
+			}
+			if fragment.item.BorderRight != nil {
+				strokeSide(list, box, 1, *fragment.item.BorderRight)
+			}
+			if fragment.item.BorderBottom != nil {
+				strokeSide(list, box, 2, *fragment.item.BorderBottom)
+			}
+			if fragment.item.BorderLeft != nil {
+				strokeSide(list, box, 3, *fragment.item.BorderLeft)
+			}
+			if content.Empty() {
+				ctx.warn(fragmentPath, "empty-layout", "inline item border leaves no content area")
+				cursor += fragment.width + fragment.item.Margin.Right
+				continue
 			}
 			content = image.Rectangle{
 				Min: content.Min.Add(image.Pt(fragment.item.Padding.Left, fragment.item.Padding.Top)),
@@ -240,7 +268,33 @@ func borderWidth(stroke *display.StrokeStyle) int {
 	return stroke.Width
 }
 
-func (i Inline) layout(ctx *compileContext, width int, path string) ([]inlineLine, int, int, error) {
+func inlineBorderInsets(item InlineItem) Insets {
+	if item.Border != nil {
+		width := borderWidth(item.Border)
+		return Insets{Top: width, Right: width, Bottom: width, Left: width}
+	}
+	result := Insets{}
+	if item.BorderTop != nil {
+		result.Top = borderWidth(item.BorderTop)
+	}
+	if item.BorderRight != nil {
+		result.Right = borderWidth(item.BorderRight)
+	}
+	if item.BorderBottom != nil {
+		result.Bottom = borderWidth(item.BorderBottom)
+	}
+	if item.BorderLeft != nil {
+		result.Left = borderWidth(item.BorderLeft)
+	}
+	return result
+}
+
+func inlineContentBox(box image.Rectangle, item InlineItem) image.Rectangle {
+	border := inlineBorderInsets(item)
+	return image.Rectangle{Min: box.Min.Add(image.Pt(border.Left, border.Top)), Max: box.Max.Sub(image.Pt(border.Right, border.Bottom))}
+}
+
+func (i Inline) layout(ctx *compileContext, width, percentWidth int, path string) ([]inlineLine, int, int, error) {
 	lines := []inlineLine{{}}
 	maxWidth := max(1, width)
 	for index, item := range i.Items {
@@ -252,7 +306,7 @@ func (i Inline) layout(ctx *compileContext, width int, path string) ([]inlineLin
 			}
 			continue
 		}
-		fragments, err := i.fragments(ctx, item, maxWidth, itemPath)
+		fragments, err := i.fragments(ctx, item, maxWidth, percentWidth, itemPath)
 		if err != nil {
 			return nil, 0, 0, err
 		}
@@ -295,7 +349,8 @@ func finishInlineLine(line *inlineLine, lineHeight int) {
 	}
 }
 
-func (i Inline) fragments(ctx *compileContext, item InlineItem, maxWidth int, path string) ([]inlineFragment, error) {
+func (i Inline) fragments(ctx *compileContext, item InlineItem, maxWidth, percentWidth int, path string) ([]inlineFragment, error) {
+	item = item.resolved(percentWidth)
 	if item.Node != nil {
 		size, err := item.Node.measure(ctx, image.Pt(maxWidth, 1<<30), path+".node")
 		if err != nil {
@@ -341,7 +396,8 @@ func (i Inline) fragments(ctx *compileContext, item InlineItem, maxWidth int, pa
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", path, err)
 			}
-			if i.Wrap == display.WrapRunes && item.Wrap != display.NoWrap && len(runs) != 0 && layout.Size().X+item.Padding.horizontal()+2*borderWidth(item.Border)+item.Margin.horizontal() > maxWidth {
+			border := inlineBorderInsets(item)
+			if i.Wrap == display.WrapRunes && item.Wrap != display.NoWrap && len(runs) != 0 && layout.Size().X+item.Padding.horizontal()+border.horizontal()+item.Margin.horizontal() > maxWidth {
 				if err := flush(); err != nil {
 					return nil, err
 				}
@@ -357,8 +413,31 @@ func (i Inline) fragments(ctx *compileContext, item InlineItem, maxWidth int, pa
 	return result, nil
 }
 
+func (item InlineItem) resolved(availableWidth int) InlineItem {
+	if lengthsSet(item.PaddingLengths) {
+		item.Padding = resolvedLengths(item.PaddingLengths, availableWidth, false)
+	}
+	if lengthsSet(item.MarginLengths) {
+		item.Margin = resolvedLengths(item.MarginLengths, availableWidth, true)
+	}
+	return item
+}
+
+func resolvedLengths(lengths [4]Length, availableWidth int, allowNegative bool) Insets {
+	result := Insets{}
+	resolve := resolveInset
+	if allowNegative {
+		resolve = resolveMargin
+	}
+	result.Top = resolve(lengths[0], availableWidth)
+	result.Right = resolve(lengths[1], availableWidth)
+	result.Bottom = resolve(lengths[2], availableWidth)
+	result.Left = resolve(lengths[3], availableWidth)
+	return result
+}
+
 func makeInlineFragment(item InlineItem, runs []display.TextRun, node Node, size image.Point, metrics *display.TextLineMetrics) inlineFragment {
-	border := borderWidth(item.Border)
+	border := inlineBorderInsets(item)
 	contentW, contentH := size.X, size.Y
 	ascent, descent := contentH, 0
 	if metrics != nil {
@@ -367,9 +446,9 @@ func makeInlineFragment(item InlineItem, runs []display.TextRun, node Node, size
 	return inlineFragment{
 		item: item, runs: runs, node: node,
 		contentW: contentW, contentH: contentH,
-		width:   contentW + item.Padding.Left + item.Padding.Right + border*2 + item.Margin.Left + item.Margin.Right,
-		height:  contentH + item.Padding.Top + item.Padding.Bottom + border*2 + item.Margin.Top + item.Margin.Bottom,
-		ascent:  ascent + item.Padding.Top + border + item.Margin.Top,
-		descent: descent + item.Padding.Bottom + border + item.Margin.Bottom,
+		width:   contentW + item.Padding.Left + item.Padding.Right + border.horizontal() + item.Margin.Left + item.Margin.Right,
+		height:  contentH + item.Padding.Top + item.Padding.Bottom + border.vertical() + item.Margin.Top + item.Margin.Bottom,
+		ascent:  ascent + item.Padding.Top + border.Top + item.Margin.Top,
+		descent: descent + item.Padding.Bottom + border.Bottom + item.Margin.Bottom,
 	}
 }

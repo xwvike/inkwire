@@ -42,6 +42,7 @@ type GridChild struct {
 	Node                Node
 	Column, Row         int
 	ColumnSpan, RowSpan int
+	Margin              [4]Length
 	// AlignSelf and JustifySelf place the node inside its cell, across and
 	// along the row respectively. Absent, the grid's own settings apply.
 	AlignSelf, JustifySelf *CrossAlignment
@@ -57,9 +58,10 @@ func (c GridChild) rowSpan() int    { return max(1, c.RowSpan) }
 // column should be; each measures its own and they come out ragged. A grid
 // measures the column once, across every row that uses it.
 type Grid struct {
-	Size              image.Point
-	Columns, Rows     []Track
-	ColumnGap, RowGap int
+	Size                          image.Point
+	Columns, Rows                 []Track
+	ColumnGap, RowGap             int
+	ColumnGapLength, RowGapLength Length
 	// AlignItems places children across their row, JustifyItems along it.
 	AlignItems, JustifyItems CrossAlignment
 	Children                 []GridChild
@@ -75,9 +77,11 @@ func (g Grid) measure(ctx *compileContext, maximum image.Point, path string) (im
 	if err != nil {
 		return image.Point{}, err
 	}
+	columnGap := resolvedGap(g.ColumnGap, g.ColumnGapLength, maximum.X)
+	rowGap := resolvedGap(g.RowGap, g.RowGapLength, maximum.X)
 	natural := image.Pt(
-		intrinsicTracks(columns, placement.columnContent)+g.ColumnGap*(len(columns)-1),
-		intrinsicTracks(rows, placement.rowContent)+g.RowGap*(len(rows)-1),
+		intrinsicTracks(columns, placement.columnContent)+columnGap*(len(columns)-1),
+		intrinsicTracks(rows, placement.rowContent)+rowGap*(len(rows)-1),
 	)
 	return preferredSize(natural, g.Size, maximum)
 }
@@ -97,16 +101,18 @@ func (g Grid) paint(ctx *compileContext, list *display.DisplayList, bounds image
 			Path: path, ImplicitColumns: implicitColumns, ImplicitRows: implicitRows,
 		})
 	}
-	columnSizes := g.tracksFor(columns, placement.columnContent, bounds.Dx(), g.ColumnGap, true)
-	rowSizes := g.tracksFor(rows, placement.rowContent, bounds.Dy(), g.RowGap, false)
-	columnOffsets := offsets(columnSizes, g.ColumnGap)
-	rowOffsets := offsets(rowSizes, g.RowGap)
+	columnGap := resolvedGap(g.ColumnGap, g.ColumnGapLength, bounds.Dx())
+	rowGap := resolvedGap(g.RowGap, g.RowGapLength, bounds.Dx())
+	columnSizes := g.tracksFor(columns, placement.columnContent, bounds.Dx(), columnGap, true)
+	rowSizes := g.tracksFor(rows, placement.rowContent, bounds.Dy(), rowGap, false)
+	columnOffsets := offsets(columnSizes, columnGap)
+	rowOffsets := offsets(rowSizes, rowGap)
 
-	if used := sum(columnSizes) + g.ColumnGap*(len(columnSizes)-1); used > bounds.Dx() {
+	if used := sum(columnSizes) + columnGap*(len(columnSizes)-1); used > bounds.Dx() {
 		ctx.warn(path, "layout-overflow", fmt.Sprintf(
 			"the columns need %d pixels, only %d are available", used, bounds.Dx()))
 	}
-	if used := sum(rowSizes) + g.RowGap*(len(rowSizes)-1); used > bounds.Dy() {
+	if used := sum(rowSizes) + rowGap*(len(rowSizes)-1); used > bounds.Dy() {
 		ctx.warn(path, "layout-overflow", fmt.Sprintf(
 			"the rows need %d pixels, only %d are available", used, bounds.Dy()))
 	}
@@ -117,12 +123,15 @@ func (g Grid) paint(ctx *compileContext, list *display.DisplayList, bounds image
 		cell := image.Rect(
 			bounds.Min.X+columnOffsets[at.column],
 			bounds.Min.Y+rowOffsets[at.row],
-			bounds.Min.X+columnOffsets[at.column]+span(columnSizes, at.column, at.columnSpan, g.ColumnGap),
-			bounds.Min.Y+rowOffsets[at.row]+span(rowSizes, at.row, at.rowSpan, g.RowGap),
+			bounds.Min.X+columnOffsets[at.column]+span(columnSizes, at.column, at.columnSpan, columnGap),
+			bounds.Min.Y+rowOffsets[at.row]+span(rowSizes, at.row, at.rowSpan, rowGap),
 		)
 		placedBounds, err := g.placeInCell(ctx, child, cell, nodePath)
 		if err != nil {
 			return err
+		}
+		if placedBounds.Empty() {
+			continue
 		}
 		if err := ctx.paintWithContaining(child.Node, list, placedBounds, bounds, nodePath); err != nil {
 			return err
@@ -141,16 +150,29 @@ func (g Grid) placeInCell(ctx *compileContext, child GridChild, cell image.Recta
 	if child.JustifySelf != nil {
 		along = *child.JustifySelf
 	}
-	if across == CrossStretch && along == CrossStretch {
-		return cell, nil
+	margin := child.resolvedMargin(cell.Dx())
+	content := image.Rectangle{
+		Min: cell.Min.Add(image.Pt(margin.Left, margin.Top)),
+		Max: cell.Max.Sub(image.Pt(margin.Right, margin.Bottom)),
 	}
-	measured, err := child.Node.measure(ctx, cell.Size(), path)
+	if content.Empty() {
+		ctx.warn(path, "empty-layout", "margin leaves no drawable area")
+		return content, nil
+	}
+	if across == CrossStretch && along == CrossStretch {
+		return content, nil
+	}
+	measured, err := child.Node.measure(ctx, content.Size(), path)
 	if err != nil {
 		return image.Rectangle{}, err
 	}
-	x, width := place(along, cell.Min.X, cell.Dx(), measured.X)
-	y, height := place(across, cell.Min.Y, cell.Dy(), measured.Y)
+	x, width := place(along, content.Min.X, content.Dx(), measured.X)
+	y, height := place(across, content.Min.Y, content.Dy(), measured.Y)
 	return image.Rect(x, y, x+width, y+height), nil
+}
+
+func (c GridChild) resolvedMargin(availableWidth int) Insets {
+	return Insets{Top: resolveMargin(c.Margin[0], availableWidth), Right: resolveMargin(c.Margin[1], availableWidth), Bottom: resolveMargin(c.Margin[2], availableWidth), Left: resolveMargin(c.Margin[3], availableWidth)}
 }
 
 func place(alignment CrossAlignment, start, available, measured int) (int, int) {
@@ -292,10 +314,10 @@ func (g Grid) place(ctx *compileContext, maximum image.Point, path string) (plac
 		// A child spanning several tracks says nothing about any one of them,
 		// so only single-track children set an automatic track's size.
 		if at.columnSpan == 1 {
-			result.columnContent[at.column] = max(result.columnContent[at.column], size.X)
+			result.columnContent[at.column] = max(result.columnContent[at.column], size.X+intrinsicMargin(child.Margin, true))
 		}
 		if at.rowSpan == 1 {
-			result.rowContent[at.row] = max(result.rowContent[at.row], size.Y)
+			result.rowContent[at.row] = max(result.rowContent[at.row], size.Y+intrinsicMargin(child.Margin, false))
 		}
 	}
 	return result, columns, rows, nil
@@ -450,6 +472,9 @@ func (g Grid) validate(path string) error {
 		return fmt.Errorf("%s: size must not be negative, got %v", path, g.Size)
 	}
 	if g.ColumnGap < 0 || g.RowGap < 0 {
+		return fmt.Errorf("%s: gaps must not be negative", path)
+	}
+	if !g.ColumnGapLength.valid() || !g.RowGapLength.valid() {
 		return fmt.Errorf("%s: gaps must not be negative", path)
 	}
 	if !tracksValid(g.Columns) || !tracksValid(g.Rows) {

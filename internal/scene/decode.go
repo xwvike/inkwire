@@ -184,9 +184,14 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 			if child.Ratio != 0 && child.Cross.length.IsSet() {
 				return nil, fmt.Errorf("%s: ratio works out the cross size and cross states it; give one or the other", childPath)
 			}
+			margin := [4]compose.Length{}
+			if child.Margin != nil {
+				margin = child.Margin.lengths()
+			}
 			children[index] = compose.LayoutChild{
 				Node: node, Basis: child.Basis.length, Cross: child.Cross.length,
-				Grow:      child.Grow,
+				Grow: child.Grow, Shrink: child.Shrink,
+				Margin:    margin,
 				MinMain:   child.MinMain.length,
 				MaxMain:   child.MaxMain.length,
 				MinCross:  child.MinCross.length,
@@ -204,9 +209,9 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 			return nil, fmt.Errorf("%s.crossAlign: %w", path, err)
 		}
 		if header.Type == "row" {
-			return compose.Row{Size: value.Size.point(), Gap: value.Gap, MainAlign: mainAlign, CrossAlign: crossAlign, Children: children}, nil
+			return compose.Row{Size: value.Size.point(), Gap: value.Gap, GapLength: value.GapLength.length, MainAlign: mainAlign, CrossAlign: crossAlign, Children: children}, nil
 		}
-		return compose.Column{Size: value.Size.point(), Gap: value.Gap, MainAlign: mainAlign, CrossAlign: crossAlign, Children: children}, nil
+		return compose.Column{Size: value.Size.point(), Gap: value.Gap, GapLength: value.GapLength.length, MainAlign: mainAlign, CrossAlign: crossAlign, Children: children}, nil
 	case "grid":
 		var value gridJSON
 		if err := decodeStrictBytes(raw, &value); err != nil {
@@ -276,7 +281,11 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 		if err != nil {
 			return nil, err
 		}
-		return compose.Padding{Insets: compose.Insets{Top: value.Insets.Top, Right: value.Insets.Right, Bottom: value.Insets.Bottom, Left: value.Insets.Left}, Child: child}, nil
+		padding := compose.Padding{Insets: compose.Insets{Top: value.Insets.Top, Right: value.Insets.Right, Bottom: value.Insets.Bottom, Left: value.Insets.Left}, Child: child}
+		if value.LengthInsets != nil {
+			padding.Lengths = value.LengthInsets.lengths()
+		}
+		return padding, nil
 	case "spacer":
 		var value sizedJSON
 		if err := decodeStrictBytes(raw, &value); err != nil {
@@ -302,7 +311,12 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 		if err != nil {
 			return nil, err
 		}
-		return compose.Rectangle{Size: value.Size.point(), Radius: value.Radius, Fill: fill, Stroke: stroke}, nil
+		top, right, bottom, left, err := optionalStrokes(value.StrokeTop, value.StrokeRight, value.StrokeBottom, value.StrokeLeft)
+		if err != nil {
+			return nil, err
+		}
+		return compose.Rectangle{Size: value.Size.point(), Radius: value.Radius, Fill: fill, Stroke: stroke,
+			StrokeTop: top, StrokeRight: right, StrokeBottom: bottom, StrokeLeft: left}, nil
 	case "line":
 		var value lineJSON
 		if err := decodeStrictBytes(raw, &value); err != nil {
@@ -538,42 +552,48 @@ type flowJSON struct {
 	Type       string            `json:"type"`
 	Size       sizeJSON          `json:"size,omitempty"`
 	Gap        int               `json:"gap,omitempty"`
+	GapLength  lengthJSON        `json:"gapLength,omitempty"`
 	MainAlign  string            `json:"mainAlign,omitempty"`
 	CrossAlign string            `json:"crossAlign,omitempty"`
 	Children   []layoutChildJSON `json:"children,omitempty"`
 }
 type layoutChildJSON struct {
-	Node      json.RawMessage `json:"node"`
-	Basis     lengthJSON      `json:"basis,omitempty"`
-	Cross     lengthJSON      `json:"cross,omitempty"`
-	Grow      int             `json:"grow,omitempty"`
-	MinMain   lengthJSON      `json:"minMain,omitempty"`
-	MaxMain   lengthJSON      `json:"maxMain,omitempty"`
-	MinCross  lengthJSON      `json:"minCross,omitempty"`
-	MaxCross  lengthJSON      `json:"maxCross,omitempty"`
-	AlignSelf *string         `json:"alignSelf,omitempty"`
-	Ratio     float64         `json:"ratio,omitempty"`
+	Node      json.RawMessage   `json:"node"`
+	Basis     lengthJSON        `json:"basis,omitempty"`
+	Cross     lengthJSON        `json:"cross,omitempty"`
+	Grow      float64           `json:"grow,omitempty"`
+	Shrink    float64           `json:"shrink,omitempty"`
+	Margin    *lengthInsetsJSON `json:"margin,omitempty"`
+	MinMain   lengthJSON        `json:"minMain,omitempty"`
+	MaxMain   lengthJSON        `json:"maxMain,omitempty"`
+	MinCross  lengthJSON        `json:"minCross,omitempty"`
+	MaxCross  lengthJSON        `json:"maxCross,omitempty"`
+	AlignSelf *string           `json:"alignSelf,omitempty"`
+	Ratio     float64           `json:"ratio,omitempty"`
 }
 
 type gridJSON struct {
-	Type         string          `json:"type"`
-	Size         sizeJSON        `json:"size,omitempty"`
-	Columns      []trackJSON     `json:"columns,omitempty"`
-	Rows         []trackJSON     `json:"rows,omitempty"`
-	ColumnGap    int             `json:"columnGap,omitempty"`
-	RowGap       int             `json:"rowGap,omitempty"`
-	AlignItems   string          `json:"alignItems,omitempty"`
-	JustifyItems string          `json:"justifyItems,omitempty"`
-	Children     []gridChildJSON `json:"children,omitempty"`
+	Type            string          `json:"type"`
+	Size            sizeJSON        `json:"size,omitempty"`
+	Columns         []trackJSON     `json:"columns,omitempty"`
+	Rows            []trackJSON     `json:"rows,omitempty"`
+	ColumnGap       int             `json:"columnGap,omitempty"`
+	RowGap          int             `json:"rowGap,omitempty"`
+	ColumnGapLength lengthJSON      `json:"columnGapLength,omitempty"`
+	RowGapLength    lengthJSON      `json:"rowGapLength,omitempty"`
+	AlignItems      string          `json:"alignItems,omitempty"`
+	JustifyItems    string          `json:"justifyItems,omitempty"`
+	Children        []gridChildJSON `json:"children,omitempty"`
 }
 type gridChildJSON struct {
-	Node        json.RawMessage `json:"node"`
-	Column      int             `json:"column,omitempty"`
-	Row         int             `json:"row,omitempty"`
-	ColumnSpan  int             `json:"columnSpan,omitempty"`
-	RowSpan     int             `json:"rowSpan,omitempty"`
-	AlignSelf   *string         `json:"alignSelf,omitempty"`
-	JustifySelf *string         `json:"justifySelf,omitempty"`
+	Node        json.RawMessage   `json:"node"`
+	Column      int               `json:"column,omitempty"`
+	Row         int               `json:"row,omitempty"`
+	ColumnSpan  int               `json:"columnSpan,omitempty"`
+	RowSpan     int               `json:"rowSpan,omitempty"`
+	AlignSelf   *string           `json:"alignSelf,omitempty"`
+	JustifySelf *string           `json:"justifySelf,omitempty"`
+	Margin      *lengthInsetsJSON `json:"margin,omitempty"`
 }
 
 // trackJSON accepts the three ways a grid track can be sized, spelled the way
@@ -636,9 +656,14 @@ func (d Decoder) decodeGrid(value gridJSON, path string) (compose.Node, error) {
 		if err != nil {
 			return nil, err
 		}
+		margin := [4]compose.Length{}
+		if child.Margin != nil {
+			margin = child.Margin.lengths()
+		}
 		children[index] = compose.GridChild{
 			Node: node, Column: child.Column, Row: child.Row,
 			ColumnSpan: child.ColumnSpan, RowSpan: child.RowSpan,
+			Margin:    margin,
 			AlignSelf: alignSelf, JustifySelf: justifySelf,
 		}
 	}
@@ -651,12 +676,14 @@ func (d Decoder) decodeGrid(value gridJSON, path string) (compose.Node, error) {
 		return nil, fmt.Errorf("%s.justifyItems: %w", path, err)
 	}
 	return compose.Grid{
-		Size:       value.Size.point(),
-		Columns:    tracks(value.Columns),
-		Rows:       tracks(value.Rows),
-		ColumnGap:  value.ColumnGap,
-		RowGap:     value.RowGap,
-		AlignItems: alignItems, JustifyItems: justifyItems,
+		Size:            value.Size.point(),
+		Columns:         tracks(value.Columns),
+		Rows:            tracks(value.Rows),
+		ColumnGap:       value.ColumnGap,
+		RowGap:          value.RowGap,
+		ColumnGapLength: value.ColumnGapLength.length,
+		RowGapLength:    value.RowGapLength.length,
+		AlignItems:      alignItems, JustifyItems: justifyItems,
 		Children: children,
 	}, nil
 }
@@ -961,15 +988,27 @@ type stackJSON struct {
 	Children []json.RawMessage `json:"children,omitempty"`
 }
 type paddingJSON struct {
-	Type   string          `json:"type"`
-	Insets insetsJSON      `json:"insets"`
-	Child  json.RawMessage `json:"child"`
+	Type         string            `json:"type"`
+	Insets       insetsJSON        `json:"insets,omitempty"`
+	LengthInsets *lengthInsetsJSON `json:"lengthInsets,omitempty"`
+	Child        json.RawMessage   `json:"child"`
 }
 type insetsJSON struct {
 	Top    int `json:"top"`
 	Right  int `json:"right"`
 	Bottom int `json:"bottom"`
 	Left   int `json:"left"`
+}
+
+type lengthInsetsJSON struct {
+	Top    lengthJSON `json:"top"`
+	Right  lengthJSON `json:"right"`
+	Bottom lengthJSON `json:"bottom"`
+	Left   lengthJSON `json:"left"`
+}
+
+func (i lengthInsetsJSON) lengths() [4]compose.Length {
+	return [4]compose.Length{i.Top.length, i.Right.length, i.Bottom.length, i.Left.length}
 }
 
 type textJSON struct {
@@ -992,21 +1031,27 @@ type inlineJSON struct {
 }
 
 type inlineItemJSON struct {
-	Runs          []runJSON       `json:"runs,omitempty"`
-	Node          json.RawMessage `json:"node,omitempty"`
-	Break         bool            `json:"break,omitempty"`
-	Padding       insetsJSON      `json:"padding,omitempty"`
-	Margin        insetsJSON      `json:"margin,omitempty"`
-	Background    *string         `json:"background,omitempty"`
-	Border        *strokeJSON     `json:"border,omitempty"`
-	Radius        int             `json:"radius,omitempty"`
-	LineHeight    int             `json:"lineHeight,omitempty"`
-	VerticalAlign string          `json:"verticalAlign,omitempty"`
-	Wrap          string          `json:"wrap,omitempty"`
-	Top           offsetJSON      `json:"top,omitempty"`
-	Right         offsetJSON      `json:"right,omitempty"`
-	Bottom        offsetJSON      `json:"bottom,omitempty"`
-	Left          offsetJSON      `json:"left,omitempty"`
+	Runs          []runJSON         `json:"runs,omitempty"`
+	Node          json.RawMessage   `json:"node,omitempty"`
+	Break         bool              `json:"break,omitempty"`
+	Padding       insetsJSON        `json:"padding,omitempty"`
+	Margin        insetsJSON        `json:"margin,omitempty"`
+	PaddingLength *lengthInsetsJSON `json:"paddingLength,omitempty"`
+	MarginLength  *lengthInsetsJSON `json:"marginLength,omitempty"`
+	Background    *string           `json:"background,omitempty"`
+	Border        *strokeJSON       `json:"border,omitempty"`
+	BorderTop     *strokeJSON       `json:"borderTop,omitempty"`
+	BorderRight   *strokeJSON       `json:"borderRight,omitempty"`
+	BorderBottom  *strokeJSON       `json:"borderBottom,omitempty"`
+	BorderLeft    *strokeJSON       `json:"borderLeft,omitempty"`
+	Radius        int               `json:"radius,omitempty"`
+	LineHeight    int               `json:"lineHeight,omitempty"`
+	VerticalAlign string            `json:"verticalAlign,omitempty"`
+	Wrap          string            `json:"wrap,omitempty"`
+	Top           offsetJSON        `json:"top,omitempty"`
+	Right         offsetJSON        `json:"right,omitempty"`
+	Bottom        offsetJSON        `json:"bottom,omitempty"`
+	Left          offsetJSON        `json:"left,omitempty"`
 }
 
 func (d Decoder) decodeInline(value inlineJSON, path string) (compose.Node, error) {
@@ -1054,6 +1099,10 @@ func (d Decoder) decodeInline(value inlineJSON, path string) (compose.Node, erro
 			}
 			border = compose.Stroke(value)
 		}
+		top, right, bottom, left, err := optionalStrokes(source.BorderTop, source.BorderRight, source.BorderBottom, source.BorderLeft)
+		if err != nil {
+			return nil, err
+		}
 		vertical, err := parseInlineVerticalAlign(source.VerticalAlign)
 		if err != nil {
 			return nil, fmt.Errorf("%s.verticalAlign: %w", itemPath, err)
@@ -1062,11 +1111,22 @@ func (d Decoder) decodeInline(value inlineJSON, path string) (compose.Node, erro
 		if err != nil {
 			return nil, fmt.Errorf("%s.wrap: %w", itemPath, err)
 		}
+		paddingLengths := [4]compose.Length{}
+		if source.PaddingLength != nil {
+			paddingLengths = source.PaddingLength.lengths()
+		}
+		marginLengths := [4]compose.Length{}
+		if source.MarginLength != nil {
+			marginLengths = source.MarginLength.lengths()
+		}
 		items[index] = compose.InlineItem{
 			Runs: runs, Node: node, Break: source.Break,
-			Padding:    compose.Insets{Top: source.Padding.Top, Right: source.Padding.Right, Bottom: source.Padding.Bottom, Left: source.Padding.Left},
-			Margin:     compose.Insets{Top: source.Margin.Top, Right: source.Margin.Right, Bottom: source.Margin.Bottom, Left: source.Margin.Left},
-			Background: background, Border: border, Radius: source.Radius,
+			Padding:        compose.Insets{Top: source.Padding.Top, Right: source.Padding.Right, Bottom: source.Padding.Bottom, Left: source.Padding.Left},
+			Margin:         compose.Insets{Top: source.Margin.Top, Right: source.Margin.Right, Bottom: source.Margin.Bottom, Left: source.Margin.Left},
+			PaddingLengths: paddingLengths, MarginLengths: marginLengths,
+			Background: background, Border: border,
+			BorderTop: top, BorderRight: right, BorderBottom: bottom, BorderLeft: left,
+			Radius:     source.Radius,
 			LineHeight: source.LineHeight, VerticalAlign: vertical, Wrap: itemWrap,
 			Top: source.Top.length, Right: source.Right.length,
 			Bottom: source.Bottom.length, Left: source.Left.length,
@@ -1305,11 +1365,15 @@ type pixelJSON struct {
 	Ink  string    `json:"ink"`
 }
 type rectangleJSON struct {
-	Type   string      `json:"type"`
-	Size   sizeJSON    `json:"size,omitempty"`
-	Radius int         `json:"radius,omitempty"`
-	Fill   *string     `json:"fill,omitempty"`
-	Stroke *strokeJSON `json:"stroke,omitempty"`
+	Type         string      `json:"type"`
+	Size         sizeJSON    `json:"size,omitempty"`
+	Radius       int         `json:"radius,omitempty"`
+	Fill         *string     `json:"fill,omitempty"`
+	Stroke       *strokeJSON `json:"stroke,omitempty"`
+	StrokeTop    *strokeJSON `json:"strokeTop,omitempty"`
+	StrokeRight  *strokeJSON `json:"strokeRight,omitempty"`
+	StrokeBottom *strokeJSON `json:"strokeBottom,omitempty"`
+	StrokeLeft   *strokeJSON `json:"strokeLeft,omitempty"`
 }
 type lineJSON struct {
 	Type   string     `json:"type"`
@@ -1453,6 +1517,22 @@ func parsePaint(fillName *string, strokeSource *strokeJSON, path string) (*displ
 		stroke = compose.Stroke(value)
 	}
 	return fill, stroke, nil
+}
+
+func optionalStrokes(sources ...*strokeJSON) (*display.StrokeStyle, *display.StrokeStyle, *display.StrokeStyle, *display.StrokeStyle, error) {
+	result := [4]*display.StrokeStyle{}
+	names := []string{"Top", "Right", "Bottom", "Left"}
+	for index, source := range sources {
+		if source == nil {
+			continue
+		}
+		value, err := source.style("rectangle.stroke" + names[index])
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		result[index] = compose.Stroke(value)
+	}
+	return result[0], result[1], result[2], result[3], nil
 }
 
 func points(source []pointJSON) []image.Point {

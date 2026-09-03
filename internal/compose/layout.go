@@ -3,6 +3,7 @@ package compose
 import (
 	"fmt"
 	"image"
+	"math"
 	"slices"
 
 	"github.com/xwvike/inkwire/internal/display"
@@ -55,9 +56,14 @@ type LayoutChild struct {
 	// Cross overrides it across the container's axis. A child with one is
 	// never stretched, because stretching is what fills a size nobody stated.
 	Cross Length
-	// Grow divides what is left over by integer weight, after every base size
-	// and Gap has been allocated.
-	Grow int
+	// Grow divides positive free space by weight, after every base size and
+	// gap has been allocated. Shrink divides negative free space by the CSS
+	// scaled flex base size (shrink * base size).
+	Grow   float64
+	Shrink float64
+	// Margin is resolved against the containing block's inline size. It is
+	// included in the flex line's occupied space but not in the child's box.
+	Margin [4]Length
 	// MinMain and the rest bound the resolved sizes on each axis.
 	MinMain, MaxMain   Length
 	MinCross, MaxCross Length
@@ -133,7 +139,7 @@ func (c LayoutChild) alignment(container CrossAlignment) CrossAlignment {
 }
 
 func (c LayoutChild) valid() bool {
-	return c.Basis.valid() && c.Cross.valid() && c.Grow >= 0 &&
+	return c.Basis.valid() && c.Cross.valid() && c.Grow >= 0 && c.Shrink >= 0 &&
 		c.MinMain.valid() && c.MaxMain.valid() && c.MinCross.valid() && c.MaxCross.valid()
 }
 
@@ -195,6 +201,7 @@ func (a Absolute) paint(ctx *compileContext, list *display.DisplayList, bounds i
 type Row struct {
 	Size       image.Point
 	Gap        int
+	GapLength  Length
 	MainAlign  MainAlignment
 	CrossAlign CrossAlignment
 	Children   []LayoutChild
@@ -203,17 +210,18 @@ type Row struct {
 func (Row) composeNode() {}
 
 func (r Row) measure(ctx *compileContext, maximum image.Point, path string) (image.Point, error) {
-	return measureFlow(ctx, maximum, r.Size, r.Gap, true, r.Children, path)
+	return measureFlow(ctx, maximum, r.Size, r.Gap, r.GapLength, true, r.Children, path)
 }
 
 func (r Row) paint(ctx *compileContext, list *display.DisplayList, bounds image.Rectangle, path string) error {
-	return paintFlow(ctx, list, bounds, r.Gap, r.MainAlign, r.CrossAlign, true, r.Children, path)
+	return paintFlow(ctx, list, bounds, r.Gap, r.GapLength, r.MainAlign, r.CrossAlign, true, r.Children, path)
 }
 
 // Column lays children out from top to bottom. It never reorders them.
 type Column struct {
 	Size       image.Point
 	Gap        int
+	GapLength  Length
 	MainAlign  MainAlignment
 	CrossAlign CrossAlignment
 	Children   []LayoutChild
@@ -222,15 +230,18 @@ type Column struct {
 func (Column) composeNode() {}
 
 func (c Column) measure(ctx *compileContext, maximum image.Point, path string) (image.Point, error) {
-	return measureFlow(ctx, maximum, c.Size, c.Gap, false, c.Children, path)
+	return measureFlow(ctx, maximum, c.Size, c.Gap, c.GapLength, false, c.Children, path)
 }
 
 func (c Column) paint(ctx *compileContext, list *display.DisplayList, bounds image.Rectangle, path string) error {
-	return paintFlow(ctx, list, bounds, c.Gap, c.MainAlign, c.CrossAlign, false, c.Children, path)
+	return paintFlow(ctx, list, bounds, c.Gap, c.GapLength, c.MainAlign, c.CrossAlign, false, c.Children, path)
 }
 
-func measureFlow(ctx *compileContext, maximum, preferred image.Point, gap int, horizontal bool, children []LayoutChild, path string) (image.Point, error) {
-	if gap < 0 {
+func measureFlow(ctx *compileContext, maximum, preferred image.Point, gap int, gapLength Length, horizontal bool, children []LayoutChild, path string) (image.Point, error) {
+	restoreInline := ctx.pushMeasureInline(maximum.X)
+	defer restoreInline()
+	gap = resolvedGap(gap, gapLength, mainOf(maximum, horizontal))
+	if gap < 0 || !gapLength.valid() {
 		return image.Point{}, fmt.Errorf("%s: gap must not be negative, got %d", path, gap)
 	}
 	if !validSize(preferred) {
@@ -245,14 +256,14 @@ func measureFlow(ctx *compileContext, maximum, preferred image.Point, gap int, h
 		if !child.valid() {
 			return image.Point{}, fmt.Errorf("%s: sizes and grow must not be negative", nodePath)
 		}
-		size, err := child.Node.measure(ctx, maximum, nodePath)
+		size, err := child.Node.measure(ctx, flowMeasureMaximum(maximum, horizontal), nodePath)
 		if err != nil {
 			return image.Point{}, err
 		}
 		childMain, childCross := axes(size, horizontal)
 		childMain = child.intrinsicMain(childMain)
-		main += childMain
-		cross = max(cross, childCross)
+		main += childMain + intrinsicMargin(child.Margin, horizontal)
+		cross = max(cross, childCross+intrinsicMargin(child.Margin, !horizontal))
 	}
 	if len(children) > 1 {
 		main += gap * (len(children) - 1)
@@ -261,7 +272,7 @@ func measureFlow(ctx *compileContext, maximum, preferred image.Point, gap int, h
 	return preferredSize(natural, preferred, maximum)
 }
 
-func paintFlow(ctx *compileContext, list *display.DisplayList, bounds image.Rectangle, gap int, mainAlign MainAlignment, crossAlign CrossAlignment, horizontal bool, children []LayoutChild, path string) error {
+func paintFlow(ctx *compileContext, list *display.DisplayList, bounds image.Rectangle, gap int, gapLength Length, mainAlign MainAlignment, crossAlign CrossAlignment, horizontal bool, children []LayoutChild, path string) error {
 	if mainAlign > MainEnd {
 		return fmt.Errorf("%s: invalid main alignment %d", path, mainAlign)
 	}
@@ -269,11 +280,19 @@ func paintFlow(ctx *compileContext, list *display.DisplayList, bounds image.Rect
 		return fmt.Errorf("%s: invalid cross alignment %d", path, crossAlign)
 	}
 	maximum := bounds.Size()
+	restoreInline := ctx.pushMeasureInline(maximum.X)
+	defer restoreInline()
+	gap = resolvedGap(gap, gapLength, mainOf(bounds.Size(), horizontal))
+	if gap < 0 || !gapLength.valid() {
+		return fmt.Errorf("%s: gap must not be negative", path)
+	}
 	sizes := make([]image.Point, len(children))
-	baseMain, growTotal := 0, 0
+	margins := make([]Insets, len(children))
+	baseMain := 0
+	marginMain := 0
 	for index, child := range children {
 		nodePath := childPath(path, "children", index)
-		size, err := child.Node.measure(ctx, maximum, nodePath)
+		size, err := child.Node.measure(ctx, flowMeasureMaximum(maximum, horizontal), nodePath)
 		if err != nil {
 			return err
 		}
@@ -281,48 +300,37 @@ func paintFlow(ctx *compileContext, list *display.DisplayList, bounds image.Rect
 		setMain(&size, horizontal, child.mainSize(measuredMain, mainOf(bounds.Size(), horizontal)))
 		sizes[index] = size
 		childMain, _ := axes(size, horizontal)
-		baseMain += childMain
-		growTotal += child.Grow
+		margin := child.resolvedMargin(bounds.Dx())
+		margins[index] = margin
+		marginSize := margin.horizontal()
+		if !horizontal {
+			marginSize = margin.vertical()
+		}
+		marginMain += marginSize
+		baseMain += childMain + marginSize
 	}
 	if len(children) > 1 {
 		baseMain += gap * (len(children) - 1)
 	}
 	availableMain, availableCross := axes(bounds.Size(), horizontal)
+	resolved := resolveFlexMainSizes(children, sizes, max(0, availableMain-marginMain), gap, horizontal)
+	baseMain = 0
+	for index := range resolved {
+		setMain(&sizes[index], horizontal, resolved[index])
+		marginSize := margins[index].horizontal()
+		if !horizontal {
+			marginSize = margins[index].vertical()
+		}
+		baseMain += resolved[index] + marginSize
+	}
+	if len(children) > 1 {
+		baseMain += gap * (len(children) - 1)
+	}
 	if baseMain > availableMain {
 		ctx.warn(path, "layout-overflow", fmt.Sprintf("children need %d pixels on the main axis, only %d are available", baseMain, availableMain))
 	}
-	remaining := max(0, availableMain-baseMain)
-	if growTotal > 0 && remaining > 0 {
-		used := 0
-		for index, child := range children {
-			if child.Grow == 0 {
-				continue
-			}
-			extra := remaining * child.Grow / growTotal
-			used += extra
-			setMain(&sizes[index], horizontal, mainOf(sizes[index], horizontal)+extra)
-		}
-		for index := range children {
-			if used == remaining {
-				break
-			}
-			if children[index].Grow > 0 {
-				setMain(&sizes[index], horizontal, mainOf(sizes[index], horizontal)+1)
-				used++
-			}
-		}
-		// A maximum bounds the size however it was arrived at, so growing is
-		// clamped after the fact rather than being allowed to pass it.
-		for index, child := range children {
-			grown := mainOf(sizes[index], horizontal)
-			if capped := clamp(grown, child.MinMain, child.MaxMain, availableMain); capped != grown {
-				setMain(&sizes[index], horizontal, capped)
-			}
-		}
-		baseMain += remaining
-	}
 	start := 0
-	if growTotal == 0 && baseMain < availableMain {
+	if baseMain < availableMain && !hasUnfilledGrow(children, sizes, availableMain, horizontal) {
 		switch mainAlign {
 		case MainCenter:
 			start = (availableMain - baseMain) / 2
@@ -335,7 +343,15 @@ func paintFlow(ctx *compileContext, list *display.DisplayList, bounds image.Rect
 		nodePath := childPath(path, "children", index)
 		childMain, measuredCross := axes(sizes[index], horizontal)
 		alignment := child.alignment(crossAlign)
-		childCross := child.crossSizeOf(measuredCross, availableCross, alignment == CrossStretch)
+		margin := margins[index]
+		crossMarginStart, crossMarginEnd := margin.Top, margin.Bottom
+		if horizontal {
+			crossMarginStart, crossMarginEnd = margin.Top, margin.Bottom
+		} else {
+			crossMarginStart, crossMarginEnd = margin.Left, margin.Right
+		}
+		availableChildCross := max(0, availableCross-crossMarginStart-crossMarginEnd)
+		childCross := child.crossSizeOf(measuredCross, availableChildCross, alignment == CrossStretch)
 		if derived, ok := child.ratioCross(childMain, horizontal); ok {
 			childCross = clamp(derived, child.MinCross, child.MaxCross, availableCross)
 			if alignment == CrossStretch {
@@ -345,17 +361,228 @@ func paintFlow(ctx *compileContext, list *display.DisplayList, bounds image.Rect
 		crossStart := 0
 		switch alignment {
 		case CrossCenter:
-			crossStart = (availableCross - childCross) / 2
+			crossStart = (availableChildCross - childCross) / 2
 		case CrossEnd:
-			crossStart = availableCross - childCross
+			crossStart = availableChildCross - childCross
 		}
+		crossStart += crossMarginStart
+		mainMarginStart, mainMarginEnd := margin.Left, margin.Right
+		if !horizontal {
+			mainMarginStart, mainMarginEnd = margin.Top, margin.Bottom
+		}
+		cursor += mainMarginStart
 		childBounds := rectFromAxes(bounds.Min, cursor, crossStart, childMain, childCross, horizontal)
 		if err := ctx.paintWithContaining(child.Node, list, childBounds, bounds, nodePath); err != nil {
 			return err
 		}
-		cursor += childMain + gap
+		cursor += childMain + mainMarginEnd + gap
 	}
 	return nil
+}
+
+func (c LayoutChild) resolvedMargin(availableWidth int) Insets {
+	return Insets{Top: resolveMargin(c.Margin[0], availableWidth), Right: resolveMargin(c.Margin[1], availableWidth), Bottom: resolveMargin(c.Margin[2], availableWidth), Left: resolveMargin(c.Margin[3], availableWidth)}
+}
+
+func intrinsicMargin(margin [4]Length, horizontal bool) int {
+	if horizontal {
+		left, lok := intrinsicOrZero(margin[3])
+		right, rok := intrinsicOrZero(margin[1])
+		if lok && rok {
+			return left + right
+		}
+		return 0
+	}
+	top, tok := intrinsicOrZero(margin[0])
+	bottom, bok := intrinsicOrZero(margin[2])
+	if tok && bok {
+		return top + bottom
+	}
+	return 0
+}
+
+func intrinsicOrZero(length Length) (int, bool) {
+	if !length.IsSet() {
+		return 0, true
+	}
+	return length.intrinsic()
+}
+
+func resolvedGap(fallback int, length Length, available int) int {
+	if value, ok := length.Resolve(available); ok {
+		return value
+	}
+	return fallback
+}
+
+func flowMeasureMaximum(maximum image.Point, horizontal bool) image.Point {
+	if horizontal {
+		maximum.X = unboundedMeasure
+	} else {
+		maximum.Y = unboundedMeasure
+	}
+	return maximum
+}
+
+// resolveFlexMainSizes applies the one-dimensional part of the flex sizing
+// algorithm. The layout model is pixel based, so fractional results are
+// rounded only after all items have participated; the final correction keeps
+// the line's total equal to the available space whenever its constraints allow
+// it. Min/max constraints freeze items and redistribute the remaining free
+// space among the rest, matching the browser's shrink/grow loop.
+func resolveFlexMainSizes(children []LayoutChild, sizes []image.Point, available, gap int, horizontal bool) []int {
+	result := make([]int, len(sizes))
+	base := make([]float64, len(sizes))
+	for index, size := range sizes {
+		result[index] = mainOf(size, horizontal)
+		base[index] = float64(result[index])
+	}
+	if len(sizes) == 0 {
+		return result
+	}
+	free := float64(available - gap*max(0, len(sizes)-1))
+	for _, value := range result {
+		free -= float64(value)
+	}
+	if free > 0 {
+		flexDistribute(children, result, base, free, true, available)
+	} else if free < 0 {
+		flexDistribute(children, result, base, -free, false, available)
+	}
+	return result
+}
+
+func hasUnfilledGrow(children []LayoutChild, sizes []image.Point, available int, horizontal bool) bool {
+	for index, child := range children {
+		if child.Grow <= 0 {
+			continue
+		}
+		current := mainOf(sizes[index], horizontal)
+		if high, ok := child.MaxMain.Resolve(available); ok && current >= high {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func flexDistribute(children []LayoutChild, result []int, base []float64, free float64, growing bool, available int) {
+	active := make([]bool, len(children))
+	for index, child := range children {
+		active[index] = (growing && child.Grow > 0) || (!growing && child.Shrink > 0)
+	}
+	target := append([]float64(nil), base...)
+	for {
+		weight := 0.0
+		for index, child := range children {
+			if !active[index] {
+				continue
+			}
+			if growing {
+				weight += child.Grow
+			} else {
+				weight += child.Shrink * base[index]
+			}
+		}
+		if weight <= 0 {
+			break
+		}
+		// Once a candidate is frozen by a min/max constraint, only its
+		// clamped delta is removed from the free space. Unfrozen candidates
+		// are recomputed from their original flex base size each round; their
+		// previous proposal is not already committed.
+		frozenDelta := 0.0
+		for index := range children {
+			if active[index] {
+				continue
+			}
+			if growing {
+				frozenDelta += target[index] - base[index]
+			} else {
+				frozenDelta += base[index] - target[index]
+			}
+		}
+		remaining := free - frozenDelta
+		if remaining <= 0.001 {
+			break
+		}
+		frozen := false
+		proposal := append([]float64(nil), target...)
+		for index, child := range children {
+			if !active[index] {
+				continue
+			}
+			factor := child.Grow
+			if !growing {
+				factor = child.Shrink * base[index]
+			}
+			delta := remaining * factor / weight
+			// Recompute active candidates from the original flex base size. Frozen
+			// items retain their clamped target while the remaining free space is
+			// redistributed among the unfrozen items.
+			candidate := base[index] + delta
+			if !growing {
+				candidate = target[index] - delta
+			}
+			clamped := clampFloat(candidate, child, available)
+			if math.Abs(clamped-candidate) > 0.001 {
+				proposal[index] = clamped
+				active[index] = false
+				frozen = true
+			} else {
+				proposal[index] = candidate
+			}
+		}
+		target = proposal
+		if !frozen {
+			break
+		}
+	}
+	targetSum := int(math.Round(sumFloat(target)))
+	got := 0
+	for index, value := range target {
+		result[index] = max(0, int(math.Floor(value)))
+		got += result[index]
+	}
+	// Keep integer rounding deterministic and preserve the available line
+	// length. Earlier items receive the indivisible pixels, which is also how
+	// the previous integer grow path behaved.
+	for delta := targetSum - got; delta > 0; delta-- {
+		for index := range result {
+			if !active[index] {
+				continue
+			}
+			result[index]++
+			break
+		}
+	}
+	for delta := got - targetSum; delta > 0; delta-- {
+		for index := len(result) - 1; index >= 0; index-- {
+			if !active[index] || result[index] <= 0 {
+				continue
+			}
+			result[index]--
+			break
+		}
+	}
+}
+
+func sumFloat(values []float64) float64 {
+	total := 0.0
+	for _, value := range values {
+		total += value
+	}
+	return total
+}
+
+func clampFloat(value float64, child LayoutChild, available int) float64 {
+	if low, ok := child.MinMain.Resolve(available); ok && value < float64(low) {
+		value = float64(low)
+	}
+	if high, ok := child.MaxMain.Resolve(available); ok && value > float64(high) {
+		value = float64(high)
+	}
+	return value
 }
 
 // Stack paints children in slice order into the same allocated rectangle.
@@ -377,7 +604,16 @@ func (s Stack) measure(ctx *compileContext, maximum image.Point, path string) (i
 		if nilNode(child) {
 			return image.Point{}, fmt.Errorf("%s: node must not be nil", nodePath)
 		}
-		size, err := child.measure(ctx, maximum, nodePath)
+		childMaximum := maximum
+		if s.Size.X > 0 {
+			childMaximum.X = min(s.Size.X, maximum.X)
+		}
+		if s.Size.Y > 0 {
+			childMaximum.Y = min(s.Size.Y, maximum.Y)
+		}
+		restoreInline := ctx.pushMeasureInline(childMaximum.X)
+		size, err := child.measure(ctx, childMaximum, nodePath)
+		restoreInline()
 		if err != nil {
 			return image.Point{}, err
 		}
@@ -398,36 +634,81 @@ func (s Stack) paint(ctx *compileContext, list *display.DisplayList, bounds imag
 
 // Padding reduces the rectangle passed to Child by the declared insets.
 type Padding struct {
-	Insets Insets
-	Child  Node
+	Insets  Insets
+	Lengths [4]Length
+	Child   Node
 }
 
 func (Padding) composeNode() {}
 
 func (p Padding) measure(ctx *compileContext, maximum image.Point, path string) (image.Point, error) {
-	if !p.Insets.valid() {
+	if !p.Insets.valid() || !lengthsValid(p.Lengths) {
 		return image.Point{}, fmt.Errorf("%s: padding must not be negative", path)
 	}
 	if nilNode(p.Child) {
 		return image.Point{}, fmt.Errorf("%s.child: node must not be nil", path)
 	}
-	innerMax := image.Pt(max(0, maximum.X-p.Insets.horizontal()), max(0, maximum.Y-p.Insets.vertical()))
+	availableWidth := ctx.measureInlineWidth(maximum)
+	insets := p.resolved(availableWidth)
+	innerMax := image.Pt(max(0, maximum.X-insets.horizontal()), max(0, maximum.Y-insets.vertical()))
+	restoreInline := ctx.pushMeasureInline(max(0, availableWidth-insets.horizontal()))
 	size, err := p.Child.measure(ctx, innerMax, path+".child")
+	restoreInline()
 	if err != nil {
 		return image.Point{}, err
 	}
-	return constrainSize(image.Pt(size.X+p.Insets.horizontal(), size.Y+p.Insets.vertical()), maximum), nil
+	return constrainSize(image.Pt(size.X+insets.horizontal(), size.Y+insets.vertical()), maximum), nil
 }
 
 func (p Padding) paint(ctx *compileContext, list *display.DisplayList, bounds image.Rectangle, path string) error {
-	min := bounds.Min.Add(image.Pt(p.Insets.Left, p.Insets.Top))
-	maxPoint := bounds.Max.Sub(image.Pt(p.Insets.Right, p.Insets.Bottom))
+	insets := p.resolved(bounds.Dx())
+	min := bounds.Min.Add(image.Pt(insets.Left, insets.Top))
+	maxPoint := bounds.Max.Sub(image.Pt(insets.Right, insets.Bottom))
 	if min.X >= maxPoint.X || min.Y >= maxPoint.Y {
 		ctx.warn(path, "empty-layout", "padding leaves no drawable area")
 		return nil
 	}
 	inner := image.Rectangle{Min: min, Max: maxPoint}
 	return ctx.paintWithContaining(p.Child, list, inner, inner, path+".child")
+}
+
+func (p Padding) resolved(availableWidth int) Insets {
+	if !lengthsSet(p.Lengths) {
+		return p.Insets
+	}
+	return Insets{Top: resolveInset(p.Lengths[0], availableWidth), Right: resolveInset(p.Lengths[1], availableWidth), Bottom: resolveInset(p.Lengths[2], availableWidth), Left: resolveInset(p.Lengths[3], availableWidth)}
+}
+
+func resolveInset(length Length, available int) int {
+	if value, ok := length.Resolve(available); ok {
+		return value
+	}
+	return 0
+}
+
+func resolveMargin(length Length, available int) int {
+	if value, ok := length.Offset(available); ok {
+		return value
+	}
+	return 0
+}
+
+func lengthsSet(lengths [4]Length) bool {
+	for _, length := range lengths {
+		if length.IsSet() {
+			return true
+		}
+	}
+	return false
+}
+
+func lengthsValid(lengths [4]Length) bool {
+	for _, length := range lengths {
+		if !length.valid() {
+			return false
+		}
+	}
+	return true
 }
 
 // Relative keeps its child's measured flow box but paints that box at an
