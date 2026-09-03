@@ -36,7 +36,7 @@ const svgNamespace = "svg"
 // hanging off the edge of one is cut by it rather than drawn over whatever the
 // page put next to it.
 func (c *compiler) svg(node *html.Node, current style, path string) *emitted {
-	width, height, scale := c.viewport(node, current, path)
+	width, height, frame := c.viewport(node, current, path)
 	if width <= 0 || height <= 0 {
 		c.warn(path, "unresolved-drawing",
 			"an svg element states no size: give it width and height, or a stylesheet that does")
@@ -48,7 +48,7 @@ func (c *compiler) svg(node *html.Node, current style, path string) *emitted {
 	patterns(node, c.patterns)
 	drawing := &emitted{Type: "absolute", Clip: true}
 	var children []placed
-	c.svgChildren(node, box, c.svgPaint(node, rootPaint(), current, path), current, rootFrame(), path, &children)
+	c.svgChildren(node, box, c.svgPaint(node, rootPaint(), current, path), current, frame, path, &children)
 	if len(children) == 0 {
 		if !current.hidden {
 			c.warn(path, "unresolved-drawing", "an svg element with nothing in it that this build can draw")
@@ -56,41 +56,43 @@ func (c *compiler) svg(node *html.Node, current style, path string) *emitted {
 		return nil
 	}
 	drawing.Children = children
-	if scale > 1 {
-		// A viewBox smaller than the box it is drawn in is a magnification,
-		// which the drawing model does in whole numbers by redrawing the
-		// subtree onto a surface of its own.
-		return &emitted{Type: "transformed", Scale: scale, Child: drawing}
-	}
 	return drawing
 }
 
-// viewport is how large the drawing is, in the units its coordinates are in.
+// viewport is how large the drawing is in the page and how its user
+// coordinates map into that box.
 //
 // A stylesheet wins over the attributes, because that is what a presentation
-// attribute is: a default that CSS overrides. A viewBox is read for its size
-// only — scaling one to a different width is a magnification, and the drawing
-// model has whole-number magnification while a viewBox has any.
-// The third return is the whole-number magnification between the two, which
-// is one unless a viewBox and a stated size disagree by an exact factor.
-func (c *compiler) viewport(node *html.Node, current style, path string) (int, int, int) {
+// attribute is: a default that CSS overrides. A viewBox maps its user
+// coordinates into the viewport, using the browser's xMidYMid meet default.
+func (c *compiler) viewport(node *html.Node, current style, path string) (int, int, svgFrame) {
 	width, height := 0, 0
-	viewBoxWidth, viewBoxHeight := 0, 0
+	viewBoxMinX, viewBoxMinY := 0.0, 0.0
+	viewBoxWidth, viewBoxHeight := 0.0, 0.0
+	hasViewBox := false
 	if box := strings.TrimSpace(attribute(node, "viewBox")); box != "" {
-		fields := strings.FieldsFunc(box, func(r rune) bool { return r == ',' || r == ' ' })
+		fields := strings.FieldsFunc(box, func(r rune) bool {
+			return r == ',' || r == ' ' || r == '\n' || r == '\t' || r == '\r'
+		})
 		if len(fields) != 4 {
 			c.warn(path, "unsupported-declaration", fmt.Sprintf("viewBox=%q needs four numbers", box))
 		} else {
-			minX, _ := svgNumber(fields[0])
-			minY, _ := svgNumber(fields[1])
-			if minX != 0 || minY != 0 {
-				c.warn(path, "unsupported-declaration", fmt.Sprintf(
-					"viewBox=%q starts somewhere other than the origin, which this build does not shift to", box))
+			var values [4]float64
+			valid := true
+			for index, field := range fields {
+				var ok bool
+				values[index], ok = svgNumber(field)
+				valid = valid && ok
 			}
-			w, _ := svgNumber(fields[2])
-			h, _ := svgNumber(fields[3])
-			viewBoxWidth, viewBoxHeight = pixels(w), pixels(h)
-			width, height = viewBoxWidth, viewBoxHeight
+			if !valid || values[2] <= 0 || values[3] <= 0 {
+				c.warn(path, "unsupported-declaration", fmt.Sprintf(
+					"viewBox=%q needs finite origin and positive width and height", box))
+			} else {
+				viewBoxMinX, viewBoxMinY = values[0], values[1]
+				viewBoxWidth, viewBoxHeight = values[2], values[3]
+				hasViewBox = true
+				width, height = pixels(viewBoxWidth), pixels(viewBoxHeight)
+			}
 		}
 	}
 	if value, ok := svgNumber(attribute(node, "width")); ok {
@@ -107,22 +109,27 @@ func (c *compiler) viewport(node *html.Node, current style, path string) (int, i
 	if current.height.fixed() {
 		height = current.height.px()
 	}
-	if viewBoxWidth <= 0 || viewBoxHeight <= 0 || (width == viewBoxWidth && height == viewBoxHeight) {
-		return width, height, 1
+	if !hasViewBox || width <= 0 || height <= 0 {
+		return width, height, rootFrame()
 	}
-	// The box says how large the drawing is on the page and the viewBox says
-	// what its coordinates mean. A panel magnifies by whole numbers, so an
-	// exact factor is taken and anything else is drawn at its own size and
-	// said — a drawing quietly two thirds of the size asked for is the kind
-	// of wrong nobody finds by looking.
-	factor := width / viewBoxWidth
-	if factor >= 1 && width == viewBoxWidth*factor && height == viewBoxHeight*factor {
-		return viewBoxWidth, viewBoxHeight, factor
+	if stated := strings.TrimSpace(attribute(node, "preserveAspectRatio")); stated == "none" {
+		return width, height, svgFrame{
+			offsetX: -viewBoxMinX * float64(width) / viewBoxWidth,
+			offsetY: -viewBoxMinY * float64(height) / viewBoxHeight,
+			scaleX:  float64(width) / viewBoxWidth,
+			scaleY:  float64(height) / viewBoxHeight,
+		}
+	} else if stated != "" && stated != "xMidYMid meet" {
+		c.warn(path, "unsupported-declaration", fmt.Sprintf(
+			"preserveAspectRatio=%q is not implemented; xMidYMid meet is used", stated))
 	}
-	c.warn(path, "unsupported-declaration", fmt.Sprintf(
-		"a viewBox of %dx%d drawn in a box of %dx%d is not a whole number of times larger; "+
-			"drawn at its own size", viewBoxWidth, viewBoxHeight, width, height))
-	return viewBoxWidth, viewBoxHeight, 1
+	scale := math.Min(float64(width)/viewBoxWidth, float64(height)/viewBoxHeight)
+	return width, height, svgFrame{
+		offsetX: (float64(width)-viewBoxWidth*scale)/2 - viewBoxMinX*scale,
+		offsetY: (float64(height)-viewBoxHeight*scale)/2 - viewBoxMinY*scale,
+		scaleX:  scale,
+		scaleY:  scale,
+	}
 }
 
 // svgChildren walks a drawing, placing what it can draw and naming what it
@@ -164,7 +171,7 @@ func (c *compiler) svgChildren(node *html.Node, box rect, inherited svgPaint, in
 				Type: "rotated", Degrees: degrees, Origin: about,
 				Child: &emitted{Type: "absolute", Children: inner},
 			}})
-		case "title", "desc", "metadata", "defs", "clipPath", "pattern":
+		case "title", "desc", "metadata", "style", "defs", "clipPath", "pattern":
 			// Not drawn, by their own definition.
 		default:
 			if childStyle.hidden {
@@ -201,8 +208,10 @@ func (c *compiler) svgShape(node *html.Node, box rect, inherited svgPaint, curre
 	paint := c.svgPaint(node, inherited, current, path)
 	switch node.Data {
 	case "rect":
-		x, y := frame.place(svgLength(node, "x"), svgLength(node, "y"))
-		width, height := frame.size(svgLength(node, "width")), frame.size(svgLength(node, "height"))
+		x1, y1 := frame.place(svgLength(node, "x"), svgLength(node, "y"))
+		x2, y2 := frame.place(svgLength(node, "x")+svgLength(node, "width"), svgLength(node, "y")+svgLength(node, "height"))
+		x, y := math.Min(x1, x2), math.Min(y1, y2)
+		width, height := frame.sizeX(svgLength(node, "width")), frame.sizeY(svgLength(node, "height"))
 		if width <= 0 || height <= 0 {
 			c.warn(path, "unsupported-declaration", "a rect with no width or height draws nothing")
 			return placed{}, false
@@ -210,7 +219,7 @@ func (c *compiler) svgShape(node *html.Node, box rect, inherited svgPaint, curre
 		shape := &emitted{Type: "rectangle", Fill: paint.fill, Stroke: paint.edge()}
 		// SVG rounds a rectangle by two radii and the drawing model by one, so
 		// a rect rounded differently on each axis is drawn by the larger.
-		radiusX, radiusY := frame.size(svgLength(node, "rx")), frame.size(svgLength(node, "ry"))
+		radiusX, radiusY := frame.sizeX(svgLength(node, "rx")), frame.sizeY(svgLength(node, "ry"))
 		shape.Radius = pixels(max(radiusX, radiusY))
 		if radiusX != radiusY && radiusX > 0 && radiusY > 0 {
 			c.warn(path, "unsupported-declaration", fmt.Sprintf(
@@ -222,13 +231,29 @@ func (c *compiler) svgShape(node *html.Node, box rect, inherited svgPaint, curre
 		return placed{Bounds: rect{X: pixels(x), Y: pixels(y), Width: pixels(width), Height: pixels(height)}, Node: shape}, true
 
 	case "circle":
-		radius := frame.size(svgLength(node, "r"))
+		writtenRadius := svgLength(node, "r")
+		radius := frame.size(writtenRadius)
 		if radius <= 0 {
 			c.warn(path, "unsupported-declaration", "a circle with no radius draws nothing")
 			return placed{}, false
 		}
+		centerX, centerY := frame.place(svgLength(node, "cx"), svgLength(node, "cy"))
+		center := at(centerX, centerY)
+		if frame.sizeX(writtenRadius) != frame.sizeY(writtenRadius) {
+			// A non-uniform transform turns a circle into an ellipse. The
+			// drawing schema represents that with its bounding box, so retain
+			// the geometry instead of silently choosing one radius.
+			radiusX, radiusY := frame.sizeX(writtenRadius), frame.sizeY(writtenRadius)
+			shape := &emitted{Type: "ellipse", Fill: paint.fill, Stroke: paint.edge()}
+			if !c.painted(shape, paint, path) {
+				return placed{}, false
+			}
+			return placed{Bounds: rect{
+				X: pixels(centerX - radiusX), Y: pixels(centerY - radiusY),
+				Width: pixels(radiusX*2) + 1, Height: pixels(radiusY*2) + 1}, Node: shape}, true
+		}
 		shape := &emitted{Type: "circle", Fill: paint.fill, Stroke: paint.edge(),
-			Center: atFrame(frame, svgLength(node, "cx"), svgLength(node, "cy")), Radius: pixels(radius)}
+			Center: center, Radius: pixels(radius)}
 		if !c.painted(shape, paint, path) {
 			return placed{}, false
 		}
@@ -237,7 +262,7 @@ func (c *compiler) svgShape(node *html.Node, box rect, inherited svgPaint, curre
 	case "ellipse":
 		// An ellipse fills the box it is given, so its box is worked out from
 		// the centre and the two radii it states.
-		radiusX, radiusY := frame.size(svgLength(node, "rx")), frame.size(svgLength(node, "ry"))
+		radiusX, radiusY := frame.sizeX(svgLength(node, "rx")), frame.sizeY(svgLength(node, "ry"))
 		if radiusX <= 0 || radiusY <= 0 {
 			c.warn(path, "unsupported-declaration", "an ellipse with no radii draws nothing")
 			return placed{}, false
@@ -280,6 +305,10 @@ func (c *compiler) svgShape(node *html.Node, box rect, inherited svgPaint, curre
 			}
 			return placed{Bounds: box, Node: &emitted{Type: "polyline", Points: points, Stroke: paint.edge()}}, true
 		}
+		if len(points) < 3 {
+			c.warn(path, "unsupported-declaration", "a polygon needs at least three points")
+			return placed{}, false
+		}
 		shape := &emitted{Type: "polygon", Points: points, Fill: paint.fill, Stroke: paint.edge()}
 		if !c.painted(shape, paint, path) {
 			return placed{}, false
@@ -319,8 +348,10 @@ func (c *compiler) tiled(node *html.Node, box rect, frame svgFrame, tile *emitte
 			"a %s filled with a pattern is not drawn; a pattern fills a rect, and a clip-path shapes it", node.Data))
 		return placed{}, false
 	}
-	x, y := frame.place(svgLength(node, "x"), svgLength(node, "y"))
-	width, height := frame.size(svgLength(node, "width")), frame.size(svgLength(node, "height"))
+	x1, y1 := frame.place(svgLength(node, "x"), svgLength(node, "y"))
+	x2, y2 := frame.place(svgLength(node, "x")+svgLength(node, "width"), svgLength(node, "y")+svgLength(node, "height"))
+	x, y := math.Min(x1, x2), math.Min(y1, y2)
+	width, height := frame.sizeX(svgLength(node, "width")), frame.sizeY(svgLength(node, "height"))
 	if width <= 0 || height <= 0 {
 		c.warn(path, "unsupported-declaration", "a rect with no width or height draws nothing")
 		return placed{}, false
@@ -547,24 +578,30 @@ func svgNumber(value string) (float64, bool) {
 // and how much larger it is drawn than it is written.
 //
 // A transform is folded into this rather than becoming a node of its own. A
-// translate is an offset and a uniform whole-number scale is a multiplier, and
-// applying both to the numbers as they are read is exact — there is no
-// rounding to accumulate and nothing to nest. What cannot be folded is
-// reported, which is everything that turns or shears the page.
+// translate is an offset and scale is a multiplier on each axis, and applying
+// both to the numbers as they are read is exact — there is no rounding to
+// accumulate and nothing to nest. What cannot be folded is reported, which is
+// everything that turns or shears the page.
 type svgFrame struct {
 	offsetX, offsetY float64
-	scale            float64
+	scaleX, scaleY   float64
 }
 
-func rootFrame() svgFrame { return svgFrame{scale: 1} }
+func rootFrame() svgFrame { return svgFrame{scaleX: 1, scaleY: 1} }
 
 // place puts a coordinate written in a group's own space into the drawing's.
 func (f svgFrame) place(x, y float64) (float64, float64) {
-	return f.offsetX + x*f.scale, f.offsetY + y*f.scale
+	return f.offsetX + x*f.scaleX, f.offsetY + y*f.scaleY
 }
 
-// size scales a length that is not a coordinate: a radius, a width, a stroke.
-func (f svgFrame) size(value float64) float64 { return value * f.scale }
+// size scales a radius using the uniform component of the frame. Callers that
+// preserve both axes (ellipses and rectangles) use sizeX and sizeY instead.
+func (f svgFrame) size(value float64) float64 {
+	return value * math.Min(math.Abs(f.scaleX), math.Abs(f.scaleY))
+}
+
+func (f svgFrame) sizeX(value float64) float64 { return value * math.Abs(f.scaleX) }
+func (f svgFrame) sizeY(value float64) float64 { return value * math.Abs(f.scaleY) }
 
 // transformed folds a transform attribute into the frame, reporting the parts
 // of it that cannot be folded.
@@ -587,25 +624,25 @@ func (c *compiler) transformed(node *html.Node, outer svgFrame, path string) svg
 			if len(numbers) == 2 {
 				y = numbers[1]
 			}
-			frame.offsetX += numbers[0] * frame.scale
-			frame.offsetY += y * frame.scale
+			frame.offsetX += numbers[0] * frame.scaleX
+			frame.offsetY += y * frame.scaleY
 		case "scale":
-			factor := 0.0
-			switch {
-			case len(numbers) == 1:
-				factor = numbers[0]
-			case len(numbers) == 2 && numbers[0] == numbers[1]:
-				factor = numbers[0]
-			}
-			// The panel magnifies by whole numbers and shapes here are square
-			// to the page, so a scale that is neither is not a smaller
-			// magnification — it is a different drawing.
-			if factor < 1 || factor != math.Trunc(factor) {
+			if len(numbers) != 1 && len(numbers) != 2 {
 				c.warn(path, "unsupported-declaration", fmt.Sprintf(
-					"transform: scale%s is not a whole number the same on both axes; the group is drawn at its own size", arguments))
+					"transform: scale%s takes one or two numbers", arguments))
 				continue
 			}
-			frame.scale *= factor
+			scaleX, scaleY := numbers[0], numbers[0]
+			if len(numbers) == 2 {
+				scaleY = numbers[1]
+			}
+			if scaleX == 0 || scaleY == 0 || math.IsNaN(scaleX) || math.IsNaN(scaleY) || math.IsInf(scaleX, 0) || math.IsInf(scaleY, 0) {
+				c.warn(path, "unsupported-declaration", fmt.Sprintf(
+					"transform: scale%s has a zero or non-finite factor", arguments))
+				continue
+			}
+			frame.scaleX *= scaleX
+			frame.scaleY *= scaleY
 		case "rotate":
 			// Handled by turnOf, which puts it on a node of its own rather
 			// than into the coordinates: a turn folded into the numbers would
@@ -787,8 +824,10 @@ func (c *compiler) clipNode(defined *html.Node, frame svgFrame, path string) *em
 	inner := c.transformed(only, frame, path)
 	switch only.Data {
 	case "rect":
-		x, y := inner.place(svgLength(only, "x"), svgLength(only, "y"))
-		width, height := inner.size(svgLength(only, "width")), inner.size(svgLength(only, "height"))
+		x1, y1 := inner.place(svgLength(only, "x"), svgLength(only, "y"))
+		x2, y2 := inner.place(svgLength(only, "x")+svgLength(only, "width"), svgLength(only, "y")+svgLength(only, "height"))
+		x, y := math.Min(x1, x2), math.Min(y1, y2)
+		width, height := inner.sizeX(svgLength(only, "width")), inner.sizeY(svgLength(only, "height"))
 		if width <= 0 || height <= 0 {
 			c.warn(path, "unsupported-declaration", "a clipPath's rect has no width or height")
 			return nil
@@ -796,16 +835,21 @@ func (c *compiler) clipNode(defined *html.Node, frame svgFrame, path string) *em
 		return &emitted{Type: "clipRect", Rect: &rect{
 			X: pixels(x), Y: pixels(y), Width: pixels(width), Height: pixels(height)}}
 	case "circle":
-		radius := inner.size(svgLength(only, "r"))
+		writtenRadius := svgLength(only, "r")
+		radius := inner.size(writtenRadius)
 		if radius <= 0 {
 			c.warn(path, "unsupported-declaration", "a clipPath's circle has no radius")
 			return nil
 		}
+		center := atFrame(inner, svgLength(only, "cx"), svgLength(only, "cy"))
+		if inner.sizeX(writtenRadius) != inner.sizeY(writtenRadius) {
+			return &emitted{Type: "clipShape", Shape: &shape{Kind: "ellipse",
+				RadiusX: pixels(inner.sizeX(writtenRadius)), RadiusY: pixels(inner.sizeY(writtenRadius)), Center: center}}
+		}
 		return &emitted{Type: "clipShape", Shape: &shape{Kind: "circle",
-			Radius: pixels(radius),
-			Center: atFrame(inner, svgLength(only, "cx"), svgLength(only, "cy"))}}
+			Radius: pixels(radius), Center: center}}
 	case "ellipse":
-		radiusX, radiusY := inner.size(svgLength(only, "rx")), inner.size(svgLength(only, "ry"))
+		radiusX, radiusY := inner.sizeX(svgLength(only, "rx")), inner.sizeY(svgLength(only, "ry"))
 		if radiusX <= 0 || radiusY <= 0 {
 			c.warn(path, "unsupported-declaration", "a clipPath's ellipse has no radii")
 			return nil

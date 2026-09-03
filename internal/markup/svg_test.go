@@ -111,6 +111,7 @@ func TestADrawingSaysWhatItCouldNotDraw(t *testing.T) {
 		"an element this build has not":    {`<foreignObject width="9" height="9"/>`, "foreignObject"},
 		"a stroke thinner than a pixel":    {`<line x1="0" y1="0" x2="9" y2="9" stroke="black" stroke-width="0.2"/>`, "less than a pixel"},
 		"points that do not pair up":       {`<polyline points="0,0 10" stroke="black"/>`, "not a run of pairs"},
+		"a polygon without three corners":  {`<polygon points="0,0 10,10" fill="black"/>`, "at least three points"},
 		"a transform this build cannot do": {`<g transform="skewX(10)"><rect width="9" height="9"/></g>`, "skewX"},
 	}
 	for name, test := range tests {
@@ -468,11 +469,9 @@ func TestACustomPropertyInAnAttributeIsResolved(t *testing.T) {
 }
 
 // A viewBox says what a drawing's coordinates mean and the box says how large
-// it is on the page. A panel magnifies by whole numbers, so an exact factor is
-// taken and anything else is drawn at its own size and said — a drawing
-// quietly two thirds of the size asked for is the kind of wrong nobody finds
-// by looking at it.
-func TestAViewBoxIsMagnifiedByAWholeNumberOrNotAtAll(t *testing.T) {
+// it is on the page. Every finite scale is valid, including a shrink, and the
+// browser's default preserveAspectRatio keeps it centred without distortion.
+func TestAViewBoxMapsIntoItsViewport(t *testing.T) {
 	compile := func(t *testing.T, css string) Document {
 		t.Helper()
 		page, err := Compile(
@@ -496,23 +495,48 @@ func TestAViewBoxIsMagnifiedByAWholeNumberOrNotAtAll(t *testing.T) {
 	for _, warning := range doubled.Warnings {
 		t.Errorf("an exact magnification was reported: %s", warning.Message)
 	}
-	if !strings.Contains(strings.Join(strings.Fields(string(doubled.JSON)), ""), `"type":"transformed","scale":2`) {
+	if !strings.Contains(strings.Join(strings.Fields(string(doubled.JSON)), ""), `"bounds":{"x":0,"y":0,"width":20,"height":20}`) {
 		t.Errorf("twice the size was not drawn twice the size:\n%s", doubled.JSON)
 	}
 
 	awkward := compile(t, `svg { display: block; width: 84px; height: 84px; }`)
-	var said string
 	for _, warning := range awkward.Warnings {
-		said += warning.Message
+		t.Errorf("a non-integer scale was reported: %s", warning.Message)
 	}
-	if !strings.Contains(said, "whole number") {
-		t.Errorf("a size that is not a whole multiple was not reported: %q", said)
+	if !strings.Contains(strings.Join(strings.Fields(string(awkward.JSON)), ""), `"bounds":{"x":0,"y":0,"width":17,"height":17}`) {
+		t.Errorf("a non-integer scale was not applied:\n%s", awkward.JSON)
+	}
+
+	shrunken := compile(t, `svg { display: block; width: 25px; height: 25px; }`)
+	for _, warning := range shrunken.Warnings {
+		t.Errorf("a shrink was reported: %s", warning.Message)
+	}
+	if !strings.Contains(strings.Join(strings.Fields(string(shrunken.JSON)), ""), `"bounds":{"x":0,"y":0,"width":5,"height":5}`) {
+		t.Errorf("a viewBox was not shrunk into its viewport:\n%s", shrunken.JSON)
+	}
+}
+
+func TestAViewBoxShiftsItsOriginAndMeetsInTheViewport(t *testing.T) {
+	page, err := Compile(
+		`<div class="page"><svg viewBox="-10 -20 50 50"><rect x="-10" y="-20" width="10" height="10" fill="black"/></svg></div>`,
+		`.page { display: flex; width: 100px; height: 80px; } svg { display: block; width: 100px; height: 80px; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, warning := range page.Warnings {
+		t.Errorf("warning: %s", warning.Message)
+	}
+	flat := strings.Join(strings.Fields(string(page.JSON)), "")
+	// meet chooses 1.6 for a 50x50 viewBox in a 100x80 viewport, leaving a
+	// 10px horizontal letterbox. The shifted origin therefore starts at 10,0.
+	if !strings.Contains(flat, `"bounds":{"x":10,"y":0,"width":16,"height":16}`) {
+		t.Errorf("the viewBox was not shifted and centred:\n%s", page.JSON)
 	}
 }
 
 // A transform is folded into the numbers as they are read rather than becoming
-// a node, which is exact: a translate is an offset and a whole-number scale is
-// a multiplier, and neither leaves anything to round twice.
+// a node, which is exact: a translate is an offset and a scale is a multiplier,
+// and neither leaves anything to round twice.
 func TestATransformIsFoldedIntoTheCoordinates(t *testing.T) {
 	tests := []struct{ name, content, want string }{
 		{"translate", `<g transform="translate(10,20)"><rect x="1" y="2" width="4" height="4"/></g>`,
@@ -541,12 +565,22 @@ func TestATransformIsFoldedIntoTheCoordinates(t *testing.T) {
 	}
 }
 
+func TestASignedAndNonUniformScaleIsFoldedIntoTheCoordinates(t *testing.T) {
+	flat, page := drawing(t,
+		`<g transform="translate(0,40) scale(.5,-.5)"><rect x="0" y="0" width="20" height="10"/></g>`)
+	for _, warning := range page.Warnings {
+		t.Errorf("warning: %s", warning.Message)
+	}
+	if !strings.Contains(flat, `"bounds":{"x":0,"y":35,"width":10,"height":5}`) {
+		t.Errorf("the signed scale was not folded into the rectangle:\n%s", page.JSON)
+	}
+}
+
 // What this cannot do is drawn as written and said. A turn is no longer on the
 // list — it became a node of its own — so what is left is shearing, an
-// arbitrary matrix, and a magnification that is not a whole number the same on
-// both axes.
+// arbitrary matrix, and a zero or malformed scale.
 func TestATransformThatCannotBeFoldedIsReported(t *testing.T) {
-	for _, transform := range []string{"skewX(10)", "matrix(1,0,0,1,5,5)", "scale(1.5)", "scale(2,3)"} {
+	for _, transform := range []string{"skewX(10)", "matrix(1,0,0,1,5,5)", "scale(0)", "scale(foo)"} {
 		t.Run(transform, func(t *testing.T) {
 			_, page := drawing(t, `<g transform="`+transform+`"><rect width="9" height="9"/></g>`)
 			var said string

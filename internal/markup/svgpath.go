@@ -296,12 +296,13 @@ func arcFromEndpoints(frame svgFrame, x1, y1, x2, y2, radiusX, radiusY float64, 
 	}
 	// The box is stated in the drawing's coordinates, which is where the
 	// group's own offset and magnification are applied.
-	cornerX, cornerY := frame.place(centreX-radiusX, centreY-radiusY)
+	cornerX1, cornerY1 := frame.place(centreX-radiusX, centreY-radiusY)
+	cornerX2, cornerY2 := frame.place(centreX+radiusX, centreY+radiusY)
 	return &rect{
-		X:      pixels(cornerX),
-		Y:      pixels(cornerY),
-		Width:  pixels(frame.size(radiusX*2)) + 1,
-		Height: pixels(frame.size(radiusY*2)) + 1,
+		X:      pixels(math.Min(cornerX1, cornerX2)),
+		Y:      pixels(math.Min(cornerY1, cornerY2)),
+		Width:  pixels(frame.sizeX(radiusX*2)) + 1,
+		Height: pixels(frame.sizeY(radiusY*2)) + 1,
 	}, start, sweep, true
 }
 
