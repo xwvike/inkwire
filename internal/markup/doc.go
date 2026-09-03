@@ -34,7 +34,7 @@
 //	<svg viewBox="0 0 214 74"><polyline points="0,8 6,2 …"/></svg>
 //	<img src="plot.svg">
 //
-// which is how the intraday chart in examples/desk is written: a layout in
+// which is how the intraday chart in examples/markup_capabilities is written: a layout in
 // markup with ninety-six polyline points handed over, since nobody writes
 // those by hand and whatever produced the series produced them too. An
 // external drawing is compiled in place, so what leaves here is one

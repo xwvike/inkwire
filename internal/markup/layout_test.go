@@ -236,7 +236,7 @@ func TestAMarginOnABlockChildGoesTheWayTheChildrenStack(t *testing.T) {
 // Taking an element out of the flow blockifies it, as it does in CSS. Left
 // inline, an absolutely positioned span was read by its parent as a line of
 // text: the box was never built, and its position, its size and its turn went
-// with it. The strip down the side of examples/layout_showcase is exactly
+// with it. The strip down the side of examples/markup_capabilities/layout is exactly
 // that element, and it came out as unturned text lying across the page.
 func TestAnAbsolutelyPositionedInlineElementStillGetsItsBox(t *testing.T) {
 	got := boxes(t, `<div class="frame"><span class="pin"></span></div>`,
@@ -250,7 +250,7 @@ func TestAnAbsolutelyPositionedInlineElementStillGetsItsBox(t *testing.T) {
 // An absolutely positioned child is placed against its container's padding
 // box, so the container's padding does not push it inwards. Applying the
 // padding around the anchored layer as well moved the badge in
-// examples/layout_showcase by the whole of a padding-right that was there to
+// examples/markup_capabilities/layout by the whole of a padding-right that was there to
 // keep the grid clear of it.
 func TestPaddingDoesNotInsetAnAbsolutelyPositionedChild(t *testing.T) {
 	got := boxes(t, `<div class="frame"><span class="pin"></span><b class="in"></b></div>`,

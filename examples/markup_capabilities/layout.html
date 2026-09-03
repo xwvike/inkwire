@@ -1,0 +1,70 @@
+<!-- Layout: box model, flex, grid, sizing and positioning. -->
+<style>
+* { box-sizing: border-box; }
+.page { display: flex; flex-direction: column; width: 400px; height: 300px;
+        padding: 8px; gap: 6px; background: white; color: black;
+        font-family: ui; font-size: 12px; }
+.head { flex: 0 0 24px; display: flex; align-items: center;
+        padding: 0 8px; background: black; color: white; }
+.head .mark { margin-left: auto; color: yellow; }
+.content { flex: 1 1 auto; min-height: 0; display: grid;
+           grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+           gap: 3%; }
+.panel { position: relative; min-width: 0; min-height: 0; padding: 6px;
+         border: 1px solid black; border-radius: 4px; }
+.title { height: 14px; color: red; font-size: 12px; }
+.row { display: flex; align-items: center; gap: 5%; height: 24px; }
+.row .label { flex: 0 0 50px; }
+.row .fixed { flex: 0 0 40px; height: 12px; background: black; }
+.row .grow { flex: 1 1 0px; min-width: 0; height: 12px; background: red; }
+.row .push { margin-left: auto; width: 16px; height: 16px; background: yellow;
+             border: 1px solid black; border-radius: 8px; }
+.grid { display: grid; grid-template-columns: auto 1fr auto; grid-template-rows: 16px 16px;
+        column-gap: 5px; row-gap: 3px; margin-top: 3px; }
+.grid .bar { background: black; min-width: 0; }
+.grid .value { background: red; min-width: 0; }
+.grid .badge { background: yellow; border: 1px solid black; text-align: center; }
+.grid .wide { grid-column: 1 / 4; height: 6px; background: black; }
+.limits { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+.limits .box { width: 100%; min-width: 34px; max-width: 62px; height: 18px;
+                background: red; border: 1px solid black; }
+.ratio { width: 20px; aspect-ratio: 1; border-radius: 10px; background: black; }
+.anchor { position: absolute; right: 6px; bottom: 6px; width: 48px; height: 18px;
+          padding: 2px; background: yellow; border: 1px solid black; text-align: center; }
+.relative { position: relative; top: 2px; left: 3px; color: red; }
+</style>
+
+<div class="page">
+  <div class="head"><span>LAYOUT</span><span class="mark">CSS BOX MODEL</span></div>
+  <div class="content">
+    <section class="panel">
+      <div class="title">FLEX GROW / SHRINK / BASIS</div>
+      <div class="row"><span class="label">fixed</span><span class="fixed"></span><span class="grow"></span><span class="push"></span></div>
+      <div class="row"><span class="label">shrink</span><span class="fixed"></span><span class="grow"></span><span class="push"></span></div>
+      <div class="limits"><span>min/max</span><span class="box"></span><span class="ratio"></span></div>
+      <span class="relative">relative offset</span>
+    </section>
+    <section class="panel">
+      <div class="title">GRID TRACKS</div>
+      <div class="grid">
+        <span>CPU</span><span class="bar"></span><span class="badge">31%</span>
+        <span>MEM</span><span class="value"></span><span class="badge">64%</span>
+        <span class="wide"></span>
+      </div>
+      <span class="anchor">abs</span>
+    </section>
+    <section class="panel">
+      <div class="title">PERCENT GAPS</div>
+      <div class="row"><span class="label">5% gap</span><span class="fixed"></span><span class="grow"></span></div>
+      <div class="row"><span class="label">auto</span><span class="fixed"></span><span class="push"></span></div>
+      <div class="limits"><span class="box"></span><span class="box"></span><span class="box"></span></div>
+    </section>
+    <section class="panel">
+      <div class="title">POSITION + SIZE</div>
+      <div class="row"><span class="label">basis</span><span class="fixed"></span><span class="grow"></span></div>
+      <div class="row"><span class="label">shrink</span><span class="fixed"></span><span class="grow"></span></div>
+      <span class="relative">flow position kept</span>
+      <span class="anchor">inset</span>
+    </section>
+  </div>
+</div>

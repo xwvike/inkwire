@@ -380,13 +380,13 @@ HTML 根元素尺寸不能替代它。
 ```bash
 curl http://127.0.0.1:8080/v1/scan
 
-curl -F 'page=@examples/desk/tasks.html;type=text/html' \
+curl -F 'page=@examples/markup_quickstart/page.html;type=text/html' \
   'http://127.0.0.1:8080/v1/render?size=296x128'
 
-curl -F 'page=@examples/desk/tasks.html;type=text/html' \
+curl -F 'page=@examples/markup_quickstart/page.html;type=text/html' \
   'http://127.0.0.1:8080/v1/render?panel=gicisky:0x0033'
 
-curl -F 'page=@examples/desk/tasks.html;type=text/html' \
+curl -F 'page=@examples/markup_quickstart/page.html;type=text/html' \
   'http://127.0.0.1:8080/v1/push?device=NRF_EPD_C1F8'
 
 curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
@@ -484,6 +484,8 @@ HTML 使用 `img src` 引用图片。`src` 可以是 HTTP/HTTPS 链接，也可�
 <img src="https://example.com/portrait.png" class="remote">
 ```
 
+SVG 的 `viewBox` 按浏览器默认的 `xMidYMid meet` 映射到元素盒；支持小数缩放、非零原点和带符号的轴向变换。SVG 视口会裁剪其内容。填充和描边颜色必须是面板墨色（`black`、`white`、`red`、`yellow`）；其他颜色会报告并跳过。
+
 CLI 使用 `-asset SRC=FILE` 注入相对路径资源，可重复指定：
 
 ```bash
@@ -519,46 +521,46 @@ curl -F 'page=@page.html;type=text/html' \
 
 ## 示例
 
+### Markup 能力
+
+| 页面 | 尺寸 | 内容 |
+|---|---:|---|
+| [layout](examples/markup_capabilities/layout.html) | 400x300 | 盒模型、flex、grid、尺寸、定位 |
+| [inline](examples/markup_capabilities/inline.html) | 400x300 | 行内流、原子盒、垂直对齐 |
+| [paint](examples/markup_capabilities/paint.html) | 400x300 | 墨水、边框、裁剪、可见性、变换 |
+| [svg](examples/markup_capabilities/svg.html) | 400x300 | SVG 图元、路径、图案、分组 |
+| [resources](examples/markup_capabilities/resources.html) | 400x300 | 本地图片、外部 SVG、object-fit |
+| [cascade](examples/markup_capabilities/cascade.html) | 400x300 | 来源顺序、优先级、important、继承 |
+| [potrace](examples/markup_capabilities/potrace.html) | 500x500 | 带 viewBox 和带符号变换的外部 SVG |
+
+### 场景与工具
+
 | 页面 | 尺寸 |
 |---|---|
 | [markup_quickstart](examples/markup_quickstart/page.html) | 296x128 |
-| [desk](examples/desk/)：[claude](examples/desk/claude.html) [disk](examples/desk/disk.html) [tasks](examples/desk/tasks.html) [btc](examples/desk/btc.html) [chart](examples/desk/chart.html) | 296x128 |
 | [panel_check](examples/panel_check/)：[primitives](examples/panel_check/primitives.html) [polarity](examples/panel_check/polarity.html) | 400x300 |
-| [layout_showcase](examples/layout_showcase/page.html) —— `grid` `anchored` `transformed` `clip` `clipShape` | 296x128 |
 | [fridge](examples/fridge/page.html) | 400x300 |
-| [compose_showcase](examples/compose_showcase/page.html) | 296x128 |
-| [showcase](examples/showcase/page.html) —— 图元与文字 | 296x128 |
-| [paint_showcase](examples/paint_showcase/page.html) —— 裁剪、图案、虚线 | 296x128 |
-| [state_showcase](examples/state_showcase/page.html) | 296x128 |
 | [card_showcase](examples/card_showcase/page.html) | 296x128 |
-| [text_showcase](examples/text_showcase/page.html) | 296x128 |
-| [cookbook](examples/cookbook/main.go) —— display API | 296x128 |
+| [cookbook](examples/cookbook/main.go) —— display API | 308x944 |
+| [gallery](examples/gallery/main.go) —— 图片资源 | 508x392 |
 
 重新生成参考图：`INKWIRE_UPDATE_REFERENCES=1 go test ./...`
 
 <table>
   <tr>
-    <td><a href="examples/desk/btc.html"><img src="examples/desk/btc.png" alt="btc"></a></td>
-    <td><a href="examples/desk/chart.html"><img src="examples/desk/chart.png" alt="chart"></a></td>
+    <td><a href="examples/markup_capabilities/layout.html"><img src="examples/markup_capabilities/layout.png" alt="layout"></a></td>
+    <td><a href="examples/markup_capabilities/inline.html"><img src="examples/markup_capabilities/inline.png" alt="inline"></a></td>
   </tr>
   <tr>
-    <td><a href="examples/desk/disk.html"><img src="examples/desk/disk.png" alt="disk"></a></td>
-    <td><a href="examples/desk/tasks.html"><img src="examples/desk/tasks.png" alt="tasks"></a></td>
+    <td><a href="examples/markup_capabilities/paint.html"><img src="examples/markup_capabilities/paint.png" alt="paint"></a></td>
+    <td><a href="examples/markup_capabilities/svg.html"><img src="examples/markup_capabilities/svg.png" alt="svg"></a></td>
   </tr>
   <tr>
-    <td><a href="examples/layout_showcase/page.html"><img src="examples/layout_showcase/layout_showcase.png" alt="layout"></a></td>
-    <td><a href="examples/compose_showcase/page.html"><img src="examples/compose_showcase/compose_showcase.png" alt="compose"></a></td>
+    <td><a href="examples/markup_capabilities/resources.html"><img src="examples/markup_capabilities/resources.png" alt="resources"></a></td>
+    <td><a href="examples/markup_capabilities/cascade.html"><img src="examples/markup_capabilities/cascade.png" alt="cascade"></a></td>
   </tr>
   <tr>
     <td><a href="examples/card_showcase/page.html"><img src="examples/card_showcase/card_showcase.png" alt="card"></a></td>
-    <td><a href="examples/showcase/page.html"><img src="examples/showcase/showcase.png" alt="showcase"></a></td>
-  </tr>
-  <tr>
-    <td><a href="examples/paint_showcase/page.html"><img src="examples/paint_showcase/paint_showcase.png" alt="paint"></a></td>
-    <td><a href="examples/state_showcase/page.html"><img src="examples/state_showcase/state_showcase.png" alt="state"></a></td>
-  </tr>
-  <tr>
-    <td><a href="examples/text_showcase/page.html"><img src="examples/text_showcase/text_showcase.png" alt="text"></a></td>
     <td><a href="examples/fridge/page.html"><img src="examples/fridge/fridge.png" alt="fridge" width="400"></a></td>
   </tr>
 </table>

@@ -1,0 +1,35 @@
+<!-- Cascade: specificity, source order, importance and inheritance. -->
+<style>
+* { box-sizing: border-box; }
+.page { display: flex; flex-direction: column; width: 400px; height: 300px; padding: 8px;
+        gap: 6px; background: white; color: black; font-family: ui; font-size: 12px; }
+.head { flex: 0 0 24px; display: flex; align-items: center; padding: 0 8px; background: black; color: white; }
+.head span { margin-left: auto; color: yellow; }
+.body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 1fr 1fr;
+        grid-template-rows: repeat(3, 1fr); gap: 6px; }
+.cell { min-width: 0; min-height: 0; padding: 6px; border: 1px solid black; border-radius: 4px; }
+.cell h2 { height: 14px; margin: 0; font-size: 12px; color: red; }
+.swatch { display: flex; align-items: center; height: 28px; padding: 0 7px; border: 1px solid black; }
+.source { background: black; }
+.source { background: red; }
+#specific { background: yellow; }
+.important { background: black !important; }
+.inline { background: red; }
+.inherit { color: red; }
+.inherit span { color: inherit; }
+.initial span { color: initial; }
+.order-a { background: black; }
+.order-b { background: red; }
+</style>
+
+<div class="page">
+  <div class="head">CSS CASCADE <span>rules resolve before layout</span></div>
+  <div class="body">
+    <section class="cell"><h2>SOURCE ORDER</h2><div class="swatch source">later declaration wins</div></section>
+    <section class="cell"><h2>SPECIFICITY</h2><div id="specific" class="swatch">id beats class</div></section>
+    <section class="cell"><h2>IMPORTANT</h2><div class="swatch important" style="background: red">important beats inline</div></section>
+    <section class="cell"><h2>INLINE STYLE</h2><div class="swatch inline" style="background: yellow">inline declaration</div></section>
+    <section class="cell inherit"><h2>INHERITANCE</h2><div class="swatch">parent <span>child inherits</span></div></section>
+    <section class="cell initial"><h2>INITIAL</h2><div class="swatch">parent red <span>child reset</span></div></section>
+  </div>
+</div>

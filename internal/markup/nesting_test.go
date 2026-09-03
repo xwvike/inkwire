@@ -148,15 +148,15 @@ func TestBareTextInAGridTakesACell(t *testing.T) {
 	}
 }
 
-// A stylesheet has no way to ask for a polyline of ninety-six points, and it
-// should not: those points are not written by hand, they are what a generator
-// produced from a series. An img naming a drawing is where the page stops
-// describing and hands it over.
+// A stylesheet has no way to ask for a polyline, and it should not: those
+// points are not written by hand, they are what a generator produced from a
+// series. An img naming a drawing is where the page stops describing and hands
+// it over.
 func TestADrawingBesideThePageIsDrawn(t *testing.T) {
-	const dir = "../../examples/desk/"
+	const dir = "../../examples/markup_capabilities/"
 	resolver := Compiler{Drawings: func(src string) ([]byte, error) { return os.ReadFile(dir + src) }}
 	document, err := resolver.Compile(
-		string(readPage(t, dir, "chart", ".html")), string(readPage(t, dir, "chart", ".css")))
+		string(readPage(t, dir, "resources", ".html")), string(readPage(t, dir, "resources", ".css")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestADrawingBesideThePageIsDrawn(t *testing.T) {
 
 	// Without a resolver the page still lays out, and says what it lost.
 	plain, err := Compile(
-		string(readPage(t, dir, "chart", ".html")), string(readPage(t, dir, "chart", ".css")))
+		string(readPage(t, dir, "resources", ".html")), string(readPage(t, dir, "resources", ".css")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestADrawingBesideThePageIsDrawn(t *testing.T) {
 	for _, warning := range plain.Warnings {
 		said += warning.Message
 	}
-	if !strings.Contains(said, "chart-plot.svg") {
+	if !strings.Contains(said, "assets/chart.svg") {
 		t.Errorf("an unreadable drawing was not reported by name: %q", said)
 	}
 	if bare := inkOfIn(t, dir, plain); bare >= drawn {

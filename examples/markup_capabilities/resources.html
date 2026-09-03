@@ -1,0 +1,46 @@
+<!-- Resource loading: local raster and external SVG in normal img elements. -->
+<style>
+* { box-sizing: border-box; }
+.page { display: flex; flex-direction: column; width: 400px; height: 300px; padding: 8px;
+        gap: 6px; background: white; color: black; font-family: ui; font-size: 12px; }
+.head { flex: 0 0 24px; display: flex; align-items: center; padding: 0 8px; background: black; color: white; }
+.head span { margin-left: auto; color: yellow; }
+.body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 1fr 1fr;
+        grid-template-rows: 1fr 1fr; gap: 6px; }
+.cell { min-width: 0; min-height: 0; padding: 5px; border: 1px solid black; border-radius: 4px; }
+.cell h2 { height: 13px; margin: 0; color: red; font-size: 12px; }
+.frame { display: flex; align-items: center; justify-content: space-between; height: 78px; }
+.frame img { display: block; width: 58px; height: 58px; border: 1px solid black; }
+.cover { object-fit: cover; }
+.contain { object-fit: contain; background: yellow; }
+.fill { object-fit: fill; }
+.chart { display: block; width: 170px; height: 78px; border: 1px solid black; }
+.note { margin-top: 5px; color: black; }
+</style>
+
+<div class="page">
+  <div class="head">IMAGE RESOURCES <span>relative src + object-fit</span></div>
+  <div class="body">
+    <section class="cell">
+      <h2>LOCAL RASTER</h2>
+      <div class="frame"><img class="cover" src="assets/photo.png"><img class="contain" src="assets/photo.png"><img class="fill" src="assets/photo.png"></div>
+      <div class="note">cover / contain / fill</div>
+    </section>
+    <section class="cell">
+      <h2>EXTERNAL SVG</h2>
+      <img class="chart" src="assets/chart.svg">
+      <div class="note">img src="assets/chart.svg"</div>
+    </section>
+    <section class="cell">
+      <h2>HTML RESOURCE BOUNDARY</h2>
+      <div class="note">The page names a relative asset.</div>
+      <div class="note">CLI maps it with -asset.</div>
+      <div class="note">HTTP sends it as multipart.</div>
+    </section>
+    <section class="cell">
+      <h2>REMOTE URL</h2>
+      <div class="note">An absolute URL is fetched by the renderer.</div>
+      <div class="note">This reference stays local and deterministic.</div>
+    </section>
+  </div>
+</div>

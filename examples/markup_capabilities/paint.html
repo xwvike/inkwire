@@ -1,0 +1,40 @@
+<!-- Paint: inks, borders, clipping, visibility and transforms. -->
+<style>
+* { box-sizing: border-box; }
+.page { display: flex; flex-direction: column; width: 400px; height: 300px; padding: 8px;
+        gap: 6px; background: white; color: black; font-family: ui; font-size: 12px; }
+.head { flex: 0 0 24px; display: flex; align-items: center; padding: 0 8px; background: black; color: white; }
+.head .ink { margin-left: auto; color: yellow; }
+.grid { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 1fr 1fr;
+        grid-template-rows: 1fr 1fr; gap: 6px; }
+.cell { position: relative; min-width: 0; min-height: 0; padding: 6px; border-radius: 5px; }
+.cell h2 { height: 14px; margin: 0; font-size: 12px; color: red; }
+.sides { border-top: 2px solid black; border-right: 3px dashed red;
+         border-bottom: 2px dotted black; border-left: 4px solid yellow; }
+.sides .bar { width: 100%; height: 20px; margin-top: 6px; background: yellow; }
+.clip { border: 1px solid black; overflow: hidden; }
+.clip .wide { position: relative; left: -8px; width: 180px; height: 38px; margin-top: 4px;
+              background: black; color: white; padding: 10px; }
+.shape { border: 1px solid black; }
+.shape .circle { width: 70px; height: 42px; margin: 5px auto; background: red;
+                 clip-path: circle(20px at 35px 21px); }
+.shape .turn { position: absolute; right: 8px; bottom: 9px; width: 28px; height: 16px;
+               background: black; transform: rotate(12deg) scale(2); }
+.states { border: 1px solid black; }
+.states .hidden { width: 80px; height: 18px; margin-top: 5px; background: red; visibility: hidden; }
+.states .shown { width: 80px; height: 18px; margin-top: 5px; background: yellow; border: 1px solid black; }
+.states .zback { position: absolute; right: 10px; bottom: 9px; width: 42px; height: 24px;
+                 background: red; z-index: 0; }
+.states .zfront { position: absolute; right: 18px; bottom: 15px; width: 42px; height: 24px;
+                  background: black; z-index: 1; }
+</style>
+
+<div class="page">
+  <div class="head">PAINT AND COMPOSITING <span class="ink">4 INKS</span></div>
+  <div class="grid">
+    <section class="cell sides"><h2>FOUR SIDES</h2><div class="bar"></div><span>width / style / color</span></section>
+    <section class="cell clip"><h2>OVERFLOW CLIP</h2><div class="wide">content clipped by the box</div></section>
+    <section class="cell shape"><h2>CLIP PATH + TRANSFORM</h2><div class="circle"></div><div class="turn"></div><span>circle, rotate, scale</span></section>
+    <section class="cell states"><h2>VISIBILITY + Z INDEX</h2><div class="hidden"></div><div class="shown">visible</div><div class="zback"></div><div class="zfront"></div></section>
+  </div>
+</div>
