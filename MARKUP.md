@@ -22,7 +22,7 @@ syntax only for the subproperties listed here.
 | Flex | `flex` | `none`, `auto`, `<grow>`, `<grow> <shrink>`, `<grow> <shrink> <basis>` | A one-number form uses `0%` basis; `<basis>` accepts `auto`, `px`, `%`, `calc()` |
 | Flex | `flex-direction` | `row`, `column` | — |
 | Flex | `flex-grow`, `flex-shrink` | Non-negative numbers | The initial `flex-shrink` is `1` |
-| Gap | `gap`, `row-gap`, `column-gap` | Non-negative `px`, `%`, `calc()` | Percentages resolve against the containing block's inline size and settle to whole pixels |
+| Gap | `gap`, `row-gap`, `column-gap` | Non-negative `px`, `%`, `calc()` | `row-gap` percentages resolve against the containing block's block size, `column-gap` against its inline size; the first `gap` value is row-gap and the second is column-gap; values settle to whole pixels |
 | Alignment | `align-items`, `align-self`, `justify-items`, `justify-self` | `stretch`, `flex-start`, `start`, `center`, `flex-end`, `end`; `align-self` and `justify-self` also accept `auto` | `justify-*` uses the same alignment set |
 | Alignment | `justify-content` | `flex-start`, `start`, `normal`, `center`, `flex-end`, `end`, `space-between` | `space-around` and `space-evenly` are not implemented |
 | Grid | `grid-template-columns`, `grid-template-rows` | `px`, `%`, `calc()`, positive `fr`, `auto`, `min-content`, `max-content`, `repeat()` | `repeat()` is limited to 400 tracks |
@@ -94,9 +94,10 @@ Common unsupported items include:
   Normal declarations compare specificity and source order; inline style outranks normal selectors and
   `!important` outranks normal declarations. Custom properties cascade and inherit by the same rules;
   an undefined or cyclic `var()` drops the declaration that uses it.
-- Padding, margins, and gaps resolve percentages against the containing block's inline size and round
-  at layout time. Border widths, radii, and font sizes accept pixels or pixel-only `calc()`; `calc()`
-  supports addition and subtraction of `px` and `%` terms only.
+- Padding and margins resolve percentages against the containing block's inline size; `row-gap` uses
+  its block size and `column-gap` its inline size. All settle to whole pixels at layout time. Border
+  widths, radii, and font sizes accept pixels or pixel-only `calc()`; `calc()` supports addition and
+  subtraction of `px` and `%` terms only.
 - Fonts come from bitmap families bundled at build time. An unknown family falls back to the default;
   an unavailable size falls back to the nearest strike.
 - Compilation continues after unsupported declarations, selectors, at-rules, colours, fonts, or

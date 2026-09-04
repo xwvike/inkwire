@@ -78,7 +78,7 @@ func (g Grid) measure(ctx *compileContext, maximum image.Point, path string) (im
 		return image.Point{}, err
 	}
 	columnGap := resolvedGap(g.ColumnGap, g.ColumnGapLength, maximum.X)
-	rowGap := resolvedGap(g.RowGap, g.RowGapLength, maximum.X)
+	rowGap := resolvedGap(g.RowGap, g.RowGapLength, maximum.Y)
 	natural := image.Pt(
 		intrinsicTracks(columns, placement.columnContent)+columnGap*(len(columns)-1),
 		intrinsicTracks(rows, placement.rowContent)+rowGap*(len(rows)-1),
@@ -102,7 +102,7 @@ func (g Grid) paint(ctx *compileContext, list *display.DisplayList, bounds image
 		})
 	}
 	columnGap := resolvedGap(g.ColumnGap, g.ColumnGapLength, bounds.Dx())
-	rowGap := resolvedGap(g.RowGap, g.RowGapLength, bounds.Dx())
+	rowGap := resolvedGap(g.RowGap, g.RowGapLength, bounds.Dy())
 	columnSizes := g.tracksFor(columns, placement.columnContent, bounds.Dx(), columnGap, true)
 	rowSizes := g.tracksFor(rows, placement.rowContent, bounds.Dy(), rowGap, false)
 	columnOffsets := offsets(columnSizes, columnGap)

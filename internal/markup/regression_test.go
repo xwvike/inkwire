@@ -119,6 +119,16 @@ func TestFlexGapUsesTheGapForTheActiveAxis(t *testing.T) {
 	expect(t, column, display.InkRed, image.Rect(0, 15, 100, 25), "the column row-gap")
 }
 
+func TestGridGapPercentagesUseTheirOwnAxis(t *testing.T) {
+	got := boxes(t, `<i class="grid"><i class="a"></i><i class="b"></i></i>`,
+		`.grid { display: grid; width: 100px; height: 50px;
+			grid-template-columns: 100px; grid-template-rows: 10px 10px; row-gap: 10%; }
+		 .a { display: block; background: black; }
+		 .b { display: block; background: red; }`)
+	expect(t, got, display.InkBlack, image.Rect(0, 0, 100, 10), "the first grid row")
+	expect(t, got, display.InkRed, image.Rect(0, 15, 100, 25), "row-gap percentage uses the grid height")
+}
+
 func TestInsetShorthandKeepsPercentages(t *testing.T) {
 	got := boxes(t, `<i class="pin"></i>`,
 		`.pin { display: block; position: absolute; inset: 10% auto auto 20%; width: 20px; height: 10px; background: red; }`)

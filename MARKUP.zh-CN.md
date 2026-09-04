@@ -21,7 +21,7 @@ HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面�
 | Flex | `flex` | `none`、`auto`、`<grow>`、`<grow> <shrink>`、`<grow> <shrink> <basis>` | `<grow>` 的单值形式使用 `0%` basis；`<basis>` 支持 `auto`、`px`、`%`、`calc()` |
 | Flex | `flex-direction` | `row`、`column` | — |
 | Flex | `flex-grow`、`flex-shrink` | 非负数 | `flex-shrink` 默认值为 `1` |
-| 间距 | `gap`、`row-gap`、`column-gap` | 非负 `px`、`%`、`calc()` | 百分比按包含块行向尺寸解析，在布局时取整 |
+| 间距 | `gap`、`row-gap`、`column-gap` | 非负 `px`、`%`、`calc()` | `row-gap` 百分比按包含块的块向尺寸解析，`column-gap` 按行向尺寸解析；`gap` 的第一个值为 row-gap、第二个值为 column-gap；布局时取整 |
 | 对齐 | `align-items`、`align-self`、`justify-items`、`justify-self` | `stretch`、`flex-start`、`start`、`center`、`flex-end`、`end`；`align-self` 和 `justify-self` 另支持 `auto` | `justify-*` 使用相同的对齐值集合 |
 | 对齐 | `justify-content` | `flex-start`、`start`、`normal`、`center`、`flex-end`、`end`、`space-between` | `space-around`、`space-evenly` 等不实现 |
 | Grid | `grid-template-columns`、`grid-template-rows` | `px`、`%`、`calc()`、正数 `fr`、`auto`、`min-content`、`max-content`、`repeat()` | `repeat()` 的轨道数上限为 400 |
@@ -89,8 +89,9 @@ HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面�
 - 样式来源顺序为 CLI 样式表、页面 `<style>`、按文档顺序加载的 `link` 样式表。普通声明按
   specificity 和来源顺序比较；行内样式高于普通选择器，`!important` 高于普通声明。自定义
   属性按相同规则层叠并继承；未定义或循环的 `var()` 会丢弃所在声明。
-- 百分比内边距、外边距和间隙按包含块行向尺寸换算并在布局时取整；边框宽度、圆角和字号只
-  接受像素值或仅含像素的 `calc()`；`calc()` 只支持 `px`、`%` 的加减。
+- 百分比内边距和外边距按包含块行向尺寸换算；`row-gap` 按块向尺寸、`column-gap` 按行向尺寸
+  换算，均在布局时取整。边框宽度、圆角和字号只接受像素值或仅含像素的 `calc()`；`calc()`
+  只支持 `px`、`%` 的加减。
 - 字体来自构建时内置位图字库。未找到字体族使用默认字体；未找到对应字号使用最近字号。
 - 页面会继续编译，但不支持的声明、选择器、at-rule、颜色、字体和资源都会产生警告。警告
   不是渲染失败标志，需根据类型检查最终画面。
