@@ -117,9 +117,10 @@ Common unsupported items include:
 
 ## SVG
 
-Supported elements are `rect`, `circle`, `ellipse`, `line`, `polyline`, `polygon`, `path`, `g`,
+Supported elements are `rect`, `circle`, `ellipse`, `line`, `polyline`, `polygon`, `path`, `g`, `use`,
 `clipPath`, `pattern`, `defs`, `title`, and `desc`. `path` accepts `M`, `L`, `H`, `V`, `C`, `S`, `Q`,
-`T`, `A`, and `Z`, including relative commands.
+`T`, `A`, and `Z`, including relative commands. `<use href="#id">` and `xlink:href` reuse a named
+supported element or group from the same SVG.
 
 SVG paint supports `fill`, `stroke`, `stroke-width`, `stroke-dasharray`, `stroke-dashoffset`,
 `stroke-linecap`, `stroke-linejoin`, and `clip-path`. `viewBox` maps to the viewport using the browser's `xMidYMid meet` rule; geometry outside
@@ -135,8 +136,9 @@ page resource map; the HTTP service never reads a client path or an arbitrary fi
 directory.
 
 An SVG in `<img>` is a replaced image: page CSS sizes and clips its image box, but does not cascade
-into the SVG document. Its supported SVG paint and viewport are retained. Inline `<svg>` remains part
-of the page's CSS cascade.
+into the SVG document. Its supported SVG paint and viewport are retained. Page CSS declarations for
+SVG paint properties on the image produce `unsupported-declaration` warnings. Inline `<svg>` remains
+part of the page's CSS cascade.
 
 The CLI injects local resources with repeatable `-asset SRC=FILE` flags. Without a mapping, it reads
 relative resources beside the page:

@@ -66,6 +66,12 @@ type compiler struct {
 	clips map[string]*html.Node
 	// patterns are the same, for the element that says what a fill tiles with.
 	patterns map[string]*html.Node
+	// elements are the named SVG elements a <use> may reference. They are
+	// indexed per drawing, just like clip paths and patterns.
+	elements map[string]*html.Node
+	// useStack prevents a malformed cyclic chain of <use> references from
+	// recursing until the compiler stack is exhausted.
+	useStack map[string]bool
 	drawings func(string) ([]byte, error)
 }
 
@@ -352,6 +358,15 @@ func (c *compiler) computed(node *html.Node, parent style, path string) style {
 	current.display = displayBlock
 	current.inline = inlineByDefault[node.Data]
 	current.shrink = 1 // flex-shrink's CSS initial value; it is not inherited.
+	externalSVG := isExternalSVGImage(node)
+	if externalSVG {
+		// A replaced SVG image owns a separate document. Its page-level paint
+		// properties neither cascade into that document nor affect the image
+		// box, so do not let them enter the computed style in the first place.
+		current.fill, current.stroke, current.strokeWidth = nil, nil, nil
+		current.lineCap, current.lineJoin = "", ""
+		current.line, current.dash, current.dashOffset = borderNone, nil, 0
+	}
 	// Children of a flex or grid container are blockified: being an item in
 	// one settles the question before the element's own default gets a say.
 	// Grid was missing, so a span in a grid cell was still inline and every
@@ -374,6 +389,9 @@ func (c *compiler) computed(node *html.Node, parent style, path string) style {
 	}
 	for _, applied := range c.sheet.declarationsFor(node) {
 		property, value := applied.property, applied.value
+		if externalSVG && externalSVGPaintProperties[property] {
+			continue
+		}
 		if strings.Contains(value, "var(") {
 			substituted, problem := c.sheet.substitute(value, declared)
 			if problem != "" {
@@ -728,7 +746,8 @@ func (c *compiler) image(node *html.Node, current style, path string) *emitted {
 	// An img naming a drawing is a drawing, which is what the tag means
 	// everywhere else. It is compiled here rather than left for the decoder
 	// because a drawing is markup and the decoder reads documents.
-	if strings.EqualFold(pathExtension(source), ".svg") {
+	if isExternalSVGImage(node) {
+		c.warnExternalSVGPaint(node, path)
 		return c.externalDrawing(source, current, path)
 	}
 	picture := &emitted{Type: "image", Source: source, Processing: "auto"}
@@ -736,6 +755,41 @@ func (c *compiler) image(node *html.Node, current style, path string) *emitted {
 		picture.Overrides = &overrides{Fit: fitName(*current.objectFit)}
 	}
 	return picture
+}
+
+func isExternalSVGImage(node *html.Node) bool {
+	return node.Data == "img" && strings.EqualFold(pathExtension(attribute(node, "src")), ".svg")
+}
+
+var externalSVGPaintProperties = map[string]bool{
+	"fill":              true,
+	"stroke":            true,
+	"stroke-width":      true,
+	"stroke-dasharray":  true,
+	"stroke-dashoffset": true,
+	"stroke-linecap":    true,
+	"stroke-linejoin":   true,
+}
+
+// warnExternalSVGPaint makes the resource boundary visible. These properties
+// are valid page CSS, but an external SVG in an img is a replaced document and
+// page selectors do not cascade into it. declarationsFor is used instead of
+// the computed style so a declaration that was accepted but later overridden
+// is still not silently lost.
+func (c *compiler) warnExternalSVGPaint(node *html.Node, path string) {
+	for ancestor := node; ancestor != nil; ancestor = ancestor.Parent {
+		if ancestor.Type != html.ElementNode {
+			continue
+		}
+		for _, applied := range c.sheet.declarationsFor(ancestor) {
+			if !externalSVGPaintProperties[applied.property] {
+				continue
+			}
+			c.warn(path, "unsupported-declaration", fmt.Sprintf(
+				"%s on an external SVG image has no effect; page CSS does not cascade into <img> documents",
+				applied.property))
+		}
+	}
 }
 
 // externalDrawing compiles a drawing that sits in its own file.

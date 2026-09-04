@@ -108,9 +108,10 @@ HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面�
 
 ## SVG
 
-支持的元素：`rect`、`circle`、`ellipse`、`line`、`polyline`、`polygon`、`path`、`g`、
+支持的元素：`rect`、`circle`、`ellipse`、`line`、`polyline`、`polygon`、`path`、`g`、`use`、
 `clipPath`、`pattern`、`defs`、`title`、`desc`。支持 `path` 的 `M`、`L`、`H`、`V`、`C`、
-`S`、`Q`、`T`、`A`、`Z` 及相对命令。
+`S`、`Q`、`T`、`A`、`Z` 及相对命令。`<use href="#id">` 和 `xlink:href` 可引用同一 SVG 中
+带 `id` 的已支持元素或分组。
 
 SVG 支持 `fill`、`stroke`、`stroke-width`、`stroke-dasharray`、`stroke-dashoffset`、
 `stroke-linecap`、`stroke-linejoin` 和
@@ -125,7 +126,8 @@ SVG 支持 `fill`、`stroke`、`stroke-width`、`stroke-dasharray`、`stroke-das
 当前目录中的任意文件。
 
 `<img>` 中的 SVG 按替换型图片处理：页面 CSS 只控制图片盒的尺寸和裁剪，不进入 SVG 文档参与
-级联；已支持的 SVG 绘制属性和 viewport 保留。内联 `<svg>` 仍参与页面 CSS 级联。
+级联；已支持的 SVG 绘制属性和 viewport 保留。页面 CSS 在该图片上声明 SVG 绘画属性时产生
+`unsupported-declaration` 警告。内联 `<svg>` 仍参与页面 CSS 级联。
 
 CLI 通过可重复的 `-asset SRC=FILE` 注入本地资源；未提供映射时，从页面所在目录读取：
 

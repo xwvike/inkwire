@@ -518,6 +518,7 @@ stroke colors must be panel inks (`black`, `white`, `red`, `yellow`, or an
 equivalent hexadecimal form); other colors are reported and skipped. Open
 lines, polylines and paths support `stroke-linecap: butt|round|square`; path
 joins support `stroke-linejoin: miter|round|bevel`.
+`<use href="#id">` and `xlink:href` reuse a named supported element or group from the same SVG.
 
 The CLI injects local resources with repeatable `-asset SRC=FILE` flags:
 

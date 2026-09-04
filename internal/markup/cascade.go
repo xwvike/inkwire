@@ -334,6 +334,13 @@ func withNames(declarations []declaration, wantCustom bool) []declaration {
 }
 
 func attribute(node *html.Node, name string) string {
+	if prefix, local, ok := strings.Cut(name, ":"); ok {
+		for _, candidate := range node.Attr {
+			if candidate.Key == local && candidate.Namespace == prefix {
+				return candidate.Val
+			}
+		}
+	}
 	for _, candidate := range node.Attr {
 		if candidate.Key == name {
 			return candidate.Val

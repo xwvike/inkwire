@@ -92,6 +92,40 @@ func TestExternalSVGImageDoesNotInheritPagePaint(t *testing.T) {
 	}
 }
 
+func TestExternalSVGImageReportsPagePaintThatCannotCrossTheBoundary(t *testing.T) {
+	resolver := Compiler{Drawings: func(src string) ([]byte, error) {
+		return []byte(`<svg width="20" height="20"><path d="M0 0L20 20"/></svg>`), nil
+	}}
+	page, err := resolver.Compile(
+		`<div class="page"><img class="paint" src="badge.svg"></div>`,
+		`.page { display: flex; width: 20px; height: 20px; background: white; }
+		 .paint { display: block; width: 20px; height: 20px; color: red; fill: currentColor; stroke: black; stroke-width: 3px;
+			stroke-dasharray: 4px 2px; stroke-dashoffset: 1px; stroke-linecap: round; stroke-linejoin: bevel; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, property := range []string{
+		"fill", "stroke", "stroke-width", "stroke-dasharray", "stroke-dashoffset", "stroke-linecap", "stroke-linejoin",
+	} {
+		message := property + " on an external SVG image has no effect"
+		found := false
+		for _, warning := range page.Warnings {
+			if strings.Contains(warning.Message, message) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("no external SVG boundary warning for %s; warnings: %v", property, page.Warnings)
+		}
+	}
+	for _, warning := range page.Warnings {
+		if strings.Contains(warning.Message, "currentColor is not an ink") {
+			t.Errorf("external image paint was parsed in the page scope: %s", warning.Message)
+		}
+	}
+}
+
 func TestExternalSVGImageResolvesCurrentColorInItsOwnScope(t *testing.T) {
 	resolver := Compiler{Drawings: func(src string) ([]byte, error) {
 		return []byte(`<svg width="20" height="20" fill="none" stroke="currentColor" stroke-linecap="round"><path d="M 2 2 L 18 18"/><path d="M 15 5 h .01"/></svg>`), nil

@@ -99,6 +99,25 @@ func TestSVGDefaultsAreSVGs(t *testing.T) {
 	}
 }
 
+func TestSVGUseExpandsNamedDefinitionsWithEachUseStyleAndPosition(t *testing.T) {
+	flat, page := drawing(t, `<defs><path id="mark" d="M0 0L10 0"/></defs>
+		<use href="#mark" x="2" y="4" stroke="red"/>
+		<use xlink:href="#mark" x="20" y="14" stroke="black"/>`)
+	frameOf(t, page)
+	for _, warning := range page.Warnings {
+		t.Errorf("warning: %s", warning.Message)
+	}
+	if strings.Count(flat, `"type":"path"`) != 2 {
+		t.Fatalf("<use> did not expand both references:\n%s", page.JSON)
+	}
+	if !strings.Contains(flat, `"ink":"red"`) || !strings.Contains(flat, `"ink":"black"`) {
+		t.Fatalf("each <use> did not retain its own paint:\n%s", page.JSON)
+	}
+	if !strings.Contains(flat, `"to":{"x":2,"y":4}`) || !strings.Contains(flat, `"to":{"x":20,"y":14}`) {
+		t.Fatalf("<use> x/y did not translate the referenced path:\n%s", page.JSON)
+	}
+}
+
 // Nothing in a drawing stops the page being drawn either, and what was not
 // drawn is named. These are the ones SVG makes easy to write by accident.
 func TestADrawingSaysWhatItCouldNotDraw(t *testing.T) {

@@ -44,8 +44,11 @@ func (c *compiler) svg(node *html.Node, current style, path string) *emitted {
 	}
 	box := rect{Width: width, Height: height}
 	c.clips, c.patterns = map[string]*html.Node{}, map[string]*html.Node{}
+	c.elements = map[string]*html.Node{}
+	c.useStack = map[string]bool{}
 	clipPaths(node, c.clips)
 	patterns(node, c.patterns)
+	elements(node, c.elements)
 	drawing := &emitted{Type: "absolute", Clip: true}
 	var children []placed
 	c.svgChildren(node, box, c.svgPaint(node, rootPaint(), current, path), current, frame, path, &children)
@@ -171,6 +174,20 @@ func (c *compiler) svgChildren(node *html.Node, box rect, inherited svgPaint, in
 				Type: "rotated", Degrees: degrees, Origin: about,
 				Child: &emitted{Type: "absolute", Children: inner},
 			}})
+		case "use":
+			var referenced []placed
+			c.svgUse(child, box, inherited, childStyle, c.transformed(child, frame, childPath), childPath, &referenced)
+			if degrees, about, turned := c.turnOf(child, frame, childPath); turned {
+				for _, placement := range referenced {
+					placement = placed{Bounds: box, Node: &emitted{
+						Type: "rotated", Degrees: degrees, Origin: about,
+						Child: &emitted{Type: "absolute", Children: []placed{placement}},
+					}}
+					*into = append(*into, placement)
+				}
+			} else {
+				*into = append(*into, referenced...)
+			}
 		case "title", "desc", "metadata", "style", "defs", "clipPath", "pattern":
 			// Not drawn, by their own definition.
 		default:
@@ -191,6 +208,83 @@ func (c *compiler) svgChildren(node *html.Node, box rect, inherited svgPaint, in
 			*into = append(*into, placement)
 		}
 	}
+}
+
+// svgUse expands one <use> into the element named by its fragment reference.
+// A fresh computed-style cache is used while walking the referenced subtree:
+// the same definition may be used more than once with different inherited
+// paints, so caching its style by node alone would make the first use win.
+func (c *compiler) svgUse(node *html.Node, box rect, inherited svgPaint, inheritedStyle style, frame svgFrame, path string, into *[]placed) {
+	c.reportUnread(node, path)
+	href := strings.TrimSpace(attribute(node, "href"))
+	if href == "" {
+		href = strings.TrimSpace(attribute(node, "xlink:href"))
+	}
+	id, ok := strings.CutPrefix(href, "#")
+	if !ok || strings.TrimSpace(id) == "" || strings.Contains(id, "#") {
+		c.warn(path, "unsupported-declaration", fmt.Sprintf(
+			"use href=%q is not a reference to an element in this drawing", href))
+		return
+	}
+	name := strings.TrimSpace(id)
+	target, found := c.elements[name]
+	if !found {
+		c.warn(path, "unsupported-declaration", fmt.Sprintf(
+			"use href=%q names no element in this drawing", href))
+		return
+	}
+	if c.useStack[name] {
+		c.warn(path, "unsupported-declaration", fmt.Sprintf(
+			"use href=%q creates a cyclic reference", href))
+		return
+	}
+	c.useStack[name] = true
+	defer delete(c.useStack, name)
+	usePaint := c.svgPaint(node, inherited, inheritedStyle, path)
+
+	// x and y move the referenced element in the use's coordinate space.
+	frame.offsetX += svgLength(node, "x") * frame.scaleX
+	frame.offsetY += svgLength(node, "y") * frame.scaleY
+
+	saved := c.computedFor
+	c.computedFor = map[*html.Node]style{}
+	defer func() { c.computedFor = saved }()
+	targetPath := fmt.Sprintf("%s<%s>", path, name)
+	targetStyle := c.computed(target, inheritedStyle, targetPath)
+	if targetStyle.display == displayNone || targetStyle.hidden {
+		return
+	}
+	targetFrame := c.transformed(target, frame, targetPath)
+	if target.Data == "g" {
+		c.reportUnread(target, targetPath)
+		paint := c.svgPaint(target, usePaint, targetStyle, targetPath)
+		degrees, about, turned := c.turnOf(target, frame, targetPath)
+		if !turned {
+			c.svgChildren(target, box, paint, targetStyle, targetFrame, targetPath, into)
+			return
+		}
+		var inner []placed
+		c.svgChildren(target, box, paint, targetStyle, targetFrame, targetPath, &inner)
+		if len(inner) != 0 {
+			*into = append(*into, placed{Bounds: box, Node: &emitted{
+				Type: "rotated", Degrees: degrees, Origin: about,
+				Child: &emitted{Type: "absolute", Children: inner},
+			}})
+		}
+		return
+	}
+	placement, ok := c.svgShape(target, box, usePaint, targetStyle, targetFrame, targetPath)
+	if !ok {
+		return
+	}
+	placement = c.clipped(target, box, frame, placement, targetPath)
+	if degrees, about, turned := c.turnOf(target, frame, targetPath); turned {
+		placement = placed{Bounds: box, Node: &emitted{
+			Type: "rotated", Degrees: degrees, Origin: about,
+			Child: &emitted{Type: "absolute", Children: []placed{placement}},
+		}}
+	}
+	*into = append(*into, placement)
 }
 
 // svgShape turns one element into the node that draws it and the box it draws
@@ -584,7 +678,24 @@ var readAttributes = map[string]bool{
 	"points": true, "d": true, "viewBox": true, "transform": true, "clip-path": true,
 	// Said elsewhere or meaning nothing here, and not worth a line each.
 	"id": true, "class": true, "style": true, "xmlns": true, "version": true,
+	"href": true, "xlink:href": true,
 	"xml:space": true, "aria-hidden": true, "role": true, "focusable": true,
+}
+
+// elements indexes every named element in a drawing. SVG definitions are not
+// painted during the normal walk; this table is the lookup used by <use>.
+func elements(node *html.Node, into map[string]*html.Node) {
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type != html.ElementNode || child.Namespace != svgNamespace {
+			continue
+		}
+		if id := strings.TrimSpace(attribute(child, "id")); id != "" {
+			if _, exists := into[id]; !exists {
+				into[id] = child
+			}
+		}
+		elements(child, into)
+	}
 }
 
 // reportUnread names the attributes on an element that this build does not act
