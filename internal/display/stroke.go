@@ -308,12 +308,12 @@ func strokePointAt(segments []strokeSegment, position float64) (floatPoint, floa
 		}
 		t := (position - segment.start) / segment.length
 		return floatPoint{
-			x: float64(segment.from.X) + t*float64(segment.to.X-segment.from.X),
-			y: float64(segment.from.Y) + t*float64(segment.to.Y-segment.from.Y),
-		}, floatPoint{
-			x: float64(segment.to.X-segment.from.X) / segment.length,
-			y: float64(segment.to.Y-segment.from.Y) / segment.length,
-		}, true
+				x: float64(segment.from.X) + t*float64(segment.to.X-segment.from.X),
+				y: float64(segment.from.Y) + t*float64(segment.to.Y-segment.from.Y),
+			}, floatPoint{
+				x: float64(segment.to.X-segment.from.X) / segment.length,
+				y: float64(segment.to.Y-segment.from.Y) / segment.length,
+			}, true
 	}
 	return floatPoint{}, floatPoint{}, false
 }
