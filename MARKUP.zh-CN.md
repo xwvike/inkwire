@@ -1,201 +1,133 @@
 # Markup 手册
 
-HTML 定义内容，CSS 定义布局和绘制，SVG 定义几何图形。CLI 的 `render`、`measure` 和 HTTP
-`render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面板尺寸和墨色。
-根元素可以省略 `width` 和 `height`。声明后，它们只参与 CSS 布局，不决定渲染目标。
+Markup 使用 HTML 表达内容，CSS 表达布局和绘制，SVG 表达几何图形。`render`、`measure` 和
+HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面板尺寸和墨色。
+根元素可以省略 `width` 和 `height`，它们只参与 CSS 布局，不决定渲染目标。根元素的
+`orientation` 支持 `landscape`、`portrait-cw` 和 `portrait-ccw`，默认值为 `landscape`。
 
-根元素的 `orientation` 可以是 `landscape`、`portrait-cw` 或 `portrait-ccw`，默认是
-`landscape`。
+## 支持的 CSS 属性
 
-## 支持的属性
+属性未列出取值时，该取值不实现并产生 `unsupported-declaration`。表中的简写属性保留 CSS
+的语法，但仅接受表中规定的子项。
 
-属性名仅表示属性已实现，不表示接受浏览器中的全部取值。超出下列范围的取值会产生警告并被忽略。
+| 类别 | 属性 | 支持的取值或语法 | 注意 |
+|---|---|---|---|
+| 盒模型 | `display` | `block`、`inline`、`inline-block`、`flex`、`inline-flex`、`grid`、`inline-grid`、`contents`、`none` | `inline-*` 建立对应的原子盒；`contents` 不生成自身盒子 |
+| 尺寸 | `width`、`height`、`min-width`、`max-width`、`min-height`、`max-height`、`flex-basis` | `px`、`%`、`calc()`、`auto`（按属性语义） | 百分比按包含块解析；`flex-basis` 参与 flex 初始尺寸 |
+| 比例 | `aspect-ratio` | `number` 或 `number / number` | 两个数必须为正数 |
+| 盒模型 | `box-sizing` | `content-box`、`border-box` | 影响 `width`、`height`、`min-*`、`max-*` 和 `flex-basis` 的尺寸含义 |
+| 内边距 | `padding`、`padding-top`、`padding-right`、`padding-bottom`、`padding-left` | 非负 `px`、`%`、`calc()` | 百分比按包含块行向尺寸解析，在布局时取整 |
+| 外边距 | `margin`、`margin-top`、`margin-right`、`margin-bottom`、`margin-left` | `px`、`%`、`calc()`、`auto` | `auto` 用于可用空间分配；百分比按包含块行向尺寸解析 |
+| Flex | `flex` | `none`、`auto`、`<grow>`、`<grow> <shrink>`、`<grow> <shrink> <basis>` | `<grow>` 的单值形式使用 `0%` basis；`<basis>` 支持 `auto`、`px`、`%`、`calc()` |
+| Flex | `flex-direction` | `row`、`column` | — |
+| Flex | `flex-grow`、`flex-shrink` | 非负数 | `flex-shrink` 默认值为 `1` |
+| 间距 | `gap`、`row-gap`、`column-gap` | 非负 `px`、`%`、`calc()` | 百分比按包含块行向尺寸解析，在布局时取整 |
+| 对齐 | `align-items`、`align-self`、`justify-items`、`justify-self` | `stretch`、`flex-start`、`start`、`center`、`flex-end`、`end`；`align-self` 和 `justify-self` 另支持 `auto` | `justify-*` 使用相同的对齐值集合 |
+| 对齐 | `justify-content` | `flex-start`、`start`、`normal`、`center`、`flex-end`、`end`、`space-between` | `space-around`、`space-evenly` 等不实现 |
+| Grid | `grid-template-columns`、`grid-template-rows` | `px`、`%`、`calc()`、正数 `fr`、`auto`、`min-content`、`max-content`、`repeat()` | `repeat()` 的轨道数上限为 400 |
+| Grid | `grid-column`、`grid-row` | `auto`、行号、`span N`、`N / M`、`N / span M` | 行号和跨度必须为正整数 |
+| 定位 | `position` | `static`、`relative`、`absolute` | 不实现 `fixed` 和 `sticky` |
+| 定位 | `top`、`right`、`bottom`、`left`、`inset` | `px`、`%`、`calc()`、`auto` | 百分比按定位包含块解析 |
+| 定位 | `z-index` | 数字 | 仅改变已定位元素的绘制层级 |
+| 颜色 | `background`、`background-color`、`color`、`border-color`、`border-top-color`、`border-right-color`、`border-bottom-color`、`border-left-color` | `black`、`white`、`red`、`yellow`，及对应三位或六位十六进制 | 不支持透明度、函数颜色和其他命名色；未支持颜色不会近似 |
+| 边框 | `border`、`border-top`、`border-right`、`border-bottom`、`border-left` | 一个宽度、线型和颜色，顺序任意 | 线型省略时为 `none`，不会绘制 |
+| 边框 | `border-width`、`border-top-width`、`border-right-width`、`border-bottom-width`、`border-left-width` | 非负 `px` 或仅含像素的 `calc()` | 布局时取整；不接受百分比或多值边框宽度 |
+| 边框 | `border-style`、`border-top-style`、`border-right-style`、`border-bottom-style`、`border-left-style` | `solid`、`dashed`、`dotted`、`none`、`hidden` | `dotted` 的点和间距等于线宽 |
+| 边框 | `border-radius` | 非负 `px` 或仅含像素的 `calc()` | 布局时取整；不接受百分比或椭圆双值 |
+| 可见性 | `visibility` | `visible`、`hidden` | `hidden` 保留布局盒但不绘制 |
+| 裁剪 | `overflow` | `visible`、`hidden`、`clip` | 不提供滚动 |
+| 裁剪 | `clip-path` | `none`、`inset()`、`circle()`、`ellipse()`、`polygon()` | 函数参数支持 `px`、`%`、`calc()`；`inset()` 只支持单一圆角半径 |
+| 变换 | `transform` | `none`、`scale()`、`rotate()` | 仅支持 `scale` 和 `rotate` 函数 |
+| 变换 | `rotate` | `deg`、`grad`、`rad`、`turn` 或无单位角度 | — |
+| 变换 | `transform-origin` | 一个或两个关键词、`px`、`%`、`calc()` | 关键词为 `left`、`center`、`right`、`top`、`bottom` |
+| 变换 | `scale` | 一个或两个相同的整数，且不小于 1 | 不做重采样；不支持小数或非等比缩放 |
+| SVG 绘制 | `fill`、`stroke` | 支持的墨色、`none`、`transparent` | 这些属性可继承；CSS 声明覆盖 SVG 呈现属性 |
+| SVG 绘制 | `stroke-width` | 非负 `px`、仅含像素的 `calc()` 或 SVG 无单位数值 | 布局时取整；小于 1 像素时按 1 像素绘制并产生警告 |
+| SVG 绘制 | `stroke-dasharray`、`stroke-dashoffset` | 空格或逗号分隔的整数像素 | — |
+| 字体 | `font` | `size[/line-height] family` | 仅读取字号、行高和字体族；样式、粗细等字段会产生警告 |
+| 字体 | `font-family` | `ui`、`hzk`、`monaco`，可写字体栈 | 使用第一个可用字体族；都不可用时使用默认字体并产生警告 |
+| 字体 | `font-size` | `px` 或仅含像素的 `calc()` | 使用最近可用位图字号并产生 `substituted-font-size` |
+| 文本 | `line-height` | `px`、仅含像素的 `calc()`、无单位比例、相对字号的百分比 | 无单位值按当前元素字号解析；百分比解析后继承计算值 |
+| 文本 | `text-align` | `left`、`start`、`center`、`right`、`end` | — |
+| 文本 | `vertical-align` | `baseline`、`top`、`middle`、`bottom` | 只作用于 inline 级盒；初始值为 `baseline`，不继承 |
+| 文本 | `white-space` | `normal`、`nowrap`、`pre`、`pre-wrap` | — |
+| 图片 | `object-fit` | `fill`、`contain`、`cover` | 只影响 `img` 和外部绘图的盒内适配 |
 
-| 分组 | 属性 |
-|---|---|
-| 盒模型 | `display` `width` `height` `min-width` `max-width` `min-height` `max-height` `aspect-ratio` `box-sizing` `padding` `padding-top` `padding-right` `padding-bottom` `padding-left` `margin` `margin-top` `margin-right` `margin-bottom` `margin-left` |
-| flex 与 grid | `flex` `flex-direction` `flex-basis` `flex-grow` `flex-shrink` `gap` `row-gap` `column-gap` `align-items` `align-self` `justify-content` `justify-items` `justify-self` `grid-template-columns` `grid-template-rows` `grid-column` `grid-row` |
-| 定位 | `position` `top` `right` `bottom` `left` `inset` `z-index` |
-| 绘制 | `background` `background-color` `color` `border` `border-width` `border-style` `border-color` `border-top` `border-right` `border-bottom` `border-left` `border-top-width` `border-right-width` `border-bottom-width` `border-left-width` `border-top-style` `border-right-style` `border-bottom-style` `border-left-style` `border-top-color` `border-right-color` `border-bottom-color` `border-left-color` `border-radius` `visibility` |
-| 裁剪与变换 | `overflow` `clip-path` `transform` `rotate` `transform-origin` `scale` |
-| SVG 绘制 | `fill` `stroke` `stroke-width` `stroke-dasharray` `stroke-dashoffset` |
-| 文本 | `font` `font-family` `font-size` `line-height` `text-align` `vertical-align` `white-space` |
-| 图片 | `object-fit` |
+所有已实现属性接受 `inherit`、`initial`、`unset` 和 `revert`。`color`、`fill`、`stroke`、
+`stroke-width`、`stroke-dasharray`、`stroke-dashoffset`、`font`、`font-family`、`font-size`、
+`line-height`、`text-align`、`white-space` 和 `visibility` 默认继承；`vertical-align` 不继承。自定义
+属性 `--name` 可声明并供 `var()` 使用，按相同规则层叠并继承。
 
-所有已实现属性均接受 `inherit`、`initial`、`unset` 和 `revert`。关键字、单位和函数名按 CSS
-规则不区分大小写；字体族名同样如此，但警告按作者书写的原样回显。`color`、`font-family`、
-`font-size`、`line-height`、`text-align`、`white-space` 和自定义属性会继承；其他属性从各元素的初始值开始。
+## 不支持的属性和取值
 
-### 取值
+未列入上表的 CSS 属性全部不实现。对已实现属性使用未列出的取值，结果相同：声明被忽略并
+产生 `unsupported-declaration`。以下是常见的不支持项：
 
-- 长度支持 `px`、百分比和 `calc()`。
-- `width`、`height`、`min-*`、`max-*`、`flex-basis`、`top`、`right`、`bottom`、`left`、
-  `inset`、`transform-origin` 和轨道尺寸接受百分比。
-- 内边距、外边距和间隙按包含块的行向尺寸在布局时解析并取整。边框宽度、圆角和字号
-  只接受像素值。
-- `line-height` 接受像素长度、无单位比例，或相对于字号的百分比。
-- 墨色支持 `black`、`white`、`red`、`yellow` 及其三位或六位十六进制写法（如 `#000`、`#000000`）。
-  其他颜色会被报告，不会近似成可用颜色。
-- 字体族受构建内置字库限制。未找到字体族时使用默认字体并报告
-  `unsupported-declaration`；字号无对应位图字形时使用最近字号并报告 `substituted-font-size`。
+- 布局：`float`、`clear`、`order`、`flex-wrap`、`align-content`、`grid-template-areas`、
+  `grid-auto-columns`、`grid-auto-rows`、`grid-auto-flow`、`place-content`、`place-items`、
+  `place-self`、`table-layout`。
+- 定位和效果：`position: fixed`、`position: sticky`、`opacity`、`filter`、`box-shadow`、
+  `text-shadow`、`mix-blend-mode`、`background-image`、`background-repeat`、`background-size`。
+- 文本：`font-weight`、`font-style`、`font-variant`、`text-decoration`、`text-indent`、
+  `letter-spacing`、`word-spacing`、`text-transform`、`text-overflow`、`hyphens`。
+- 图片：`object-position`。
+- 颜色与变换取值：`rgb()`、`rgba()`、`hsl()`、渐变、透明度；`transform` 中除 `scale()` 和
+  `rotate()` 以外的函数；CSS `scale` 的小数、负数或不等比双值；`border-style` 的 `double`、
+  `groove`、`ridge`、`inset`、`outset`；`overflow: auto` 和 `overflow: scroll`。
 
-### 层叠与继承
+## 使用注意
 
-样式表按来源顺序合并：CLI 传入的样式表在前，页面中的 `<style>` 和 `link rel="stylesheet"`
-按文档顺序追加。同一元素的普通声明按选择器优先级排序，优先级相同则后声明生效；普通行内
-`style` 声明优先于普通选择器声明。`!important` 声明优先于所有普通声明，并在 important 声明
-之间按相同规则比较。
-
-自定义属性按相同规则层叠并从父元素继承。`var()` 在继承链上解析自定义属性；未定义或循环引用
-会产生警告并忽略使用它的声明。
-
-### 显示与布局
-
-`display` 支持 `block`、`inline`、`inline-block`、`flex`、`inline-flex`、`grid`、
-`inline-grid`、`contents` 和 `none`。
-
-Flex 容器的 `flex-direction` 支持 `row` 和 `column`。`flex-grow` 分配剩余空间，
-`flex-shrink` 吸收不足空间，`flex-basis` 设置初始尺寸。`flex` 简写支持 CSS 的
-`flex: <grow>`、`<grow> <shrink>` 和 `<grow> <shrink> <basis>` 形式；单数字形式使用
-`0%` basis，与浏览器一致。`gap`、`row-gap` 和 `column-gap` 分隔子项。`align-items`、
-`align-self`、`justify-content`、`justify-items` 和 `justify-self` 控制对齐。
-`margin: auto` 可以把子项推到容器另一侧。
-
-Grid 容器使用 `grid-template-columns` 和 `grid-template-rows` 定义轨道，支持像素、百分比、
-`fr` 和 `auto`。`grid-column` 和 `grid-row` 放置子项，使用 `span` 指定跨越范围。
-
-`overflow: hidden` 把内容裁剪在盒子内。`white-space: pre` 保留连续空格，默认会合并
-空白字符。
-
-### 盒模型
-
-盒模型遵循 CSS；尺寸、padding 和 border 均参与布局。
-
-```css
-.card { width: 100px; padding: 10px; border: 5px solid black; }   /* 宽 130 */
-.same { width: 130px; padding: 10px; border: 5px solid black;
-        box-sizing: border-box; }                                 /* 宽 130 */
-```
-
-`box-sizing` 默认是 `content-box`：`width`、`height`、`min-*`、`max-*` 和 `flex-basis` 表示
-内容尺寸，padding 和 border 追加在外部。`border-box` 使这些属性表示整个盒子，内容使用剩余空间。
-
-边框占据空间。内容位于边框和 padding 之内；绝对定位的子元素相对于内边距盒定位，即边框
-以内、padding 以外的区域。
-
-`border-top`、`border-right`、`border-bottom` 和 `border-left` 可分别设置。单边边框参与盒模型，
-支持与 `border` 相同的宽度、墨色和线型。
-
-### 定位
-
-```css
-.page { position: relative; }
-.badge { position: absolute; right: 4px; top: 4px; }
-.hint { position: relative; left: 2px; top: -1px; }
-```
-
-`position: relative` 保留元素在正常流中的位置，并按 `top`、`right`、`bottom`、`left` 或 `inset`
-偏移绘制盒。`position: absolute` 将元素移出正常流，并相对于最近的已定位祖先放置。`z-index`
-控制已定位元素的绘制顺序。
-
-### 绘制与变换
-
-`background` 和 `border` 接受上述墨色。`border-style` 支持 `solid`、`dashed`、`dotted`、`none`
-和 `hidden`；`dotted` 的点和间距均等于边框宽度。`border-radius` 绘制圆角；`visibility: hidden`
-保留盒子但不绘制内容。
-
-`border-style` 的初始值是 `none`；未指定线型时，`border: 1px` 和单独的 `border-width` 均不绘制。
-需要多条线或多种明暗的线型（`double`、`groove`、`ridge`、`inset`、`outset`）会产生警告并跳过。
-
-`transform` 支持 `rotate` 和整数倍 `scale`。`rotate` 接受角度，`transform-origin` 控制
-旋转中心。不支持的变换函数会被报告。
-
-### 盒子里的文字
-
-`line-height` 按 CSS 规则计算。它与文字高度的差值为 leading，平均分配到行框上下；增大
-`line-height` 会扩大行框，不会单独向下移动文字。每行依据自身字体指标定位。
-
-Inline 内容按行框排版。文本、`inline-block`、`inline-flex`、`inline-grid`、图片和 inline
-SVG 共用行框，并在 `white-space` 允许时换行。padding、margin、background、border、
-`position: relative` 和 `vertical-align` 均作用于各自的 inline 项。
-
-`vertical-align` 支持 `baseline`、`top`、`middle` 和 `bottom`，初始值为 `baseline`。
-`text-top`、`text-bottom`、`sub`、`super` 和长度值会产生警告并被忽略。该属性只作用于
-inline 级盒子，不继承；用于 block、flex item 或 grid item 时会产生警告。
-
-`inline-block`、`inline-flex` 和 `inline-grid` 是原子盒子，盒内子元素分别按普通
-block、flex 或 grid 规则排版。
-
-要在盒内对齐内容，使用容器的 `align-items`、项目的 `align-self`，或为单行文本设置与盒高
-相等的 `line-height`。
-
-```css
-.chip { display: inline-block; height: 20px; vertical-align: middle; }
-
-.row    { display: flex; align-items: center; }   /* 每一项都居中 */
-.figure { align-self: center; }                   /* 只让这一项居中 */
-.label  { height: 20px; line-height: 20px; }      /* 单行文字在盒子里居中 */
-```
+- `size` 或 `panel` 决定画布边界。根元素的 `width` 和 `height` 不会扩大或缩小该边界；超出
+  画布的内容产生布局或裁剪警告。
+- `box-sizing`、padding 和 border 都参与盒尺寸。绝对定位子元素相对于最近的已定位祖先的
+  padding box，位于其 border 内侧、padding 外侧。
+- Flex 简写保留 grow、shrink 和 basis 三个分量；`flex: 1` 是 `1 1 0%`。未指定 `flex-shrink`
+  时初始值为 `1`。
+- Inline、图片和 inline SVG 共用行框。`vertical-align` 仅对 inline 级盒有效；block、flex
+  item 或 grid item 上的声明会产生警告。单行文本的盒内垂直对齐可使用与盒高相等的
+  `line-height`。
+- 样式来源顺序为 CLI 样式表、页面 `<style>`、按文档顺序加载的 `link` 样式表。普通声明按
+  specificity 和来源顺序比较；行内样式高于普通选择器，`!important` 高于普通声明。自定义
+  属性按相同规则层叠并继承；未定义或循环的 `var()` 会丢弃所在声明。
+- 百分比内边距、外边距和间隙按包含块行向尺寸换算并在布局时取整；边框宽度、圆角和字号只
+  接受像素值或仅含像素的 `calc()`；`calc()` 只支持 `px`、`%` 的加减。
+- 字体来自构建时内置位图字库。未找到字体族使用默认字体；未找到对应字号使用最近字号。
+- 页面会继续编译，但不支持的声明、选择器、at-rule、颜色、字体和资源都会产生警告。警告
+  不是渲染失败标志，需根据类型检查最终画面。
 
 ## SVG
 
-```html
-<svg viewBox="0 0 214 74">
-  <polyline points="0,8 6,2 12,8" />
-</svg>
-<img src="chart-plot.svg" />
-```
+支持的元素：`rect`、`circle`、`ellipse`、`line`、`polyline`、`polygon`、`path`、`g`、
+`clipPath`、`pattern`、`defs`、`title`、`desc`。支持 `path` 的 `M`、`L`、`H`、`V`、`C`、
+`S`、`Q`、`T`、`A`、`Z` 及相对命令。
 
-支持的元素是 `rect`、`circle`、`ellipse`、`line`、`polyline`、`polygon`、`path`、`g`、
-`clipPath`、`pattern`、`defs`、`title` 和 `desc`。支持的绘制属性是 `fill`、`stroke`、
-`stroke-width`、`stroke-dasharray`、`stroke-dashoffset` 和 `clip-path`。
+SVG 支持 `fill`、`stroke`、`stroke-width`、`stroke-dasharray`、`stroke-dashoffset` 和
+`clip-path`。`viewBox` 按浏览器的 `xMidYMid meet` 规则映射到 viewport，viewport 外的图形
+会被裁剪。SVG 的 `transform` 支持 `translate`、`scale` 和 `rotate`；`scale` 接受有限非零
+数值，`rotate` 接受一个角度或角度加旋转中心。CSS 的 `transform` 仅支持本手册中列出的函数。
 
-`path` 支持 `M L H V C S Q T A Z` 及其相对命令。支持 `translate` 和整数倍 `scale` 变换。
-同一属性同时出现在 SVG 呈现属性和 CSS 中时，CSS 优先。
-`fill` 和 `stroke` 仅接受上述墨色、`none` 和 `transparent`；其他颜色会产生警告并跳过该绘制。
+## 图片与资源
 
-## 图片与文件
+`img src` 支持 HTTP/HTTPS URL 和相对路径。`.png`、`.jpg`、`.jpeg` 按位图读取，`.svg` 按
+外部 SVG 绘图读取。相对路径始终以页面资源映射为准，HTTP 服务不会读取客户端路径或服务端
+当前目录中的任意文件。
 
-`img` 通过 `src` 引用资源。`src` 可以是 HTTP/HTTPS 链接或相对路径。`.png`、`.jpg` 和
-`.jpeg` 按位图加载，`.svg` 编译为外部 SVG。
-
-```
-page.html
-assets/
-  portrait.png
-  chart.svg
-```
-
-```html
-<img src="assets/portrait.png" class="portrait" />
-<img src="assets/chart.svg" class="chart" />
-<img src="https://example.com/portrait.png" class="remote" />
-```
-
-CLI 使用可重复的 `-asset SRC=FILE` 注入本地资源：
+CLI 通过可重复的 `-asset SRC=FILE` 注入本地资源；未提供映射时，从页面所在目录读取：
 
 ```bash
-inkwire render \
-     -size 296x128 \
-     -asset assets/portrait.png=photos/portrait.png \
-     -asset assets/chart.svg=charts/chart.svg \
-     page.html
+inkwire render -size 296x128 \
+  -asset assets/portrait.png=photos/portrait.png \
+  -asset assets/chart.svg=charts/chart.svg page.html
 ```
 
-未指定映射时，CLI 从页面目录读取相对资源。HTTP 使用 multipart：`page` 是 HTML；本地资源
-作为二进制文件字段上传，字段名必须与 `src` 完全一致，包括目录前缀。HTTP/HTTPS 资源不需要
-文件字段。客户端本机路径不会传递给服务端。
-
-```bash
-curl -F 'page=@page.html;type=text/html' \
-     -F 'assets/portrait.png=@assets/portrait.png;type=image/png' \
-     -F 'assets/chart.svg=@assets/chart.svg;type=image/svg+xml' \
-     'http://127.0.0.1:8080/v1/render?size=296x128'
-```
-
-`link` 的 `href` 遵循相同的相对资源规则；stylesheet 也可以作为独立字段传入。
+HTTP 使用 multipart：`page` 为 HTML；本地资源作为文件字段上传，字段名必须与 `src` 完全一致，
+包括目录前缀。远程 URL 不需要文件字段；`link` 的 `href` 遵循相同规则，stylesheet 可以作为
+独立字段上传。
 
 ## 警告
 
-不支持的属性、取值、选择器、at-rule、颜色、图片和字体会产生警告，其他内容继续编译。
-`text-clipped`、`layout-overflow` 和 `empty-layout` 等布局警告指出内容无法完整放入固定画布。
+Markup 可能产生以下警告：`text-clipped`、`layout-overflow`、`empty-layout`、`missing-runes`、
+`size-mismatch`、`unsupported-ink`、`unsupported-declaration`、`unsupported-at-rule`、
+`unresolved-drawing`、`unresolved-image`、`no-stylesheet`、`unresolved-stylesheet`、
+`duplicate-stylesheet`、`over-constrained`、`unsupported-selector`、`unreadable-rule`、
+`substituted-font-size`。

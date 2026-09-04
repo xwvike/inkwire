@@ -1,239 +1,143 @@
 # Markup Manual
 
-HTML defines content, CSS defines layout and paint, and SVG defines geometry.
-CLI `render` and `measure`, and HTTP `render`, require `size` or `panel`; `push`
-obtains the panel size and inks from the target device. The root element may
-omit `width` and `height`; when present, they affect CSS layout but do not select
-the render target.
+Markup uses HTML for content, CSS for layout and paint, and SVG for geometry. `render`, `measure`,
+and HTTP `render` require `size` or `panel`; `push` obtains the panel size and inks from the target
+device. The root element may omit `width` and `height`: they affect CSS layout only and do not select
+the render target. Root `orientation` accepts `landscape`, `portrait-cw`, and `portrait-ccw`; the
+default is `landscape`.
 
-`orientation` on the root may be `landscape`, `portrait-cw` or
-`portrait-ccw`. It defaults to `landscape`.
+## Supported CSS properties
 
-## Supported properties
+An omitted value is not implemented and produces `unsupported-declaration`. Shorthands retain CSS
+syntax only for the subproperties listed here.
 
-Listing a property does not imply that every browser value is accepted. Values
-outside the limits below produce a warning and are ignored.
+| Category | Properties | Accepted values or syntax | Notes |
+|---|---|---|---|
+| Box | `display` | `block`, `inline`, `inline-block`, `flex`, `inline-flex`, `grid`, `inline-grid`, `contents`, `none` | `inline-*` creates the corresponding atomic box; `contents` creates no box of its own |
+| Size | `width`, `height`, `min-width`, `max-width`, `min-height`, `max-height`, `flex-basis` | `px`, `%`, `calc()`, `auto` where meaningful | Percentages resolve against the containing block; `flex-basis` supplies the flex base size |
+| Ratio | `aspect-ratio` | `number` or `number / number` | Both numbers must be positive |
+| Box | `box-sizing` | `content-box`, `border-box` | Applies to `width`, `height`, `min-*`, `max-*`, and `flex-basis` |
+| Padding | `padding`, `padding-top`, `padding-right`, `padding-bottom`, `padding-left` | Non-negative `px`, `%`, `calc()` | Percentages resolve against the containing block's inline size and settle to whole pixels |
+| Margin | `margin`, `margin-top`, `margin-right`, `margin-bottom`, `margin-left` | `px`, `%`, `calc()`, `auto` | `auto` participates in free-space distribution; percentages use the containing block's inline size |
+| Flex | `flex` | `none`, `auto`, `<grow>`, `<grow> <shrink>`, `<grow> <shrink> <basis>` | A one-number form uses `0%` basis; `<basis>` accepts `auto`, `px`, `%`, `calc()` |
+| Flex | `flex-direction` | `row`, `column` | — |
+| Flex | `flex-grow`, `flex-shrink` | Non-negative numbers | The initial `flex-shrink` is `1` |
+| Gap | `gap`, `row-gap`, `column-gap` | Non-negative `px`, `%`, `calc()` | Percentages resolve against the containing block's inline size and settle to whole pixels |
+| Alignment | `align-items`, `align-self`, `justify-items`, `justify-self` | `stretch`, `flex-start`, `start`, `center`, `flex-end`, `end`; `align-self` and `justify-self` also accept `auto` | `justify-*` uses the same alignment set |
+| Alignment | `justify-content` | `flex-start`, `start`, `normal`, `center`, `flex-end`, `end`, `space-between` | `space-around` and `space-evenly` are not implemented |
+| Grid | `grid-template-columns`, `grid-template-rows` | `px`, `%`, `calc()`, positive `fr`, `auto`, `min-content`, `max-content`, `repeat()` | `repeat()` is limited to 400 tracks |
+| Grid | `grid-column`, `grid-row` | `auto`, a line number, `span N`, `N / M`, `N / span M` | Line numbers and spans are positive integers |
+| Position | `position` | `static`, `relative`, `absolute` | `fixed` and `sticky` are not implemented |
+| Position | `top`, `right`, `bottom`, `left`, `inset` | `px`, `%`, `calc()`, `auto` | Percentages resolve against the positioned containing block |
+| Position | `z-index` | Number | Changes paint order only for positioned elements |
+| Colour | `background`, `background-color`, `color`, `border-color`, `border-top-color`, `border-right-color`, `border-bottom-color`, `border-left-color` | `black`, `white`, `red`, `yellow`, and their three- or six-digit hexadecimal forms | No alpha, colour functions, or other named colours; unsupported colours are not approximated |
+| Border | `border`, `border-top`, `border-right`, `border-bottom`, `border-left` | One width, line style, and colour in any order | An omitted line style is `none` and draws nothing |
+| Border | `border-width`, `border-top-width`, `border-right-width`, `border-bottom-width`, `border-left-width` | Non-negative `px` or a pixel-only `calc()` | Rounded to whole pixels at layout; percentages and multi-value border widths are not implemented |
+| Border | `border-style`, `border-top-style`, `border-right-style`, `border-bottom-style`, `border-left-style` | `solid`, `dashed`, `dotted`, `none`, `hidden` | A dotted mark and its gap each equal the line width |
+| Border | `border-radius` | Non-negative `px` or a pixel-only `calc()` | Rounded to whole pixels at layout; percentages and elliptical two-value radii are not implemented |
+| Visibility | `visibility` | `visible`, `hidden` | `hidden` keeps the layout box and removes its paint |
+| Clipping | `overflow` | `visible`, `hidden`, `clip` | There is no scrolling |
+| Clipping | `clip-path` | `none`, `inset()`, `circle()`, `ellipse()`, `polygon()` | Function arguments accept `px`, `%`, and `calc()`; `inset()` has one radius at most |
+| Transform | `transform` | `none`, `scale()`, `rotate()` | Only `scale` and `rotate` functions are implemented |
+| Transform | `rotate` | `deg`, `grad`, `rad`, `turn`, or a unitless angle | — |
+| Transform | `transform-origin` | One or two keywords, `px`, `%`, or `calc()` | Keywords are `left`, `center`, `right`, `top`, and `bottom` |
+| Transform | `scale` | One or two equal integers, each at least 1 | No resampling; fractions and non-uniform pairs are not implemented |
+| SVG paint | `fill`, `stroke` | Supported inks, `none`, `transparent` | These properties inherit; CSS overrides an SVG presentation attribute |
+| SVG paint | `stroke-width` | Non-negative `px`, a pixel-only `calc()`, or an SVG unitless number | Rounded to whole pixels at layout; values below one pixel draw at one pixel and warn |
+| SVG paint | `stroke-dasharray`, `stroke-dashoffset` | Space- or comma-separated integer pixels | — |
+| Font | `font` | `size[/line-height] family` | Only size, line-height, and family are read; style and weight fields warn |
+| Font | `font-family` | `ui`, `hzk`, `monaco`, or a family stack | The first available family wins; if none is available, the default is used and a warning is emitted |
+| Font | `font-size` | `px` or a pixel-only `calc()` | The nearest bitmap strike is used and `substituted-font-size` is emitted |
+| Text | `line-height` | `px`, a pixel-only `calc()`, a unitless ratio, or a percentage of the font size | Unitless values resolve against the element's own size; percentages inherit their computed length |
+| Text | `text-align` | `left`, `start`, `center`, `right`, `end` | — |
+| Text | `vertical-align` | `baseline`, `top`, `middle`, `bottom` | Inline-level only; the initial value is `baseline` and it is not inherited |
+| Text | `white-space` | `normal`, `nowrap`, `pre`, `pre-wrap` | — |
+| Image | `object-fit` | `fill`, `contain`, `cover` | Applies to `img` and external drawings inside their boxes |
 
-| Group | Properties |
-|---|---|
-| Box | `display` `width` `height` `min-width` `max-width` `min-height` `max-height` `aspect-ratio` `box-sizing` `padding` `padding-top` `padding-right` `padding-bottom` `padding-left` `margin` `margin-top` `margin-right` `margin-bottom` `margin-left` |
-| Flex and grid | `flex` `flex-direction` `flex-basis` `flex-grow` `flex-shrink` `gap` `row-gap` `column-gap` `align-items` `align-self` `justify-content` `justify-items` `justify-self` `grid-template-columns` `grid-template-rows` `grid-column` `grid-row` |
-| Position | `position` `top` `right` `bottom` `left` `inset` `z-index` |
-| Paint | `background` `background-color` `color` `border` `border-width` `border-style` `border-color` `border-top` `border-right` `border-bottom` `border-left` `border-top-width` `border-right-width` `border-bottom-width` `border-left-width` `border-top-style` `border-right-style` `border-bottom-style` `border-left-style` `border-top-color` `border-right-color` `border-bottom-color` `border-left-color` `border-radius` `visibility` |
-| Clipping and transform | `overflow` `clip-path` `transform` `rotate` `transform-origin` `scale` |
-| SVG paint | `fill` `stroke` `stroke-width` `stroke-dasharray` `stroke-dashoffset` |
-| Text | `font` `font-family` `font-size` `line-height` `text-align` `vertical-align` `white-space` |
-| Image | `object-fit` |
+Every implemented property accepts `inherit`, `initial`, `unset`, and `revert`. The properties that
+inherit by default are `color`, `fill`, `stroke`, `stroke-width`, `stroke-dasharray`,
+`stroke-dashoffset`, `font`, `font-family`, `font-size`, `line-height`, `text-align`, `white-space`,
+and `visibility`; `vertical-align` is not inherited. Custom properties named `--name` may be declared,
+then read with `var()`, and cascade and inherit by the same rules.
 
-All implemented properties accept `inherit`, `initial`, `unset` and `revert`.
-Keywords, units and function names are matched case-insensitively, as in CSS;
-font family names are matched the same way and reported as authored. The
-inherited properties are `color`, `font-family`, `font-size`, `line-height`,
-`text-align`, `white-space` and custom properties. Other properties start from
-their initial value on each element.
+## Unsupported properties and values
 
-### Values
+Every CSS property absent from the table above is unsupported. An unsupported value for an implemented
+property has the same result: the declaration is ignored and `unsupported-declaration` is emitted.
+Common unsupported items include:
 
-- Lengths support `px`, percentages and `calc()`.
-- `width`, `height`, `min-*`, `max-*`, `flex-basis`, `top`, `right`, `bottom`,
-  `left`, `inset`, `transform-origin` and track sizes accept percentages.
-- Padding, margins and gaps resolve against the containing block's inline size
-  and settle to whole pixels at layout time. Border widths, radii and font sizes
-  are pixel-only.
-- `line-height` accepts a pixel length, a unitless ratio, or a percentage of the
-  font size.
-- Colors are `black`, `white`, `red` and `yellow`, including their three- or
-  six-digit hexadecimal forms (for example, `#000` and `#000000`). Other colors
-  are reported, not approximated.
-- Font families are limited to the bitmap fonts bundled with the build. An
-  unavailable family uses the default and reports `unsupported-declaration`; an
-  unavailable size uses the nearest strike and reports `substituted-font-size`.
+- Layout: `float`, `clear`, `order`, `flex-wrap`, `align-content`, `grid-template-areas`,
+  `grid-auto-columns`, `grid-auto-rows`, `grid-auto-flow`, `place-content`, `place-items`,
+  `place-self`, `table-layout`.
+- Position and effects: `position: fixed`, `position: sticky`, `opacity`, `filter`, `box-shadow`,
+  `text-shadow`, `mix-blend-mode`, `background-image`, `background-repeat`, `background-size`.
+- Text: `font-weight`, `font-style`, `font-variant`, `text-decoration`, `text-indent`,
+  `letter-spacing`, `word-spacing`, `text-transform`, `text-overflow`, `hyphens`.
+- Images: `object-position`.
+- Colour and transform values: `rgb()`, `rgba()`, `hsl()`, gradients, alpha; transform functions
+  other than `scale()` and `rotate()`; fractional, negative, or non-uniform CSS `scale`; `border-style`
+  values `double`, `groove`, `ridge`, `inset`, `outset`; `overflow: auto` and `overflow: scroll`.
 
-### Cascade and inheritance
+## Implementation notes
 
-Stylesheets are merged in source order: the stylesheet supplied by the CLI comes
-first, followed by page `<style>` elements and `link rel="stylesheet"` resources
-in document order. For one element, normal declarations are ordered by selector
-specificity; a later declaration wins ties. A normal inline `style` declaration
-outranks normal selector declarations. `!important` declarations outrank all
-normal declarations and are then compared by the same rules.
-
-Custom properties also cascade by the same rules and inherit from the parent.
-`var()` resolves them through that inheritance chain; an undefined or cyclic
-reference produces a warning and drops the declaration that uses it.
-
-### Display and layout
-
-`display` accepts `block`, `inline`, `inline-block`, `flex`, `inline-flex`,
-`grid`, `inline-grid`, `contents` and `none`.
-
-Flex containers use `flex-direction: row` or `column`. `flex-grow` divides
-remaining space and `flex-shrink` absorbs negative free space. `flex-basis` sets
-the initial size. The `flex` shorthand accepts the CSS forms `flex: <grow>`,
-`<grow> <shrink>`, and `<grow> <shrink> <basis>`; a one-number form uses a zero
-percent basis, as in a browser. `gap`, `row-gap` and `column-gap` separate items.
-`align-items`, `align-self`, `justify-content`, `justify-items` and `justify-self`
-control alignment. `margin: auto` can push an item to the far side of its
-container.
-
-Grid containers use `grid-template-columns` and `grid-template-rows` with
-pixel, percentage, `fr` and `auto` tracks. `grid-column` and `grid-row` place
-an item; `span` can specify its extent.
-
-`overflow: hidden` clips content to the box. `white-space: pre` preserves runs
-of spaces; the default collapses whitespace.
-
-### The box model
-
-The box model follows CSS; size, padding and borders all participate in layout.
-
-```css
-.card { width: 100px; padding: 10px; border: 5px solid black; }   /* 130 wide */
-.same { width: 130px; padding: 10px; border: 5px solid black;
-        box-sizing: border-box; }                                 /* 130 wide */
-```
-
-`box-sizing` defaults to `content-box`: a stated `width`, `height`, `min-*`,
-`max-*` or `flex-basis` is the content size, with padding and borders added
-outside. `border-box` makes those properties state the whole box and leaves the
-content the remaining space.
-
-A border takes room. Content is inside the border and padding; an absolutely
-positioned child is placed against the padding box, inside the border and
-outside the padding.
-
-`border-top`, `border-right`, `border-bottom` and `border-left` set individual
-edges. A side border participates in the box model and supports the same width,
-colour and line styles as `border`.
-
-### Positioning
-
-```css
-.page { position: relative; }
-.badge { position: absolute; right: 4px; top: 4px; }
-.hint { position: relative; left: 2px; top: -1px; }
-```
-
-`position: relative` keeps the element in normal flow and offsets its painted
-box by `top`, `right`, `bottom`, `left` or `inset`. `position: absolute` removes
-the element from flow and places it against the nearest positioned ancestor.
-`z-index` controls the paint order of positioned elements.
-
-### Paint and transform
-
-`background` and `border` accept the supported colors. `border-style` is
-`solid`, `dashed`, `dotted`, `none` or `hidden`; a dotted mark and its gap each
-equal the border width. `border-radius` rounds the corners. `visibility: hidden`
-keeps the box but removes its paint.
-
-`border-style` starts at `none`; without a line style, `border: 1px` and a bare
-`border-width` draw nothing. Styles that require multiple lines or shades
-(`double`, `groove`, `ridge`, `inset`, `outset`) produce a warning and are skipped.
-
-`transform` accepts `rotate` and whole-number `scale`. `rotate` accepts an
-angle, with `transform-origin` controlling the pivot. Unsupported transform
-functions are reported.
-
-### Text in a box
-
-`line-height` follows CSS. The difference from the text height is leading, split
-between the top and bottom of the line box. Increasing `line-height` expands the
-line box; it does not move the text downward. Each line uses its own font metrics.
-
-Inline content is laid out as line boxes. Text, `inline-block`, `inline-flex`,
-`inline-grid`, images and inline SVG share a line and wrap when `white-space`
-allows it. Padding, margin, background, border, `position: relative` and
-`vertical-align` remain attached to their inline item.
-
-`vertical-align` accepts `baseline`, `top`, `middle` and `bottom`; its initial
-value is `baseline`. `text-top`, `text-bottom`, `sub`, `super` and length values
-produce a warning and are ignored. The property applies only to inline-level
-boxes and is not inherited; using it on a block, flex item or grid item produces
-a warning.
-
-`inline-block`, `inline-flex` and `inline-grid` are atomic boxes. Their
-descendants use the corresponding block, flex or grid formatting context.
-
-To align content inside a box, use `align-items` on the container,
-`align-self` on the item, or a `line-height` equal to the box height for a
-single text line.
-
-```css
-.chip { display: inline-block; height: 20px; vertical-align: middle; }
-
-.row    { display: flex; align-items: center; }   /* centre every item */
-.figure { align-self: center; }                   /* centre one item */
-.label  { height: 20px; line-height: 20px; }      /* centre one text line */
-```
+- `size` or `panel` defines the canvas. Root `width` and `height` do not change it; content outside
+  the canvas produces layout or clipping warnings.
+- `box-sizing`, padding, and borders participate in box geometry. An absolutely positioned child is
+  anchored to the padding box of its nearest positioned ancestor: inside its border and outside its
+  padding.
+- The `flex` shorthand preserves grow, shrink, and basis. `flex: 1` is `1 1 0%`; the initial
+  `flex-shrink` is `1`.
+- Inline content, images, and inline SVG share line boxes. `vertical-align` applies only to inline-level
+  boxes; a declaration on a block, flex item, or grid item warns. For a single text line, a line-height
+  equal to the box height provides its vertical alignment.
+- Stylesheet order is CLI stylesheet, page `<style>`, then linked stylesheets in document order.
+  Normal declarations compare specificity and source order; inline style outranks normal selectors and
+  `!important` outranks normal declarations. Custom properties cascade and inherit by the same rules;
+  an undefined or cyclic `var()` drops the declaration that uses it.
+- Padding, margins, and gaps resolve percentages against the containing block's inline size and round
+  at layout time. Border widths, radii, and font sizes accept pixels or pixel-only `calc()`; `calc()`
+  supports addition and subtraction of `px` and `%` terms only.
+- Fonts come from bitmap families bundled at build time. An unknown family falls back to the default;
+  an unavailable size falls back to the nearest strike.
+- Compilation continues after unsupported declarations, selectors, at-rules, colours, fonts, or
+  resources. Warnings are not proof of a complete render; inspect the resulting frame for the warning
+  category involved.
 
 ## SVG
 
-```html
-<svg viewBox="0 0 214 74">
-  <polyline points="0,8 6,2 12,8" />
-</svg>
-<img src="chart-plot.svg" />
-```
+Supported elements are `rect`, `circle`, `ellipse`, `line`, `polyline`, `polygon`, `path`, `g`,
+`clipPath`, `pattern`, `defs`, `title`, and `desc`. `path` accepts `M`, `L`, `H`, `V`, `C`, `S`, `Q`,
+`T`, `A`, and `Z`, including relative commands.
 
-Supported elements are `rect`, `circle`, `ellipse`, `line`, `polyline`,
-`polygon`, `path`, `g`, `clipPath`, `pattern`, `defs`, `title` and `desc`.
-Supported paint properties are `fill`, `stroke`, `stroke-width`,
-`stroke-dasharray`, `stroke-dashoffset` and `clip-path`.
+SVG paint supports `fill`, `stroke`, `stroke-width`, `stroke-dasharray`, `stroke-dashoffset`, and
+`clip-path`. `viewBox` maps to the viewport using the browser's `xMidYMid meet` rule; geometry outside
+the viewport is clipped. SVG `transform` supports `translate`, `scale`, and `rotate`; `scale` accepts
+finite non-zero factors, and `rotate` accepts an angle or an angle with a rotation centre. CSS
+`transform` accepts only the functions listed above.
 
-`path` accepts `M L H V C S Q T A Z` and relative commands. `translate` and
-whole-number `scale` transforms are supported. A CSS property overrides an SVG
-presentation attribute when both specify the same property.
-`fill` and `stroke` accept the colors above, `none` and `transparent`; other
-colors produce a warning and skip that paint.
+## Images and resources
 
-## Images and files
+`img src` accepts an HTTP/HTTPS URL or a relative path. `.png`, `.jpg`, and `.jpeg` are loaded as
+bitmaps; `.svg` is loaded as an external SVG drawing. Relative paths are resolved only through the
+page resource map; the HTTP service never reads a client path or an arbitrary file in its working
+directory.
 
-An `img` references a resource through `src`. `src` may be an HTTP/HTTPS URL or
-a relative path. `.png`, `.jpg` and `.jpeg` are loaded as bitmaps; `.svg` is
-compiled as an external drawing.
-
-```
-page.html
-assets/
-  portrait.png
-  chart.svg
-```
-
-```html
-<img src="assets/portrait.png" class="portrait" />
-<img src="assets/chart.svg" class="chart" />
-<img src="https://example.com/portrait.png" class="remote" />
-```
-
-The CLI injects local resources with repeatable `-asset SRC=FILE` flags:
+The CLI injects local resources with repeatable `-asset SRC=FILE` flags. Without a mapping, it reads
+relative resources beside the page:
 
 ```bash
-inkwire render \
-     -size 296x128 \
-     -asset assets/portrait.png=photos/portrait.png \
-     -asset assets/chart.svg=charts/chart.svg \
-     page.html
+inkwire render -size 296x128 \
+  -asset assets/portrait.png=photos/portrait.png \
+  -asset assets/chart.svg=charts/chart.svg page.html
 ```
 
-When no mapping is given, the CLI reads relative resources beside the page. HTTP
-uses multipart: `page` is the HTML document; local resources are binary file
-parts whose field names exactly match `src`, including any directory prefix.
-HTTP/HTTPS resources need no file part. Client-local paths are not visible to the
-service.
-
-```bash
-curl -F 'page=@page.html;type=text/html' \
-     -F 'assets/portrait.png=@assets/portrait.png;type=image/png' \
-     -F 'assets/chart.svg=@assets/chart.svg;type=image/svg+xml' \
-     'http://127.0.0.1:8080/v1/render?size=296x128'
-```
-
-`link` `href` follows the same relative-resource rule; a stylesheet may be sent
-as its own part.
+HTTP uses multipart: `page` is the HTML document; local resources are file parts whose field names
+exactly match `src`, including directory prefixes. Remote URLs need no file part. `link` `href` follows
+the same rule, and a stylesheet may be uploaded as its own part.
 
 ## Warnings
 
-Unsupported properties, values, selectors, at-rules, colors, images and fonts
-produce warnings; the rest of the page continues to compile. Layout warnings
-such as `text-clipped`, `layout-overflow` and `empty-layout` identify content
-that cannot fit the fixed canvas.
+Markup may emit: `text-clipped`, `layout-overflow`, `empty-layout`, `missing-runes`, `size-mismatch`,
+`unsupported-ink`, `unsupported-declaration`, `unsupported-at-rule`, `unresolved-drawing`,
+`unresolved-image`, `no-stylesheet`, `unresolved-stylesheet`, `duplicate-stylesheet`,
+`over-constrained`, `unsupported-selector`, `unreadable-rule`, and `substituted-font-size`.
