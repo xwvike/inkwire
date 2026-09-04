@@ -42,7 +42,7 @@ syntax only for the subproperties listed here.
 | Transform | `rotate` | `deg`, `grad`, `rad`, `turn`, or a unitless angle | — |
 | Transform | `transform-origin` | One or two keywords, `px`, `%`, or `calc()` | Keywords are `left`, `center`, `right`, `top`, and `bottom` |
 | Transform | `scale` | One or two equal integers, each at least 1 | No resampling; fractions and non-uniform pairs are not implemented |
-| SVG paint | `fill`, `stroke` | Supported inks, `none`, `transparent` | These properties inherit; CSS overrides an SVG presentation attribute |
+| SVG paint | `fill`, `stroke` | Supported inks, `none`, `transparent` | These properties inherit; CSS overrides an SVG presentation attribute on inline SVG |
 | SVG paint | `stroke-width` | Non-negative `px`, a pixel-only `calc()`, or an SVG unitless number | Rounded to whole pixels at layout; values below one pixel draw at one pixel and warn |
 | SVG paint | `stroke-dasharray`, `stroke-dashoffset` | Space- or comma-separated integer pixels | — |
 | Font | `font` | `size[/line-height] family` | Only size, line-height, and family are read; style and weight fields warn |
@@ -122,6 +122,10 @@ finite non-zero factors, and `rotate` accepts an angle or an angle with a rotati
 bitmaps; `.svg` is loaded as an external SVG drawing. Relative paths are resolved only through the
 page resource map; the HTTP service never reads a client path or an arbitrary file in its working
 directory.
+
+An SVG in `<img>` is a replaced image: page CSS sizes and clips its image box, but does not cascade
+into the SVG document. Its supported SVG paint and viewport are retained. Inline `<svg>` remains part
+of the page's CSS cascade.
 
 The CLI injects local resources with repeatable `-asset SRC=FILE` flags. Without a mapping, it reads
 relative resources beside the page:

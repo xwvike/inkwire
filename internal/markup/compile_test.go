@@ -75,6 +75,23 @@ func TestRemoteSVGImageIsFetchedByItsURL(t *testing.T) {
 	}
 }
 
+func TestExternalSVGImageDoesNotInheritPagePaint(t *testing.T) {
+	resolver := Compiler{Drawings: func(src string) ([]byte, error) {
+		return []byte(`<svg width="20" height="20"><rect width="20" height="20" fill="black"/></svg>`), nil
+	}}
+	page, err := resolver.Compile(
+		`<div class="page"><img src="badge.svg"></div>`,
+		`.page { display: flex; width: 20px; height: 20px; background: white; fill: red; }
+			rect { fill: red; } img { display: block; width: 20px; height: 20px; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame, _ := renderDocument(t, "", page.JSON)
+	if got, _ := frame.InkAt(5, 5); got != display.InkBlack {
+		t.Fatalf("external SVG image inherited page paint: got %v, want black", got)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {

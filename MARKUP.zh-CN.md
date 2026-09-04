@@ -41,7 +41,7 @@ HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面�
 | 变换 | `rotate` | `deg`、`grad`、`rad`、`turn` 或无单位角度 | — |
 | 变换 | `transform-origin` | 一个或两个关键词、`px`、`%`、`calc()` | 关键词为 `left`、`center`、`right`、`top`、`bottom` |
 | 变换 | `scale` | 一个或两个相同的整数，且不小于 1 | 不做重采样；不支持小数或非等比缩放 |
-| SVG 绘制 | `fill`、`stroke` | 支持的墨色、`none`、`transparent` | 这些属性可继承；CSS 声明覆盖 SVG 呈现属性 |
+| SVG 绘制 | `fill`、`stroke` | 支持的墨色、`none`、`transparent` | 这些属性可继承；内联 SVG 中的 CSS 声明覆盖 SVG 呈现属性 |
 | SVG 绘制 | `stroke-width` | 非负 `px`、仅含像素的 `calc()` 或 SVG 无单位数值 | 布局时取整；小于 1 像素时按 1 像素绘制并产生警告 |
 | SVG 绘制 | `stroke-dasharray`、`stroke-dashoffset` | 空格或逗号分隔的整数像素 | — |
 | 字体 | `font` | `size[/line-height] family` | 仅读取字号、行高和字体族；样式、粗细等字段会产生警告 |
@@ -112,6 +112,9 @@ SVG 支持 `fill`、`stroke`、`stroke-width`、`stroke-dasharray`、`stroke-das
 `img src` 支持 HTTP/HTTPS URL 和相对路径。`.png`、`.jpg`、`.jpeg` 按位图读取，`.svg` 按
 外部 SVG 绘图读取。相对路径始终以页面资源映射为准，HTTP 服务不会读取客户端路径或服务端
 当前目录中的任意文件。
+
+`<img>` 中的 SVG 按替换型图片处理：页面 CSS 只控制图片盒的尺寸和裁剪，不进入 SVG 文档参与
+级联；已支持的 SVG 绘制属性和 viewport 保留。内联 `<svg>` 仍参与页面 CSS 级联。
 
 CLI 通过可重复的 `-asset SRC=FILE` 注入本地资源；未提供映射时，从页面所在目录读取：
 

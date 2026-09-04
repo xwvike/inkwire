@@ -53,6 +53,9 @@ var inlineByDefault = map[string]bool{
 type compiler struct {
 	sheet    *stylesheet
 	warnings []Warning
+	// warningSink lets an isolated resource report through the compiler that
+	// owns the page without sharing its stylesheet or computed-style cache.
+	warningSink *[]Warning
 	// computedFor caches each element's style. The tree is visited more than
 	// once, and without this an element's unsupported declarations would be
 	// reported once per visit.
@@ -321,7 +324,12 @@ func (c *compiler) pageSize(element *html.Node) stdimage.Point {
 }
 
 func (c *compiler) warn(path, code, message string) {
-	c.warnings = append(c.warnings, Warning{Path: path, Code: code, Message: message})
+	warning := Warning{Path: path, Code: code, Message: message}
+	if c.warningSink != nil {
+		*c.warningSink = append(*c.warningSink, warning)
+		return
+	}
+	c.warnings = append(c.warnings, warning)
 }
 
 // computed resolves one element's style from its parent's, the stylesheet and
@@ -751,7 +759,26 @@ func (c *compiler) externalDrawing(source string, current style, path string) *e
 		c.warn(path, "unresolved-drawing", fmt.Sprintf("img src=%q holds no svg element", source))
 		return nil
 	}
-	return c.svg(element, current, fmt.Sprintf("%s<%s>", path, source))
+	// An external SVG is the document of an image, not a subtree of this page.
+	// Keep the SVG backend, but give it a fresh stylesheet and style cache so
+	// page selectors and inherited paints cannot enter through the resource
+	// boundary. Warnings still belong to the page compilation.
+	isolated := *c
+	isolated.sheet = &stylesheet{}
+	isolated.computedFor = map[*html.Node]style{}
+	isolated.warningSink = &c.warnings
+	resourcePath := fmt.Sprintf("%s<%s>", path, source)
+	resourceStyle := isolated.computed(element, rootStyle(), resourcePath)
+	// The image's CSS dimensions are the outer replaced box, but the vector
+	// backend still needs them to map the resource viewport into that box. Copy
+	// only those dimensions; paints and all other page properties stay outside.
+	if current.width.set {
+		resourceStyle.width = current.width
+	}
+	if current.height.set {
+		resourceStyle.height = current.height
+	}
+	return isolated.svg(element, resourceStyle, resourcePath)
 }
 
 func isRemoteSource(source string) bool {
