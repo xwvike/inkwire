@@ -45,6 +45,8 @@ syntax only for the subproperties listed here.
 | SVG paint | `fill`, `stroke` | Supported inks, `none`, `transparent` | These properties inherit; CSS overrides an SVG presentation attribute on inline SVG |
 | SVG paint | `stroke-width` | Non-negative `px`, a pixel-only `calc()`, or an SVG unitless number | Rounded to whole pixels at layout; values below one pixel draw at one pixel and warn |
 | SVG paint | `stroke-dasharray`, `stroke-dashoffset` | Space- or comma-separated integer pixels | — |
+| SVG paint | `stroke-linecap` | `butt`, `round`, `square` | Applies to open SVG lines, polylines and paths; SVG defaults to `butt` |
+| SVG paint | `stroke-linejoin` | `miter`, `round`, `bevel` | Applies where adjacent SVG path segments meet; SVG defaults to `miter` |
 | Font | `font` | `size[/line-height] family` | Only size, line-height, and family are read; style and weight fields warn |
 | Font | `font-family` | `ui`, `hzk`, `monaco`, or a family stack | Families are tried per glyph in declaration order; unknown names are skipped, and an entirely unavailable stack uses the default with a warning |
 | Font | `font-size` | `px` or a pixel-only `calc()` | The nearest bitmap strike is used and `substituted-font-size` is emitted |
@@ -56,7 +58,7 @@ syntax only for the subproperties listed here.
 
 Every implemented property accepts `inherit`, `initial`, `unset`, and `revert`. The properties that
 inherit by default are `color`, `fill`, `stroke`, `stroke-width`, `stroke-dasharray`,
-`stroke-dashoffset`, `font`, `font-family`, `font-size`, `line-height`, `text-align`, `white-space`,
+`stroke-dashoffset`, `stroke-linecap`, `stroke-linejoin`, `font`, `font-family`, `font-size`, `line-height`, `text-align`, `white-space`,
 and `visibility`; `vertical-align` is not inherited. Custom properties named `--name` may be declared,
 then read with `var()`, and cascade and inherit by the same rules.
 
@@ -119,8 +121,8 @@ Supported elements are `rect`, `circle`, `ellipse`, `line`, `polyline`, `polygon
 `clipPath`, `pattern`, `defs`, `title`, and `desc`. `path` accepts `M`, `L`, `H`, `V`, `C`, `S`, `Q`,
 `T`, `A`, and `Z`, including relative commands.
 
-SVG paint supports `fill`, `stroke`, `stroke-width`, `stroke-dasharray`, `stroke-dashoffset`, and
-`clip-path`. `viewBox` maps to the viewport using the browser's `xMidYMid meet` rule; geometry outside
+SVG paint supports `fill`, `stroke`, `stroke-width`, `stroke-dasharray`, `stroke-dashoffset`,
+`stroke-linecap`, `stroke-linejoin`, and `clip-path`. `viewBox` maps to the viewport using the browser's `xMidYMid meet` rule; geometry outside
 the viewport is clipped. SVG `transform` supports `translate`, `scale`, and `rotate`; `scale` accepts
 finite non-zero factors, and `rotate` accepts an angle or an angle with a rotation centre. CSS
 `transform` accepts only the functions listed above.

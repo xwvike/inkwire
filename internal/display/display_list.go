@@ -582,7 +582,11 @@ func strokedPointBounds(bounds image.Rectangle, width int) image.Rectangle {
 func pathContourBounds(contours []pathContour, minimumPoints int) image.Rectangle {
 	var bounds image.Rectangle
 	for _, contour := range contours {
-		if len(contour.points) < minimumPoints {
+		// A stroked zero-length segment occupies one pixel after coordinates
+		// have been rounded. It is a valid open contour for StrokePath even
+		// though it has fewer points than an ordinary line.
+		pointStroke := minimumPoints == 2 && len(contour.points) == 1 && contour.stroked && !contour.closed
+		if len(contour.points) < minimumPoints && !pointStroke {
 			continue
 		}
 		contourBounds := polygonBounds(contour.points)

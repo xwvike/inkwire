@@ -130,8 +130,9 @@ func (p *Path) ensureCurrent(point image.Point) bool {
 }
 
 type pathContour struct {
-	points []image.Point
-	closed bool
+	points  []image.Point
+	closed  bool
+	stroked bool
 }
 
 func (p Path) flatten() []pathContour {
@@ -147,10 +148,12 @@ func (p Path) flatten() []pathContour {
 		case pathLine:
 			if currentContour >= 0 {
 				contours[currentContour].points = appendDistinctPoint(contours[currentContour].points, command.points[0])
+				contours[currentContour].stroked = true
 				current = command.points[0]
 			}
 		case pathQuadratic:
 			if currentContour >= 0 {
+				contours[currentContour].stroked = true
 				points := flattenQuadratic(current, command.points[0], command.points[1])
 				for _, point := range points[1:] {
 					contours[currentContour].points = appendDistinctPoint(contours[currentContour].points, point)
@@ -159,6 +162,7 @@ func (p Path) flatten() []pathContour {
 			}
 		case pathCubic:
 			if currentContour >= 0 {
+				contours[currentContour].stroked = true
 				points := flattenCubic(current, command.points[0], command.points[1], command.points[2])
 				for _, point := range points[1:] {
 					contours[currentContour].points = appendDistinctPoint(contours[currentContour].points, point)
@@ -186,6 +190,11 @@ func (c *Canvas) StrokePath(path Path, stroke StrokeStyle) {
 	var closed []pathContour
 	for _, contour := range path.flatten() {
 		switch {
+		case len(contour.points) == 1 && contour.stroked && !contour.closed:
+			// A zero-length SVG segment is still a painted subpath when its
+			// linecap is not butt. Keep the point instead of dropping it during
+			// pixel-grid de-duplication; icon files commonly use this for dots.
+			c.strokePoints(contour.points, false, stroke)
 		case len(contour.points) < 2:
 		case contour.closed && len(contour.points) >= 3:
 			closed = append(closed, contour)

@@ -92,6 +92,29 @@ func TestExternalSVGImageDoesNotInheritPagePaint(t *testing.T) {
 	}
 }
 
+func TestExternalSVGImageResolvesCurrentColorInItsOwnScope(t *testing.T) {
+	resolver := Compiler{Drawings: func(src string) ([]byte, error) {
+		return []byte(`<svg width="20" height="20" fill="none" stroke="currentColor" stroke-linecap="round"><path d="M 2 2 L 18 18"/><path d="M 15 5 h .01"/></svg>`), nil
+	}}
+	page, err := resolver.Compile(
+		`<div class="page"><img src="icon.svg"></div>`,
+		`.page { display: flex; width: 20px; height: 20px; background: white; color: red; }
+			img { display: block; width: 20px; height: 20px; color: yellow; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Warnings) != 0 {
+		t.Fatalf("currentColor produced warnings: %v", page.Warnings)
+	}
+	frame, _ := renderDocument(t, "", page.JSON)
+	if got, _ := frame.InkAt(5, 5); got != display.InkBlack {
+		t.Fatalf("external SVG currentColor = %v, want black", got)
+	}
+	if got, _ := frame.InkAt(15, 5); got != display.InkBlack {
+		t.Fatalf("external SVG zero-length stroke = %v, want black", got)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {

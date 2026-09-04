@@ -206,6 +206,10 @@ func (c *compiler) svgShape(node *html.Node, box rect, inherited svgPaint, curre
 		return c.tiled(node, box, frame, tiled, path)
 	}
 	paint := c.svgPaint(node, inherited, current, path)
+	// Stroke lengths live in the SVG user coordinate system just like shape
+	// coordinates. Apply the viewport/transform scale at the shape boundary so
+	// inherited paint is not scaled once per group and then scaled again.
+	paint = paint.scaled(frame)
 	switch node.Data {
 	case "rect":
 		x1, y1 := frame.place(svgLength(node, "x"), svgLength(node, "y"))
@@ -383,6 +387,8 @@ type svgPaint struct {
 	strokeWidth int
 	dash        []int
 	dashOffset  int
+	lineCap     string
+	lineJoin    string
 }
 
 // edge is the stroke a shape ends up with, or nothing if no ink was ever named.
@@ -394,7 +400,37 @@ func (p svgPaint) edge() *stroke {
 	if width < 1 {
 		width = 1
 	}
-	return &stroke{Ink: p.strokeInk, Width: width, Dash: p.dash, DashOffset: p.dashOffset}
+	return &stroke{Ink: p.strokeInk, Width: width, Dash: p.dash, DashOffset: p.dashOffset,
+		Cap: p.lineCap, Join: p.lineJoin}
+}
+
+// scaled converts paint lengths from SVG user units to device pixels. A
+// viewBox can enlarge a 24px icon into a much larger image box; keeping its
+// one-unit stroke unchanged would turn the icon into a hairline outline.
+func (p svgPaint) scaled(frame svgFrame) svgPaint {
+	if frame.scaleX == 1 && frame.scaleY == 1 {
+		return p
+	}
+	scaled := p
+	scale := func(value int, minimum bool) int {
+		if value == 0 {
+			return 0
+		}
+		result := pixels(frame.size(float64(value)))
+		if minimum && result < 1 {
+			return 1
+		}
+		return result
+	}
+	scaled.strokeWidth = scale(p.strokeWidth, true)
+	if len(p.dash) > 0 {
+		scaled.dash = make([]int, len(p.dash))
+		for index, length := range p.dash {
+			scaled.dash[index] = scale(length, true)
+		}
+	}
+	scaled.dashOffset = scale(p.dashOffset, false)
+	return scaled
 }
 
 // svgPaint reads the presentation attributes that say how a shape is painted.
@@ -406,17 +442,35 @@ func (c *compiler) svgPaint(node *html.Node, inherited svgPaint, current style, 
 	report := func(message string) { c.warn(path, "unsupported-declaration", message) }
 	paint := inherited
 	if stated := c.svgAttribute(node, "fill", path); stated != "" {
-		if ink, ok := parseInk(stated, "fill", report); ok {
-			paint.fill = inkName(ink)
+		if ink, ok := svgInk(stated, "fill", current, report); ok {
+			paint.fill = ink
 		} else {
 			paint.fill = ""
 		}
 	}
 	if stated := c.svgAttribute(node, "stroke", path); stated != "" {
-		if ink, ok := parseInk(stated, "stroke", report); ok {
-			paint.strokeInk = inkName(ink)
+		if ink, ok := svgInk(stated, "stroke", current, report); ok {
+			paint.strokeInk = ink
 		} else {
 			paint.strokeInk = ""
+		}
+	}
+	if stated := c.svgAttribute(node, "stroke-linecap", path); stated != "" {
+		cap := strings.ToLower(strings.TrimSpace(stated))
+		switch cap {
+		case "butt", "round", "square":
+			paint.lineCap = cap
+		default:
+			report(fmt.Sprintf("stroke-linecap=%q is not one of butt, round or square", stated))
+		}
+	}
+	if stated := c.svgAttribute(node, "stroke-linejoin", path); stated != "" {
+		join := strings.ToLower(strings.TrimSpace(stated))
+		switch join {
+		case "miter", "round", "bevel":
+			paint.lineJoin = join
+		default:
+			report(fmt.Sprintf("stroke-linejoin=%q is not one of miter, round or bevel", stated))
 		}
 	}
 	if width, ok := svgNumber(c.svgAttribute(node, "stroke-width", path)); ok {
@@ -467,11 +521,31 @@ func (c *compiler) svgPaint(node *html.Node, inherited svgPaint, current style, 
 	if current.strokeWidth != nil {
 		paint.strokeWidth = *current.strokeWidth
 	}
+	if current.lineCap != "" {
+		paint.lineCap = current.lineCap
+	}
+	if current.lineJoin != "" {
+		paint.lineJoin = current.lineJoin
+	}
 	if current.line != borderNone || len(current.dash) > 0 {
 		paint.dash = current.dash
 		paint.dashOffset = current.dashOffset
 	}
 	return paint
+}
+
+// svgInk resolves a presentation paint in the SVG document's colour scope.
+// currentColor is the computed color of that document: inline SVG inherits it
+// from the page, while an external image starts at the resource default.
+func svgInk(value, property string, current style, report func(string)) (string, bool) {
+	if strings.EqualFold(strings.TrimSpace(value), "currentcolor") {
+		return inkName(current.color), true
+	}
+	ink, ok := parseInk(value, property, report)
+	if !ok {
+		return "", false
+	}
+	return inkName(ink), true
 }
 
 // svgAttribute reads a presentation attribute, resolving any custom property
@@ -493,14 +567,16 @@ func (c *compiler) svgAttribute(node *html.Node, name, path string) string {
 // rootPaint is what a drawing starts with: SVG's own defaults rather than the
 // panel's. A shape that says nothing is filled black and has no outline, which
 // is what an author who drew it anywhere else expects to see.
-func rootPaint() svgPaint { return svgPaint{fill: "black", strokeWidth: 1} }
+func rootPaint() svgPaint {
+	return svgPaint{fill: "black", strokeWidth: 1, lineCap: "butt", lineJoin: "miter"}
+}
 
 // readAttributes are the ones this build acts on, per element. Anything else
 // on a shape is reported, for the same reason an unimplemented CSS property
 // is: a drawing that quietly lost its blur is a drawing whose author has no
 // way of finding out.
 var readAttributes = map[string]bool{
-	"fill": true, "stroke": true, "stroke-width": true,
+	"fill": true, "stroke": true, "stroke-width": true, "stroke-linecap": true, "stroke-linejoin": true,
 	"stroke-dasharray": true, "stroke-dashoffset": true,
 	"x": true, "y": true, "width": true, "height": true, "rx": true, "ry": true,
 	"cx": true, "cy": true, "r": true,

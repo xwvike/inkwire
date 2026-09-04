@@ -105,6 +105,11 @@ type style struct {
 	// and a gap twice it, which reads as dashes at any width.
 	dash       []int
 	dashOffset int
+	// SVG's line-cap and line-join names are retained as strings until the
+	// drawing is emitted. Empty means no stylesheet declaration, allowing an
+	// SVG presentation attribute to retain its own defaults.
+	lineCap    string
+	lineJoin   string
 	absolute   bool
 	positioned bool
 	minSize    [2]length // width, height
@@ -252,6 +257,8 @@ func (s style) inherited() style {
 		wrap:               s.wrap,
 		preserve:           s.preserve,
 		hidden:             s.hidden,
+		lineCap:            s.lineCap,
+		lineJoin:           s.lineJoin,
 	}
 }
 
@@ -597,6 +604,20 @@ func (s *style) apply(property, value string, parent style, report func(string))
 		}
 		s.borderStyle()
 		s.dashOffset = pixels
+	case "stroke-linecap":
+		switch keyword {
+		case "butt", "round", "square":
+			s.lineCap = keyword
+		default:
+			report(fmt.Sprintf("stroke-linecap: %s is not supported; use butt, round or square", value))
+		}
+	case "stroke-linejoin":
+		switch keyword {
+		case "miter", "round", "bevel":
+			s.lineJoin = keyword
+		default:
+			report(fmt.Sprintf("stroke-linejoin: %s is not supported; use miter, round or bevel", value))
+		}
 	case "box-sizing":
 		switch keyword {
 		case "border-box":
@@ -1261,7 +1282,7 @@ func crossOfMain(main compose.MainAlignment) compose.CrossAlignment {
 
 func isInheritedProperty(property string) bool {
 	switch property {
-	case "color", "fill", "stroke", "stroke-width", "stroke-dasharray", "stroke-dashoffset",
+	case "color", "fill", "stroke", "stroke-width", "stroke-dasharray", "stroke-dashoffset", "stroke-linecap", "stroke-linejoin",
 		"font", "font-family", "font-size", "line-height", "text-align",
 		"white-space", "visibility":
 		return true
@@ -1458,6 +1479,10 @@ func (s *style) inheritOne(property string, parent style, report func(string)) {
 		s.line, s.dash = parent.line, slices.Clone(parent.dash)
 	case "stroke-dashoffset":
 		s.dashOffset = parent.dashOffset
+	case "stroke-linecap":
+		s.lineCap = parent.lineCap
+	case "stroke-linejoin":
+		s.lineJoin = parent.lineJoin
 	case "font":
 		s.fontFamily, s.fontFallback, s.fontSize = parent.fontFamily, slices.Clone(parent.fontFallback), parent.fontSize
 		s.lineHeight, s.lineHeightMultiple = parent.lineHeight, parent.lineHeightMultiple
@@ -1656,6 +1681,10 @@ func (s *style) reset(property string, report func(string)) {
 		s.line, s.dash = borderNone, nil
 	case "stroke-dashoffset":
 		s.dashOffset = 0
+	case "stroke-linecap":
+		s.lineCap = "butt"
+	case "stroke-linejoin":
+		s.lineJoin = "miter"
 	case "font":
 		s.fontFamily, s.fontFallback, s.fontSize = display.DefaultFontFamily, nil, display.DefaultFontSize
 		s.lineHeight, s.lineHeightMultiple, s.lineHeightResolvesHere = 0, 0, false

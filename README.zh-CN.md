@@ -484,7 +484,7 @@ HTML 使用 `img src` 引用图片。`src` 可以是 HTTP/HTTPS 链接，也可�
 <img src="https://example.com/portrait.png" class="remote">
 ```
 
-SVG 的 `viewBox` 按浏览器默认的 `xMidYMid meet` 映射到元素盒；支持小数缩放、非零原点和带符号的轴向变换。SVG 视口会裁剪其内容。填充和描边颜色必须是面板墨色（`black`、`white`、`red`、`yellow` 及等价十六进制写法）；其他颜色会报告并跳过。
+SVG 的 `viewBox` 按浏览器默认的 `xMidYMid meet` 映射到元素盒；支持小数缩放、非零原点和带符号的轴向变换。SVG 视口会裁剪其内容。填充和描边颜色必须是面板墨色（`black`、`white`、`red`、`yellow` 及等价十六进制写法）；其他颜色会报告并跳过。开放线段、折线和路径支持 `stroke-linecap: butt|round|square`；路径连接支持 `stroke-linejoin: miter|round|bevel`。
 
 CLI 使用 `-asset SRC=FILE` 注入相对路径资源，可重复指定：
 

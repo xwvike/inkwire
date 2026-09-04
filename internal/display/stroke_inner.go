@@ -17,6 +17,33 @@ func (c *Canvas) strokeInward(shape image.Rectangle, inside func(x, y int) bool,
 	}
 	band := rasterizeMask(bounds, inside).innerBand(stroke.Width)
 	c.strokeBand(bounds, band.at, outlines, stroke)
+	if len(stroke.Dash) == 0 && stroke.Join != StrokeJoinMiter {
+		paintClosedJoins(c, outlines, inside, stroke)
+	}
+}
+
+// The inward band supplies the body of a closed outline. Explicit non-miter
+// joins need one additional geometric pass at vertices; restricting that pass
+// to the shape keeps the long-standing invariant that a closed outline never
+// grows beyond its own fill region.
+func paintClosedJoins(c *Canvas, outlines [][]image.Point, inside func(x, y int) bool, stroke StrokeStyle) {
+	radius := strokeRadius(stroke.Width)
+	margin := int(math.Ceil(radius)) + 1
+	for _, outline := range outlines {
+		for index, center := range outline {
+			previous := outline[(index+len(outline)-1)%len(outline)]
+			next := outline[(index+1)%len(outline)]
+			bounds := strokeCircleBounds(center, stroke.Width).Inset(-margin)
+			for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+				for x := bounds.Min.X; x < bounds.Max.X; x++ {
+					if !inside(x, y) || !styledJoinContains(float64(x), float64(y), center, previous, next, radius, stroke.Join) {
+						continue
+					}
+					c.setDevice(c.devicePoint(image.Pt(x, y)), stroke.Ink)
+				}
+			}
+		}
+	}
 }
 
 // strokeBand paints a band the caller has already defined and applies the dash

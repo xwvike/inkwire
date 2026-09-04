@@ -164,6 +164,8 @@ type stroke struct {
 	Width      int    `json:"width"`
 	Dash       []int  `json:"dash,omitempty"`
 	DashOffset int    `json:"dashOffset,omitempty"`
+	Cap        string `json:"cap,omitempty"`
+	Join       string `json:"join,omitempty"`
 }
 
 type run struct {

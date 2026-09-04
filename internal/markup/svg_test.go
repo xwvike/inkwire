@@ -41,9 +41,9 @@ func TestTheShapesSVGAndTheSchemaBothHave(t *testing.T) {
 		{"ellipse", `<ellipse cx="30" cy="20" rx="10" ry="5" fill="red"/>`,
 			`"bounds":{"x":20,"y":15,"width":21,"height":11},"node":{"type":"ellipse","fill":"red"}`},
 		{"line", `<line x1="0" y1="0" x2="60" y2="40" stroke="black"/>`,
-			`"type":"line","stroke":{"ink":"black","width":1},"from":{"x":0,"y":0},"to":{"x":60,"y":40}`},
+			`"type":"line","stroke":{"ink":"black","width":1,"cap":"butt","join":"miter"},"from":{"x":0,"y":0},"to":{"x":60,"y":40}`},
 		{"polyline", `<polyline points="0,0 10,20 20,0" fill="none" stroke="red"/>`,
-			`"type":"polyline","stroke":{"ink":"red","width":1},"points":[{"x":0,"y":0},{"x":10,"y":20},{"x":20,"y":0}]`},
+			`"type":"polyline","stroke":{"ink":"red","width":1,"cap":"butt","join":"miter"},"points":[{"x":0,"y":0},{"x":10,"y":20},{"x":20,"y":0}]`},
 		{"polygon", `<polygon points="0,0 20,0 10,20" fill="black"/>`,
 			`"type":"polygon","fill":"black","points":[`},
 	}
@@ -379,7 +379,7 @@ func TestAGroupHandsItsPaintDown(t *testing.T) {
 	}
 	// The circle itself, not the page around it: the background is a filled
 	// rectangle and matching on "fill" anywhere would find that instead.
-	if !strings.Contains(flat, `"type":"circle","radius":8,"stroke":{"ink":"black","width":2}`) {
+	if !strings.Contains(flat, `"type":"circle","radius":8,"stroke":{"ink":"black","width":2,"cap":"butt","join":"miter"}`) {
 		t.Errorf("the group's paint did not reach the circle as stated:\n%s", flat)
 	}
 }
@@ -391,7 +391,7 @@ func TestAShapeOverridesOnlyWhatItStates(t *testing.T) {
 	if !strings.Contains(flat, `"fill":"red"`) {
 		t.Errorf("the shape's own fill did not win:\n%s", flat)
 	}
-	if !strings.Contains(flat, `"width":3`) {
+	if !strings.Contains(flat, `"width":3`) || !strings.Contains(flat, `"cap":"butt"`) {
 		t.Errorf("the group's stroke width was not inherited:\n%s", flat)
 	}
 }
@@ -401,11 +401,10 @@ func TestAShapeOverridesOnlyWhatItStates(t *testing.T) {
 // drawing whose author has no way of finding out.
 func TestADrawingNamesTheAttributesItDidNotAct0n(t *testing.T) {
 	tests := map[string]string{
-		"opacity":         `<rect width="9" height="9" opacity="0.5"/>`,
-		"filter":          `<rect width="9" height="9" filter="url(#blur)"/>`,
-		"mask":            `<rect width="9" height="9" mask="url(#m)"/>`,
-		"stroke-linejoin": `<rect width="9" height="9" stroke="black" stroke-linejoin="round"/>`,
-		"on a group":      `<g opacity="0.5"><rect width="9" height="9"/></g>`,
+		"opacity":    `<rect width="9" height="9" opacity="0.5"/>`,
+		"filter":     `<rect width="9" height="9" filter="url(#blur)"/>`,
+		"mask":       `<rect width="9" height="9" mask="url(#m)"/>`,
+		"on a group": `<g opacity="0.5"><rect width="9" height="9"/></g>`,
 	}
 	for want, content := range tests {
 		t.Run(want, func(t *testing.T) {
@@ -770,5 +769,57 @@ func TestAUnitlessStrokeWidthIsPixels(t *testing.T) {
 	}
 	if written := strings.Join(strings.Fields(string(page.JSON)), ""); !strings.Contains(written, `"width":3`) {
 		t.Errorf("the stroke is not three pixels:\n%s", page.JSON)
+	}
+}
+
+func TestAViewBoxScalesStrokeLengths(t *testing.T) {
+	page, err := Compile(
+		`<div class="page"><svg width="240" height="240" viewBox="0 0 24 24">
+			<line x1="2" y1="12" x2="22" y2="12" stroke="black" stroke-width="1" stroke-dasharray="2 1"/>
+		</svg></div>`,
+		`.page { display: flex; width: 240px; height: 240px; }
+			svg { display: block; flex-grow: 1; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, warning := range page.Warnings {
+		t.Errorf("warning: %s", warning.Message)
+	}
+	flat := strings.Join(strings.Fields(string(page.JSON)), "")
+	if !strings.Contains(flat, `"stroke":{"ink":"black","width":10,"dash":[20,10]`) {
+		t.Errorf("viewBox stroke lengths were not scaled: %s", page.JSON)
+	}
+}
+
+func TestARoundCappedSVGPointIsAStrokeDot(t *testing.T) {
+	page, err := Compile(
+		`<div class="page"><svg width="20" height="20" fill="none" stroke="black" stroke-linecap="round"><path d="M 10 10 h .01"/></svg></div>`,
+		`.page { display: flex; width: 20px; height: 20px; }
+			svg { display: block; flex-grow: 1; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, warning := range page.Warnings {
+		t.Errorf("warning: %s", warning.Message)
+	}
+	flat := strings.Join(strings.Fields(string(page.JSON)), "")
+	if !strings.Contains(flat, `"type":"path"`) || !strings.Contains(flat, `"cap":"round"`) {
+		t.Errorf("round-capped point did not remain a styled path: %s", page.JSON)
+	}
+}
+
+func TestSVGStrokeCapAndJoinCascadeIntoTheScene(t *testing.T) {
+	page, err := Compile(
+		`<div class="page"><svg width="20" height="20"><style>line { stroke: black; stroke-linecap: round; stroke-linejoin: bevel; }</style><line x1="2" y1="10" x2="18" y2="10"/></svg></div>`,
+		`.page { display: flex; width: 20px; height: 20px; } svg { display: block; flex-grow: 1; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, warning := range page.Warnings {
+		t.Errorf("warning: %s", warning.Message)
+	}
+	flat := strings.Join(strings.Fields(string(page.JSON)), "")
+	if !strings.Contains(flat, `"cap":"round","join":"bevel"`) {
+		t.Fatalf("styled SVG stroke did not reach the scene: %s", page.JSON)
 	}
 }

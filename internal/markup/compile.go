@@ -652,7 +652,8 @@ func strokeEqual(left, right *stroke) bool {
 	if left == nil || right == nil {
 		return left == right
 	}
-	return left.Ink == right.Ink && left.Width == right.Width && left.DashOffset == right.DashOffset && slices.Equal(left.Dash, right.Dash)
+	return left.Ink == right.Ink && left.Width == right.Width && left.DashOffset == right.DashOffset &&
+		left.Cap == right.Cap && left.Join == right.Join && slices.Equal(left.Dash, right.Dash)
 }
 
 // sized applies an explicit width or height, which compose expresses as a
@@ -1086,6 +1087,7 @@ func contentsContext(container, contents style) style {
 	next.textAlign = inherited.textAlign
 	next.lineHeight, next.lineHeightMultiple = inherited.lineHeight, inherited.lineHeightMultiple
 	next.wrap, next.preserve, next.hidden = inherited.wrap, inherited.preserve, inherited.hidden
+	next.lineCap, next.lineJoin = inherited.lineCap, inherited.lineJoin
 	return next
 }
 
@@ -1433,6 +1435,12 @@ func mergeInlineBox(outer, inner style) style {
 	}
 	if inner.background != nil {
 		merged.background = inner.background
+	}
+	if inner.lineCap != "" {
+		merged.lineCap = inner.lineCap
+	}
+	if inner.lineJoin != "" {
+		merged.lineJoin = inner.lineJoin
 	}
 	if inner.border != nil {
 		merged.border, merged.line, merged.dash, merged.dashOffset = inner.border, inner.line, inner.dash, inner.dashOffset

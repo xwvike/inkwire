@@ -44,6 +44,8 @@ HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面�
 | SVG 绘制 | `fill`、`stroke` | 支持的墨色、`none`、`transparent` | 这些属性可继承；内联 SVG 中的 CSS 声明覆盖 SVG 呈现属性 |
 | SVG 绘制 | `stroke-width` | 非负 `px`、仅含像素的 `calc()` 或 SVG 无单位数值 | 布局时取整；小于 1 像素时按 1 像素绘制并产生警告 |
 | SVG 绘制 | `stroke-dasharray`、`stroke-dashoffset` | 空格或逗号分隔的整数像素 | — |
+| SVG 绘制 | `stroke-linecap` | `butt`、`round`、`square` | 作用于 SVG 开放线段、折线和路径；SVG 默认值为 `butt` |
+| SVG 绘制 | `stroke-linejoin` | `miter`、`round`、`bevel` | 作用于 SVG 路径相邻线段的连接处；SVG 默认值为 `miter` |
 | 字体 | `font` | `size[/line-height] family` | 仅读取字号、行高和字体族；样式、粗细等字段会产生警告 |
 | 字体 | `font-family` | `ui`、`hzk`、`monaco`，可写字体栈 | 按声明顺序逐字尝试字体族；未知名称跳过，字体栈全部不可用时使用默认字体并产生警告 |
 | 字体 | `font-size` | `px` 或仅含像素的 `calc()` | 使用最近可用位图字号并产生 `substituted-font-size` |
@@ -54,7 +56,7 @@ HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面�
 | 图片 | `object-fit` | `fill`、`contain`、`cover` | 只影响 `img` 和外部绘图的盒内适配 |
 
 所有已实现属性接受 `inherit`、`initial`、`unset` 和 `revert`。`color`、`fill`、`stroke`、
-`stroke-width`、`stroke-dasharray`、`stroke-dashoffset`、`font`、`font-family`、`font-size`、
+`stroke-width`、`stroke-dasharray`、`stroke-dashoffset`、`stroke-linecap`、`stroke-linejoin`、`font`、`font-family`、`font-size`、
 `line-height`、`text-align`、`white-space` 和 `visibility` 默认继承；`vertical-align` 不继承。自定义
 属性 `--name` 可声明并供 `var()` 使用，按相同规则层叠并继承。
 
@@ -110,7 +112,8 @@ HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面�
 `clipPath`、`pattern`、`defs`、`title`、`desc`。支持 `path` 的 `M`、`L`、`H`、`V`、`C`、
 `S`、`Q`、`T`、`A`、`Z` 及相对命令。
 
-SVG 支持 `fill`、`stroke`、`stroke-width`、`stroke-dasharray`、`stroke-dashoffset` 和
+SVG 支持 `fill`、`stroke`、`stroke-width`、`stroke-dasharray`、`stroke-dashoffset`、
+`stroke-linecap`、`stroke-linejoin` 和
 `clip-path`。`viewBox` 按浏览器的 `xMidYMid meet` 规则映射到 viewport，viewport 外的图形
 会被裁剪。SVG 的 `transform` 支持 `translate`、`scale` 和 `rotate`；`scale` 接受有限非零
 数值，`rotate` 接受一个角度或角度加旋转中心。CSS 的 `transform` 仅支持本手册中列出的函数。

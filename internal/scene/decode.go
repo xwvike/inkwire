@@ -1490,6 +1490,8 @@ type strokeJSON struct {
 	Width      int    `json:"width"`
 	Dash       []int  `json:"dash,omitempty"`
 	DashOffset int    `json:"dashOffset,omitempty"`
+	Cap        string `json:"cap,omitempty"`
+	Join       string `json:"join,omitempty"`
 }
 
 func (s strokeJSON) style(path string) (display.StrokeStyle, error) {
@@ -1497,7 +1499,33 @@ func (s strokeJSON) style(path string) (display.StrokeStyle, error) {
 	if err != nil {
 		return display.StrokeStyle{}, fmt.Errorf("%s.ink: %w", path, err)
 	}
-	return display.StrokeStyle{Ink: ink, Width: s.Width, Dash: s.Dash, DashOffset: s.DashOffset}, nil
+	cap := display.StrokeCapSquare
+	if s.Cap != "" {
+		switch s.Cap {
+		case "butt":
+			cap = display.StrokeCapButt
+		case "round":
+			cap = display.StrokeCapRound
+		case "square":
+			cap = display.StrokeCapSquare
+		default:
+			return display.StrokeStyle{}, fmt.Errorf("%s.cap: %q is not one of butt, round or square", path, s.Cap)
+		}
+	}
+	join := display.StrokeJoinMiter
+	if s.Join != "" {
+		switch s.Join {
+		case "miter":
+			join = display.StrokeJoinMiter
+		case "round":
+			join = display.StrokeJoinRound
+		case "bevel":
+			join = display.StrokeJoinBevel
+		default:
+			return display.StrokeStyle{}, fmt.Errorf("%s.join: %q is not one of miter, round or bevel", path, s.Join)
+		}
+	}
+	return display.StrokeStyle{Ink: ink, Width: s.Width, Dash: s.Dash, DashOffset: s.DashOffset, Cap: cap, Join: join}, nil
 }
 
 func parsePaint(fillName *string, strokeSource *strokeJSON, path string) (*display.Ink, *display.StrokeStyle, error) {

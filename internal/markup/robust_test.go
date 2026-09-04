@@ -161,7 +161,7 @@ func TestNoDeclarationCanPanic(t *testing.T) {
 		border-top-width border-right-width border-bottom-width border-left-width
 		border-top-style border-right-style border-bottom-style border-left-style
 		border-top-color border-right-color border-bottom-color border-left-color border-radius visibility overflow clip-path transform rotate
-		transform-origin scale fill stroke stroke-width stroke-dasharray stroke-dashoffset font
+		transform-origin scale fill stroke stroke-width stroke-dasharray stroke-dashoffset stroke-linecap stroke-linejoin font
 		font-family font-size line-height text-align vertical-align white-space object-fit`)
 	values := []string{"", " ", "/", "(", ")", "()", "calc(", "calc()", "calc(1px +", "-",
 		"0", "1", "-1", "px", "1px 2px 3px 4px 5px", ",", "a,b", "url(", "url(#)", "var(--x)",

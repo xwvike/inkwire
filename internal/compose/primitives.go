@@ -486,6 +486,12 @@ func validateStroke(path string, stroke display.StrokeStyle) error {
 	if stroke.Width <= 0 {
 		return fmt.Errorf("%s: stroke width must be positive", path)
 	}
+	if stroke.Cap > display.StrokeCapRound {
+		return fmt.Errorf("%s: invalid stroke cap %d", path, stroke.Cap)
+	}
+	if stroke.Join > display.StrokeJoinBevel {
+		return fmt.Errorf("%s: invalid stroke join %d", path, stroke.Join)
+	}
 	for _, length := range stroke.Dash {
 		if length <= 0 {
 			return fmt.Errorf("%s: dash lengths must be positive", path)
