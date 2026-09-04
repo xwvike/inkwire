@@ -45,7 +45,7 @@ HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面�
 | SVG 绘制 | `stroke-width` | 非负 `px`、仅含像素的 `calc()` 或 SVG 无单位数值 | 布局时取整；小于 1 像素时按 1 像素绘制并产生警告 |
 | SVG 绘制 | `stroke-dasharray`、`stroke-dashoffset` | 空格或逗号分隔的整数像素 | — |
 | 字体 | `font` | `size[/line-height] family` | 仅读取字号、行高和字体族；样式、粗细等字段会产生警告 |
-| 字体 | `font-family` | `ui`、`hzk`、`monaco`，可写字体栈 | 使用第一个可用字体族；都不可用时使用默认字体并产生警告 |
+| 字体 | `font-family` | `ui`、`hzk`、`monaco`，可写字体栈 | 按声明顺序逐字尝试字体族；未知名称跳过，字体栈全部不可用时使用默认字体并产生警告 |
 | 字体 | `font-size` | `px` 或仅含像素的 `calc()` | 使用最近可用位图字号并产生 `substituted-font-size` |
 | 文本 | `line-height` | `px`、仅含像素的 `calc()`、无单位比例、相对字号的百分比 | 无单位值按当前元素字号解析；百分比解析后继承计算值 |
 | 文本 | `text-align` | `left`、`start`、`center`、`right`、`end` | — |
@@ -57,6 +57,13 @@ HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面�
 `stroke-width`、`stroke-dasharray`、`stroke-dashoffset`、`font`、`font-family`、`font-size`、
 `line-height`、`text-align`、`white-space` 和 `visibility` 默认继承；`vertical-align` 不继承。自定义
 属性 `--name` 可声明并供 `var()` 使用，按相同规则层叠并继承。
+
+内置位图字号：
+
+| 字体族 | 可用字号（px） |
+|---|---|
+| `ui`、`hzk` | `12`、`14`、`16`、`24`、`28`、`32`、`36`、`42`、`48` |
+| `monaco` | `10`、`12`、`14`、`16`、`20`、`24`、`28`、`30`、`32`、`42`、`48` |
 
 ## 不支持的属性和取值
 
@@ -92,7 +99,8 @@ HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面�
 - 百分比内边距和外边距按包含块行向尺寸换算；`row-gap` 按块向尺寸、`column-gap` 按行向尺寸
   换算，均在布局时取整。边框宽度、圆角和字号只接受像素值或仅含像素的 `calc()`；`calc()`
   只支持 `px`、`%` 的加减。
-- 字体来自构建时内置位图字库。未找到字体族使用默认字体；未找到对应字号使用最近字号。
+- 字体来自构建时内置位图字库。未找到字体族使用默认字体；字体栈按字形逐级回退；未找到对应字号使用最近字号。
+  内置字库没有粗体字形，`font-weight` 以及 `<b>`、`<strong>` 的默认粗体样式不会改变渲染字形。
 - 页面会继续编译，但不支持的声明、选择器、at-rule、颜色、字体和资源都会产生警告。警告
   不是渲染失败标志，需根据类型检查最终画面。
 

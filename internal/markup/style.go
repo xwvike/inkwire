@@ -75,6 +75,7 @@ type style struct {
 	borderSide [4]*borderSide
 
 	fontFamily   string
+	fontFallback []string
 	fontSize     int
 	textAlign    display.HorizontalAlign
 	inlineVAlign compose.InlineVerticalAlign
@@ -234,13 +235,14 @@ type paint struct {
 
 func (s style) inherited() style {
 	return style{
-		fill:        s.fill,
-		stroke:      s.stroke,
-		strokeWidth: s.strokeWidth,
-		color:       s.color,
-		fontFamily:  s.fontFamily,
-		fontSize:    s.fontSize,
-		textAlign:   s.textAlign,
+		fill:         s.fill,
+		stroke:       s.stroke,
+		strokeWidth:  s.strokeWidth,
+		color:        s.color,
+		fontFamily:   s.fontFamily,
+		fontFallback: slices.Clone(s.fontFallback),
+		fontSize:     s.fontSize,
+		textAlign:    s.textAlign,
 		// vertical-align is not inherited, as in CSS: it says where one
 		// inline box sits on its own line and means nothing to a descendant.
 		lineHeight: s.lineHeight,
@@ -860,24 +862,29 @@ func (s *style) apply(property, value string, parent style, report func(string))
 		// weight it does not.
 		s.applyFontShorthand(value, property, parent, report)
 	case "font-family":
-		// A stack, as CSS writes one, and the first name this build has wins
-		// — which is what a browser does with it. An author writing
-		// "Helvetica Neue", Arial, sans-serif has said what they want and
-		// what they will settle for, and refusing the whole declaration
-		// because the first name is not here would throw both away.
+		// Keep every family this build has. The display layer resolves each
+		// glyph against the stack, as browsers do, instead of choosing one
+		// family for the whole element.
 		// A family name is matched without regard to case, as CSS matches
 		// one, and reported back the way the author wrote it.
 		chosen, ok := "", false
+		var fallback []string
 		for _, name := range strings.Split(value, ",") {
 			name = strings.Trim(strings.TrimSpace(name), `"'`)
+			matched := ""
 			for _, have := range display.BuiltinFontFamilies() {
 				if strings.EqualFold(name, have) {
-					chosen, ok = have, true
+					matched = have
 					break
 				}
 			}
-			if ok {
-				break
+			if matched != "" {
+				ok = true
+				if chosen == "" {
+					chosen = matched
+				} else if !slices.Contains(fallback, matched) && matched != chosen {
+					fallback = append(fallback, matched)
+				}
 			}
 		}
 		if !ok {
@@ -886,6 +893,7 @@ func (s *style) apply(property, value string, parent style, report func(string))
 			return
 		}
 		s.fontFamily = chosen
+		s.fontFallback = fallback
 	case "font-size":
 		if pixels, ok := wholeLength(value, property, report); ok {
 			s.fontSize = pixels
@@ -1451,10 +1459,10 @@ func (s *style) inheritOne(property string, parent style, report func(string)) {
 	case "stroke-dashoffset":
 		s.dashOffset = parent.dashOffset
 	case "font":
-		s.fontFamily, s.fontSize = parent.fontFamily, parent.fontSize
+		s.fontFamily, s.fontFallback, s.fontSize = parent.fontFamily, slices.Clone(parent.fontFallback), parent.fontSize
 		s.lineHeight, s.lineHeightMultiple = parent.lineHeight, parent.lineHeightMultiple
 	case "font-family":
-		s.fontFamily = parent.fontFamily
+		s.fontFamily, s.fontFallback = parent.fontFamily, slices.Clone(parent.fontFallback)
 	case "font-size":
 		s.fontSize = parent.fontSize
 	case "line-height":
@@ -1649,10 +1657,10 @@ func (s *style) reset(property string, report func(string)) {
 	case "stroke-dashoffset":
 		s.dashOffset = 0
 	case "font":
-		s.fontFamily, s.fontSize = display.DefaultFontFamily, display.DefaultFontSize
+		s.fontFamily, s.fontFallback, s.fontSize = display.DefaultFontFamily, nil, display.DefaultFontSize
 		s.lineHeight, s.lineHeightMultiple, s.lineHeightResolvesHere = 0, 0, false
 	case "font-family":
-		s.fontFamily = display.DefaultFontFamily
+		s.fontFamily, s.fontFallback = display.DefaultFontFamily, nil
 	case "font-size":
 		s.fontSize = display.DefaultFontSize
 	case "line-height":

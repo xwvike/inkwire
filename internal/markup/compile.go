@@ -326,10 +326,19 @@ func (c *compiler) pageSize(element *html.Node) stdimage.Point {
 func (c *compiler) warn(path, code, message string) {
 	warning := Warning{Path: path, Code: code, Message: message}
 	if c.warningSink != nil {
-		*c.warningSink = append(*c.warningSink, warning)
+		appendWarning(c.warningSink, warning)
 		return
 	}
-	c.warnings = append(c.warnings, warning)
+	appendWarning(&c.warnings, warning)
+}
+
+func appendWarning(target *[]Warning, warning Warning) {
+	for _, existing := range *target {
+		if existing == warning {
+			return
+		}
+	}
+	*target = append(*target, warning)
 }
 
 // computed resolves one element's style from its parent's, the stylesheet and
@@ -1073,7 +1082,7 @@ func contentsContext(container, contents style) style {
 	inherited := contents.inherited()
 	next.fill, next.stroke, next.strokeWidth = inherited.fill, inherited.stroke, inherited.strokeWidth
 	next.color = inherited.color
-	next.fontFamily, next.fontSize = inherited.fontFamily, inherited.fontSize
+	next.fontFamily, next.fontFallback, next.fontSize = inherited.fontFamily, slices.Clone(inherited.fontFallback), inherited.fontSize
 	next.textAlign = inherited.textAlign
 	next.lineHeight, next.lineHeightMultiple = inherited.lineHeight, inherited.lineHeightMultiple
 	next.wrap, next.preserve, next.hidden = inherited.wrap, inherited.preserve, inherited.hidden

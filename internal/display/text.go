@@ -32,9 +32,10 @@ const (
 )
 
 type TextStyle struct {
-	Font string
-	Size int
-	Ink  Ink
+	Font     string
+	Fallback []string
+	Size     int
+	Ink      Ink
 }
 
 type TextRun struct {
@@ -160,8 +161,12 @@ func LayoutText(registry *FontRegistry, box TextBox) (*TextLayout, error) {
 			placement.metrics = metrics
 			placement.missing = true
 			layout.missing = append(layout.missing, r)
-			if !slices.Contains(layout.missingIn, style.Font) {
-				layout.missingIn = append(layout.missingIn, style.Font)
+			fontName := style.Font
+			if len(style.Fallback) != 0 {
+				fontName += ", " + strings.Join(style.Fallback, ", ")
+			}
+			if !slices.Contains(layout.missingIn, fontName) {
+				layout.missingIn = append(layout.missingIn, fontName)
 			}
 		}
 		lastMetrics = placement.metrics
@@ -188,6 +193,9 @@ func LayoutText(registry *FontRegistry, box TextBox) (*TextLayout, error) {
 			return nil, fmt.Errorf("invalid text ink %d", style.Ink)
 		}
 		set, ok := registry.Match(style.Font, style.Size)
+		if len(style.Fallback) != 0 {
+			set, ok = registry.MatchStack(append([]string{style.Font}, style.Fallback...), style.Size)
+		}
 		if !ok {
 			// A size is one of a list rather than a number in a range, so the
 			// list is the answer to the question being asked here.

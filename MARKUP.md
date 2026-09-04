@@ -46,7 +46,7 @@ syntax only for the subproperties listed here.
 | SVG paint | `stroke-width` | Non-negative `px`, a pixel-only `calc()`, or an SVG unitless number | Rounded to whole pixels at layout; values below one pixel draw at one pixel and warn |
 | SVG paint | `stroke-dasharray`, `stroke-dashoffset` | Space- or comma-separated integer pixels | — |
 | Font | `font` | `size[/line-height] family` | Only size, line-height, and family are read; style and weight fields warn |
-| Font | `font-family` | `ui`, `hzk`, `monaco`, or a family stack | The first available family wins; if none is available, the default is used and a warning is emitted |
+| Font | `font-family` | `ui`, `hzk`, `monaco`, or a family stack | Families are tried per glyph in declaration order; unknown names are skipped, and an entirely unavailable stack uses the default with a warning |
 | Font | `font-size` | `px` or a pixel-only `calc()` | The nearest bitmap strike is used and `substituted-font-size` is emitted |
 | Text | `line-height` | `px`, a pixel-only `calc()`, a unitless ratio, or a percentage of the font size | Unitless values resolve against the element's own size; percentages inherit their computed length |
 | Text | `text-align` | `left`, `start`, `center`, `right`, `end` | — |
@@ -59,6 +59,13 @@ inherit by default are `color`, `fill`, `stroke`, `stroke-width`, `stroke-dashar
 `stroke-dashoffset`, `font`, `font-family`, `font-size`, `line-height`, `text-align`, `white-space`,
 and `visibility`; `vertical-align` is not inherited. Custom properties named `--name` may be declared,
 then read with `var()`, and cascade and inherit by the same rules.
+
+Built-in bitmap strikes:
+
+| Family | Available sizes (px) |
+|---|---|
+| `ui`, `hzk` | `12`, `14`, `16`, `24`, `28`, `32`, `36`, `42`, `48` |
+| `monaco` | `10`, `12`, `14`, `16`, `20`, `24`, `28`, `30`, `32`, `42`, `48` |
 
 ## Unsupported properties and values
 
@@ -99,7 +106,9 @@ Common unsupported items include:
   widths, radii, and font sizes accept pixels or pixel-only `calc()`; `calc()` supports addition and
   subtraction of `px` and `%` terms only.
 - Fonts come from bitmap families bundled at build time. An unknown family falls back to the default;
-  an unavailable size falls back to the nearest strike.
+  a family stack falls back per glyph; an unavailable size falls back to the nearest strike. The
+  bundled faces have no weight variants, so `font-weight` and the default bold styling of `<b>` and
+  `<strong>` do not change the rendered glyphs.
 - Compilation continues after unsupported declarations, selectors, at-rules, colours, fonts, or
   resources. Warnings are not proof of a complete render; inspect the resulting frame for the warning
   category involved.

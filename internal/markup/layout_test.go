@@ -123,6 +123,19 @@ func TestStretchFillsAnItemWithNoCrossSize(t *testing.T) {
 	expect(t, got, display.InkBlack, image.Rect(0, 0, 100, 50), "an auto-height item under stretch")
 }
 
+func TestVisibleFlexTextKeepsItsNaturalCrossSize(t *testing.T) {
+	_, _, report := render(t,
+		`<div class="page"><div class="line"><span>9/9 9:00</span></div></div>`,
+		`.page { display: flex; width: 280px; height: 20px; background: white; }
+		 .line { display: flex; flex-grow: 1; align-items: center; overflow: visible; }
+		 span { font-family: monaco; font-size: 20px; line-height: 24px; }`)
+	for _, warning := range report.Warnings {
+		if warning.Code == "text-clipped" {
+			t.Fatalf("visible flex text was clipped: %s", warning.Message)
+		}
+	}
+}
+
 func TestPaddingInsetsTheContent(t *testing.T) {
 	got := boxes(t, `<i class="a"><i class="b"></i></i>`,
 		inks+` .a { display: flex; flex-grow: 1; padding: 5px 10px; } .b { flex-grow: 1; }`)

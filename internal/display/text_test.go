@@ -79,6 +79,25 @@ func TestTextStyleSelectsFamilyByPixelSize(t *testing.T) {
 	}
 }
 
+func TestTextStyleFallsBackPerGlyph(t *testing.T) {
+	registry := builtinRegistry(t)
+	layout, err := LayoutText(registry, TextBox{
+		Bounds: image.Rect(0, 0, 80, 24),
+		Runs: []TextRun{{Text: "A中", Style: TextStyle{
+			Font: "monaco", Fallback: []string{"hzk"}, Size: 12,
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := layout.MissingRunes(); len(got) != 0 {
+		t.Fatalf("fallback left runes missing: %q", string(got))
+	}
+	if got, want := layout.Size().X, 19; got != want {
+		t.Fatalf("fallback layout width = %d, want %d", got, want)
+	}
+}
+
 func countInk(frame *Frame, target Ink) int {
 	count := 0
 	for y := 0; y < frame.Height(); y++ {

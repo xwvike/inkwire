@@ -418,6 +418,10 @@ func resolvedGap(fallback int, length Length, available int) int {
 func flowMeasureMaximum(maximum image.Point, horizontal bool) image.Point {
 	if horizontal {
 		maximum.X = unboundedMeasure
+		// A flex row's cross size is not a clip. An auto-sized item may be
+		// taller than the line and overflow it when its contents are visible.
+		// Keep the natural cross size available for align-items to position.
+		maximum.Y = unboundedMeasure
 	} else {
 		maximum.Y = unboundedMeasure
 	}
@@ -862,7 +866,14 @@ func (a Anchored) paint(ctx *compileContext, list *display.DisplayList, bounds i
 		}
 		placed := child.resolve(bounds, natural)
 		if placed.Empty() {
-			ctx.warn(nodePath, "empty-layout", "the anchored box resolved to no area")
+			// A stated zero size is a valid, intentional state (for example an
+			// empty progress fill). Keep the diagnostic for an auto-sized box
+			// that unexpectedly resolved to no area.
+			explicitZero := (child.Width.IsSet() && placed.Dx() == 0) ||
+				(child.Height.IsSet() && placed.Dy() == 0)
+			if !explicitZero {
+				ctx.warn(nodePath, "empty-layout", "the anchored box resolved to no area")
+			}
 			continue
 		}
 		if err := ctx.paintWithContaining(child.Node, list, placed, bounds, nodePath); err != nil {

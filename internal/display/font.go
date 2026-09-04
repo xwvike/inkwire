@@ -3,6 +3,7 @@ package display
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"unicode/utf8"
 
@@ -324,6 +325,59 @@ func (r *FontRegistry) Match(name string, size int) (*FontSet, bool) {
 		return nil, false
 	}
 	return r.Lookup(setName)
+}
+
+// MatchStack combines the faces named by a CSS font-family stack. A glyph is
+// resolved from the first face that contains it, while the first matching
+// strike remains the run's requested size. Families without that exact strike
+// use their nearest available strike so a fallback family is still useful at
+// sizes that are not bundled for every face.
+func (r *FontRegistry) MatchStack(names []string, size int) (*FontSet, bool) {
+	var faces []Face
+	seen := make(map[string]bool)
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		set, ok := r.Match(name, size)
+		if !ok && size > 0 {
+			sizes := r.Sizes(name)
+			if len(sizes) != 0 {
+				nearest := sizes[0]
+				for _, candidate := range sizes[1:] {
+					if absInt(candidate-size) < absInt(nearest-size) {
+						nearest = candidate
+					}
+				}
+				set, ok = r.Match(name, nearest)
+			}
+		}
+		if !ok {
+			continue
+		}
+		for _, face := range set.faces {
+			if !seen[face.Name()] {
+				seen[face.Name()] = true
+				faces = append(faces, face)
+			}
+		}
+	}
+	if len(faces) == 0 {
+		return nil, false
+	}
+	set, err := NewFontSet(strings.Join(names, ","), faces...)
+	if err != nil {
+		return nil, false
+	}
+	return set, true
+}
+
+func absInt(value int) int {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 func (r *FontRegistry) Sizes(family string) []int {

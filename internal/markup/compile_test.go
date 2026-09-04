@@ -189,11 +189,18 @@ func TestAFontSizeWithNoStrikeIsDrawnAtTheNearestOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	var said string
+	substitutions := 0
 	for _, warning := range document.Warnings {
 		said += warning.Code + " " + warning.Message
+		if warning.Code == "substituted-font-size" {
+			substitutions++
+		}
 	}
 	if !strings.Contains(said, "substituted-font-size") || !strings.Contains(said, "13px") {
 		t.Errorf("the substitution was not reported: %q", said)
+	}
+	if substitutions != 1 {
+		t.Errorf("font-size substitution was reported %d times, want once", substitutions)
 	}
 	if !strings.Contains(string(document.JSON), `"size": 12`) {
 		t.Errorf("the document does not say the size it settled on:\n%s", document.JSON)
@@ -238,7 +245,7 @@ func TestAnUnknownFontFamilyFallsBackAndIsSaid(t *testing.T) {
 	// second, which is what the stack is for.
 	stacked, err := Compile(`<div class="page"><span class="a">x</span></div>`,
 		`.page { display: flex; width: 60px; height: 20px; }
-		 .a { font-family: Helvetica, monaco, sans-serif; font-size: 10px; }`)
+		 .a { font-family: Helvetica, monaco, hzk, sans-serif; font-size: 10px; }`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,6 +254,29 @@ func TestAnUnknownFontFamilyFallsBackAndIsSaid(t *testing.T) {
 	}
 	if !strings.Contains(string(stacked.JSON), `"font": "monaco"`) {
 		t.Errorf("the stack did not settle on monaco:\n%s", stacked.JSON)
+	}
+	if !strings.Contains(string(stacked.JSON), `"fallback"`) || !strings.Contains(string(stacked.JSON), `"hzk"`) {
+		t.Errorf("the stack did not preserve hzk as a fallback:\n%s", stacked.JSON)
+	}
+}
+
+func TestFontFamilyFallbackIsResolvedPerGlyph(t *testing.T) {
+	frame, _, report := render(t, `<div class="page"><span class="a">A中</span></div>`,
+		`.page { display: flex; width: 40px; height: 20px; background: white; }
+		 .a { font-family: monaco, hzk; }`)
+	if len(report.MissingRunes) != 0 {
+		t.Fatalf("font-family fallback left runes missing: %q", string(report.MissingRunes))
+	}
+	got := 0
+	for y := 0; y < frame.Height(); y++ {
+		for x := 0; x < frame.Width(); x++ {
+			if ink, _ := frame.InkAt(x, y); ink == display.InkBlack {
+				got++
+			}
+		}
+	}
+	if got == 0 {
+		t.Fatal("font-family fallback drew no glyphs")
 	}
 }
 

@@ -167,10 +167,11 @@ type stroke struct {
 }
 
 type run struct {
-	Text string `json:"text"`
-	Font string `json:"font,omitempty"`
-	Size int    `json:"size,omitempty"`
-	Ink  string `json:"ink,omitempty"`
+	Text     string   `json:"text"`
+	Font     string   `json:"font,omitempty"`
+	Fallback []string `json:"fallback,omitempty"`
+	Size     int      `json:"size,omitempty"`
+	Ink      string   `json:"ink,omitempty"`
 }
 
 // inlineItem is one fragment of an inline formatting context. It deliberately
@@ -604,7 +605,7 @@ func tracksOf(tracks []compose.Track) []any {
 // leaving it out says what it means.
 func (c *compiler) runOf(text string, s style, path string) run {
 	written := run{Text: text,
-		Font: s.fontFamily, Size: c.strike(s.fontFamily, s.fontSize, path)}
+		Font: s.fontFamily, Fallback: slices.Clone(s.fontFallback), Size: c.strike(s.fontFamily, s.fontSize, path)}
 	if ink := inkName(s.color); ink != "black" {
 		written.Ink = ink
 	}
@@ -617,12 +618,12 @@ func (c *compiler) runOf(text string, s style, path string) run {
 // is the case where an omission would be read as "the one before".
 func plainRuns(runs []run) []run {
 	for _, written := range runs {
-		if written.Font != display.DefaultFontFamily || written.Size != display.DefaultFontSize {
+		if written.Font != display.DefaultFontFamily || len(written.Fallback) != 0 || written.Size != display.DefaultFontSize {
 			return runs
 		}
 	}
 	for i := range runs {
-		runs[i].Font, runs[i].Size = "", 0
+		runs[i].Font, runs[i].Fallback, runs[i].Size = "", nil, 0
 	}
 	return runs
 }

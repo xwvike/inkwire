@@ -1073,7 +1073,7 @@ func (d Decoder) decodeInline(value inlineJSON, path string) (compose.Node, erro
 				return nil, fmt.Errorf("%s.runs[%d].ink: %w", itemPath, runIndex, err)
 			}
 			runs[runIndex] = display.TextRun{Text: run.Text,
-				Style: display.TextStyle{Font: run.Font, Size: run.Size, Ink: ink}}
+				Style: display.TextStyle{Font: run.Font, Fallback: run.Fallback, Size: run.Size, Ink: ink}}
 		}
 		var node compose.Node
 		if len(source.Node) != 0 && string(source.Node) != "null" {
@@ -1136,10 +1136,11 @@ func (d Decoder) decodeInline(value inlineJSON, path string) (compose.Node, erro
 }
 
 type runJSON struct {
-	Text string `json:"text"`
-	Font string `json:"font,omitempty"`
-	Size int    `json:"size,omitempty"`
-	Ink  string `json:"ink,omitempty"`
+	Text     string   `json:"text"`
+	Font     string   `json:"font,omitempty"`
+	Fallback []string `json:"fallback,omitempty"`
+	Size     int      `json:"size,omitempty"`
+	Ink      string   `json:"ink,omitempty"`
 }
 
 func (t textJSON) node(path string) (compose.Node, error) {
@@ -1149,7 +1150,7 @@ func (t textJSON) node(path string) (compose.Node, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s.runs[%d].ink: %w", path, index, err)
 		}
-		runs[index] = display.TextRun{Text: run.Text, Style: display.TextStyle{Font: run.Font, Size: run.Size, Ink: ink}}
+		runs[index] = display.TextRun{Text: run.Text, Style: display.TextStyle{Font: run.Font, Fallback: run.Fallback, Size: run.Size, Ink: ink}}
 	}
 	align, err := parseHorizontalAlign(t.Align)
 	if err != nil {

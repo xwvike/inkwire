@@ -355,6 +355,19 @@ func TestExcessivePaddingDoesNotFlipIntoDrawableBounds(t *testing.T) {
 	}
 }
 
+func TestExplicitZeroAnchoredSizeIsNotReportedEmpty(t *testing.T) {
+	_, report := compileAndRender(t, Document{Root: Anchored{Children: []Anchor{{
+		Width:  Pixels(0),
+		Height: Pixels(20),
+		Node:   Rectangle{Fill: Ink(display.InkBlack)},
+	}}}})
+	for _, warning := range report.Warnings {
+		if warning.Code == "empty-layout" {
+			t.Fatalf("explicit zero size was reported empty: %s", warning.Message)
+		}
+	}
+}
+
 func assertFrameInk(t *testing.T, frame *display.Frame, x, y int, want display.Ink) {
 	t.Helper()
 	got, ok := frame.InkAt(x, y)
