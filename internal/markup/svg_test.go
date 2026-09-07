@@ -2,9 +2,12 @@ package markup
 
 import (
 	"encoding/json"
+	"image"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/xwvike/inkwire/internal/display"
 )
 
 // drawing compiles a page whose whole content is one drawing, and hands back
@@ -579,6 +582,15 @@ func TestAViewBoxShiftsItsOriginAndMeetsInTheViewport(t *testing.T) {
 	if !strings.Contains(flat, `"bounds":{"x":10,"y":0,"width":16,"height":16}`) {
 		t.Errorf("the viewBox was not shifted and centred:\n%s", page.JSON)
 	}
+}
+
+func TestAnAbsolutelyPositionedSVGUsesItsInsetWidthAndIntrinsicRatio(t *testing.T) {
+	got := boxes(t,
+		`<div class="frame"><svg viewBox="0 0 10 10"><rect width="10" height="10" fill="black"/></svg></div>`,
+		`.page { height: 100px; } .frame { position: relative; width: 100px; height: 50px; flex-shrink: 0; }
+		 svg { position: absolute; inset: 5px 10px; }`)
+	expect(t, got, display.InkBlack, image.Rect(10, 5, 90, 85),
+		"an auto-sized square SVG fills the inset width and keeps its ratio")
 }
 
 // A transform is folded into the numbers as they are read rather than becoming

@@ -2,6 +2,7 @@ package markup
 
 import (
 	"fmt"
+	"image"
 	"math"
 	"strings"
 
@@ -29,20 +30,78 @@ import (
 // svgNamespace is what the HTML parser marks these elements with.
 const svgNamespace = "svg"
 
+const svgReferenceExtent = 2048
+
+type svgViewBox struct {
+	minX, minY, width, height float64
+}
+
+type svgSizing struct {
+	natural                 image.Point
+	legacy                  image.Point
+	ratio                   float64
+	autoWidth, autoHeight   bool
+	fixedWidth, fixedHeight bool
+	dynamic                 bool
+}
+
+func (s svgSizing) apply(target *style) {
+	if s.natural.X <= 0 || s.natural.Y <= 0 {
+		return
+	}
+	target.replaced = true
+	target.replacedAutoWidth = s.autoWidth
+	target.replacedAutoHeight = s.autoHeight
+	target.intrinsicRatio = s.ratio
+}
+
 // svg compiles an svg element into the drawing it describes.
 //
 // The children are placed in an absolute box by their own coordinates, which
 // is what an SVG viewport is. Clipping is on because a viewport clips: a shape
 // hanging off the edge of one is cut by it rather than drawn over whatever the
 // page put next to it.
-func (c *compiler) svg(node *html.Node, current style, path string) *emitted {
-	width, height, frame := c.viewport(node, current, path)
-	if width <= 0 || height <= 0 {
-		c.warn(path, "unresolved-drawing",
-			"an svg element states no size: give it width and height, or a stylesheet that does")
-		return nil
+func (c *compiler) svg(node *html.Node, current style, path string) (*emitted, svgSizing) {
+	viewBox, hasViewBox := c.viewBox(node, path)
+	sizing := c.svgSizing(node, current, viewBox, hasViewBox)
+	if !sizing.dynamic {
+		if sizing.legacy.X <= 0 || sizing.legacy.Y <= 0 {
+			c.warn(path, "unresolved-drawing",
+				"an svg element states no size: give it width and height, or a stylesheet that does")
+			return nil, svgSizing{}
+		}
+		frame, _ := c.viewportFrame(node, viewBox, hasViewBox, sizing.legacy.X, sizing.legacy.Y, path)
+		return c.svgDrawing(node, current, frame, sizing.legacy, path), svgSizing{}
 	}
-	box := rect{Width: width, Height: height}
+	if sizing.natural.X <= 0 || sizing.natural.Y <= 0 {
+		c.warn(path, "unresolved-drawing",
+			"an svg element resolved to a non-positive size")
+		return nil, sizing
+	}
+
+	// Dynamic SVGs are compiled into a stable reference viewport and mapped
+	// only after CSS layout has resolved their actual box. Geometry remains the
+	// same geometry; only the viewport transform has moved to the proper stage.
+	source := sizing.natural
+	mapViewport := hasViewBox
+	stretch := false
+	frame := rootFrame()
+	if hasViewBox {
+		source = referenceViewport(viewBox)
+		frame, stretch = c.viewportFrame(node, viewBox, true, source.X, source.Y, path)
+	}
+	drawing := c.svgDrawing(node, current, frame, source, path)
+	if drawing == nil {
+		return nil, sizing
+	}
+	return &emitted{
+		Type: "svgViewport", Natural: sizeOf(sizing.natural), SourceSize: sizeOf(source),
+		Stretch: stretch, Map: mapViewport, Child: drawing,
+	}, sizing
+}
+
+func (c *compiler) svgDrawing(node *html.Node, current style, frame svgFrame, viewport image.Point, path string) *emitted {
+	box := rect{Width: viewport.X, Height: viewport.Y}
 	drawing := &emitted{Type: "absolute", Clip: true}
 	var children []placed
 	c.svgChildren(node, box, c.svgPaint(node, rootPaint(), current, path), current, frame, path, &children)
@@ -56,17 +115,7 @@ func (c *compiler) svg(node *html.Node, current style, path string) *emitted {
 	return drawing
 }
 
-// viewport is how large the drawing is in the page and how its user
-// coordinates map into that box.
-//
-// A stylesheet wins over the attributes, because that is what a presentation
-// attribute is: a default that CSS overrides. A viewBox maps its user
-// coordinates into the viewport, using the browser's xMidYMid meet default.
-func (c *compiler) viewport(node *html.Node, current style, path string) (int, int, svgFrame) {
-	width, height := 0, 0
-	viewBoxMinX, viewBoxMinY := 0.0, 0.0
-	viewBoxWidth, viewBoxHeight := 0.0, 0.0
-	hasViewBox := false
+func (c *compiler) viewBox(node *html.Node, path string) (svgViewBox, bool) {
 	if box := strings.TrimSpace(attribute(node, "viewBox")); box != "" {
 		fields := strings.FieldsFunc(box, func(r rune) bool {
 			return r == ',' || r == ' ' || r == '\n' || r == '\t' || r == '\r'
@@ -85,48 +134,95 @@ func (c *compiler) viewport(node *html.Node, current style, path string) (int, i
 				c.warn(path, "unsupported-declaration", fmt.Sprintf(
 					"viewBox=%q needs finite origin and positive width and height", box))
 			} else {
-				viewBoxMinX, viewBoxMinY = values[0], values[1]
-				viewBoxWidth, viewBoxHeight = values[2], values[3]
-				hasViewBox = true
-				width, height = pixels(viewBoxWidth), pixels(viewBoxHeight)
+				return svgViewBox{minX: values[0], minY: values[1], width: values[2], height: values[3]}, true
 			}
 		}
 	}
+	return svgViewBox{}, false
+}
+
+// svgSizing keeps the distinction between auto, a fixed length and a length
+// that the layout must resolve. SVG's default object size is 300 by 150; a
+// viewBox contributes an intrinsic ratio, not an early pixel viewport.
+func (c *compiler) svgSizing(node *html.Node, current style, viewBox svgViewBox, hasViewBox bool) svgSizing {
+	result := svgSizing{natural: image.Pt(300, 150), autoWidth: true, autoHeight: true}
+	if hasViewBox {
+		result.ratio = viewBox.width / viewBox.height
+		result.legacy = image.Pt(pixels(viewBox.width), pixels(viewBox.height))
+	}
 	if value, ok := svgNumber(attribute(node, "width")); ok {
-		width = pixels(value)
+		result.natural.X = pixels(value)
+		result.legacy.X = pixels(value)
+		result.autoWidth, result.fixedWidth = false, true
 	}
 	if value, ok := svgNumber(attribute(node, "height")); ok {
-		height = pixels(value)
+		result.natural.Y = pixels(value)
+		result.legacy.Y = pixels(value)
+		result.autoHeight, result.fixedHeight = false, true
 	}
-	// A stylesheet states the size the same way it does for any other box, and
-	// it is the one that decides where the element sits on the page.
-	if current.width.fixed() {
-		width = current.width.px()
+	if current.width.set {
+		result.autoWidth = false
+		result.fixedWidth = current.width.fixed()
+		if result.fixedWidth {
+			result.natural.X = current.width.px()
+			result.legacy.X = current.width.px()
+		}
 	}
-	if current.height.fixed() {
-		height = current.height.px()
+	if current.height.set {
+		result.autoHeight = false
+		result.fixedHeight = current.height.fixed()
+		if result.fixedHeight {
+			result.natural.Y = current.height.px()
+			result.legacy.Y = current.height.px()
+		}
 	}
+	if current.ratio > 0 {
+		result.ratio = current.ratio
+	}
+	if result.ratio > 0 {
+		switch {
+		case result.fixedWidth && result.autoHeight:
+			result.natural.Y = max(1, pixels(float64(result.natural.X)/result.ratio))
+		case result.autoWidth && result.fixedHeight:
+			result.natural.X = max(1, pixels(float64(result.natural.Y)*result.ratio))
+		}
+	}
+	result.dynamic = current.absolute && hasInset(current) &&
+		!(result.fixedWidth && result.fixedHeight)
+	return result
+}
+
+func referenceViewport(viewBox svgViewBox) image.Point {
+	width, height := viewBox.width, viewBox.height
+	scale := float64(svgReferenceExtent) / math.Max(width, height)
+	return image.Pt(max(1, pixels(width*scale)), max(1, pixels(height*scale)))
+}
+
+// viewportFrame maps SVG user coordinates into one concrete viewport. Fixed
+// SVGs use their final box; dynamic SVGs use a reference box that is mapped by
+// compose.SVGViewport after layout.
+func (c *compiler) viewportFrame(node *html.Node, viewBox svgViewBox, hasViewBox bool, width, height int, path string) (svgFrame, bool) {
 	if !hasViewBox || width <= 0 || height <= 0 {
-		return width, height, rootFrame()
+		return rootFrame(), false
 	}
 	if stated := strings.TrimSpace(attribute(node, "preserveAspectRatio")); stated == "none" {
-		return width, height, svgFrame{
-			offsetX: -viewBoxMinX * float64(width) / viewBoxWidth,
-			offsetY: -viewBoxMinY * float64(height) / viewBoxHeight,
-			scaleX:  float64(width) / viewBoxWidth,
-			scaleY:  float64(height) / viewBoxHeight,
-		}
+		return svgFrame{
+			offsetX: -viewBox.minX * float64(width) / viewBox.width,
+			offsetY: -viewBox.minY * float64(height) / viewBox.height,
+			scaleX:  float64(width) / viewBox.width,
+			scaleY:  float64(height) / viewBox.height,
+		}, true
 	} else if stated != "" && stated != "xMidYMid meet" {
 		c.warn(path, "unsupported-declaration", fmt.Sprintf(
 			"preserveAspectRatio=%q is not implemented; xMidYMid meet is used", stated))
 	}
-	scale := math.Min(float64(width)/viewBoxWidth, float64(height)/viewBoxHeight)
-	return width, height, svgFrame{
-		offsetX: (float64(width)-viewBoxWidth*scale)/2 - viewBoxMinX*scale,
-		offsetY: (float64(height)-viewBoxHeight*scale)/2 - viewBoxMinY*scale,
+	scale := math.Min(float64(width)/viewBox.width, float64(height)/viewBox.height)
+	return svgFrame{
+		offsetX: (float64(width)-viewBox.width*scale)/2 - viewBox.minX*scale,
+		offsetY: (float64(height)-viewBox.height*scale)/2 - viewBox.minY*scale,
 		scaleX:  scale,
 		scaleY:  scale,
-	}
+	}, false
 }
 
 // svgChildren walks a drawing, placing what it can draw and naming what it

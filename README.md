@@ -565,6 +565,7 @@ curl -F 'page=@page.html;type=text/html' \
 | [inline](examples/markup_capabilities/inline.html) | 400x300 | inline flow, atomic boxes, vertical alignment |
 | [paint](examples/markup_capabilities/paint.html) | 400x300 | inks, borders, clipping, visibility, transforms |
 | [svg](examples/markup_capabilities/svg.html) | 400x300 | SVG primitives, paths, patterns, groups |
+| [svg-inset](examples/markup_capabilities/svg-inset.html) | 400x300 | inset sizing, viewBox ratio, viewport scaling |
 | [resources](examples/markup_capabilities/resources.html) | 400x300 | local images, external SVG, object-fit |
 | [cascade](examples/markup_capabilities/cascade.html) | 400x300 | source order, specificity, importance, inheritance |
 | [potrace](examples/markup_capabilities/potrace.html) | 500x500 | imported SVG with viewBox and signed transforms |
@@ -602,6 +603,7 @@ Regenerate reference images: `INKWIRE_UPDATE_REFERENCES=1 go test ./...`
   </tr>
   <tr>
     <td><a href="examples/claude_usage/page.html"><img src="examples/claude_usage/claude_usage.png" alt="claude usage"></a></td>
+    <td><a href="examples/markup_capabilities/svg-inset.html"><img src="examples/markup_capabilities/svg-inset.png" alt="svg inset"></a></td>
   </tr>
 </table>
 

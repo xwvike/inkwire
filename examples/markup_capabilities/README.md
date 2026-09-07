@@ -9,6 +9,7 @@ SVG. Pages use only the CSS and SVG properties listed in `MARKUP.md`.
 | `inline.html` | inline flow, atomic inline boxes and vertical alignment |
 | `paint.html` | inks, borders, clipping, visibility and transforms |
 | `svg.html` | SVG primitives, paths, patterns, groups and CSS overrides |
+| `svg-inset.html` | absolute SVG viewport sizing from inset and viewBox ratio |
 | `resources.html` | relative raster assets, external SVG and `object-fit` |
 | `cascade.html` | source order, specificity, `!important` and inheritance |
 | `potrace.html` | external SVG with a non-zero transform and viewBox mapping |

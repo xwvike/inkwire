@@ -1,0 +1,91 @@
+<!-- An SVG viewport resolved after absolute positioning. -->
+<style>
+* { box-sizing: border-box; }
+.page {
+  width: 400px;
+  height: 300px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: white;
+  color: black;
+  font-family: ui;
+  font-size: 12px;
+}
+.head {
+  flex: 0 0 24px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  background: black;
+  color: white;
+}
+.head span { margin-left: auto; color: yellow; }
+.sheet { display: flex; gap: 6px; }
+.case { flex: 0 0 189px; }
+.case h2 {
+  height: 18px;
+  margin: 0;
+  font-size: 12px;
+  color: red;
+}
+.stage {
+  position: relative;
+  width: 189px;
+  height: 189px;
+  background: red;
+}
+.stage svg {
+  position: absolute;
+  inset: 12px;
+}
+.metric {
+  height: 18px;
+  display: flex;
+  align-items: center;
+}
+.metric span { margin-left: auto; color: red; }
+.svg-bg { fill: yellow; }
+.surface { fill: white; stroke: black; stroke-width: 2; }
+.accent { fill: red; stroke: black; stroke-width: 2; }
+.line {
+  fill: none;
+  stroke: black;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+</style>
+
+<main class="page">
+  <header class="head">SVG VIEWPORT <span>absolute + inset</span></header>
+  <section class="sheet">
+    <div class="case">
+      <h2>SQUARE / 100 x 100</h2>
+      <div class="stage">
+        <svg viewBox="0 0 100 100">
+          <rect class="svg-bg" width="100" height="100"/>
+          <rect class="surface" x="8" y="8" width="84" height="84" rx="8"/>
+          <circle class="accent" cx="50" cy="43" r="20"/>
+          <path class="line" d="M28 78 L42 64 L54 73 L72 55"/>
+        </svg>
+      </div>
+      <div class="metric">inset 12 <span>165 x 165</span></div>
+    </div>
+    <div class="case">
+      <h2>WIDE / 100 x 50</h2>
+      <div class="stage">
+        <svg viewBox="0 0 100 50">
+          <rect class="svg-bg" width="100" height="50"/>
+          <rect class="surface" x="4" y="4" width="92" height="42" rx="4"/>
+          <path class="line" d="M11 36 L27.5 24.5 L44 30.5 L62 15 L87 22"/>
+          <circle class="accent" cx="27.5" cy="24.5" r="3.5"/>
+          <circle class="accent" cx="62" cy="15" r="3.5"/>
+          <circle class="accent" cx="87" cy="22" r="3.5"/>
+        </svg>
+      </div>
+      <div class="metric">inset 12 <span>165 x 83</span></div>
+    </div>
+  </section>
+</main>

@@ -492,7 +492,8 @@ func (c *compiler) element(node *html.Node, parent style, path string, containin
 	if node.Namespace == svgNamespace && node.Data == "svg" {
 		// A drawing is content rather than a container, and the element around
 		// it still sizes, clips and transforms it.
-		drawing := c.svg(node, current, path)
+		drawing, sizing := c.svg(node, current, path)
+		sizing.apply(&current)
 		if drawing == nil && current.hidden {
 			// visibility:hidden preserves the SVG box even when every shape
 			// underneath it is hidden.
@@ -844,7 +845,8 @@ func (c *compiler) externalDrawing(source string, current style, path string) *e
 	if current.height.set {
 		resourceStyle.height = current.height
 	}
-	return isolated.svg(element, resourceStyle, resourcePath)
+	drawing, _ := isolated.svg(element, resourceStyle, resourcePath)
+	return drawing
 }
 
 func isRemoteSource(source string) bool {
@@ -1078,7 +1080,14 @@ func anchoredIn(placed []anchor, current style) *emitted {
 // refused for saying something CSS has an answer for, so the answer is applied
 // here and said.
 func (c *compiler) anchorFor(child style, node *emitted, path string) anchor {
-	placed := anchor{Node: node, Layer: child.layer}
+	placed := anchor{
+		Node: node, Layer: child.layer,
+		Ratio: child.intrinsicRatio, Replaced: child.replaced,
+		AutoWidth: child.replacedAutoWidth, AutoHeight: child.replacedAutoHeight,
+	}
+	if child.ratio > 0 {
+		placed.Ratio = child.ratio
+	}
 	top, right, bottom, left := child.inset[0], child.inset[1], child.inset[2], child.inset[3]
 	width := child.outerSize(child.width, true)
 	height := child.outerSize(child.height, false)
@@ -1280,10 +1289,7 @@ func (c *compiler) layoutChild(node *emitted, child, parent style, path string) 
 		// Block children stack down the page whatever the container says.
 		along = axisColumn
 	}
-	item := layoutChild{
-		Node:      node,
-		AlignSelf: optionalCrossAlignName(child.alignSelf), Ratio: child.ratio,
-	}
+	item := layoutChild{Node: node, AlignSelf: optionalCrossAlignName(child.alignSelf)}
 	// Only flex items participate in flex factor distribution. Block flow is
 	// represented by the same column node, but its children keep their measured
 	// sizes and overflow just as ordinary block boxes do.
@@ -1308,6 +1314,7 @@ func (c *compiler) layoutChild(node *emitted, child, parent style, path string) 
 		item.Basis = lengthValue(lengthOf(child.outerSize(child.basis, along == axisRow)))
 	}
 	item.Cross = lengthValue(lengthOf(crossSize))
+	item.Ratio = child.ratio
 	item.MinMain, item.MaxMain = lengthValue(lengthOf(minMain)), lengthValue(lengthOf(maxMain))
 	item.MinCross, item.MaxCross = lengthValue(lengthOf(minCross)), lengthValue(lengthOf(maxCross))
 	return item

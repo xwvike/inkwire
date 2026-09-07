@@ -3,6 +3,7 @@ package display
 import (
 	"image"
 	"math"
+	"slices"
 )
 
 // StrokeStyle describes an opaque, integer-aligned outline. Dash alternates
@@ -103,12 +104,46 @@ func (c *Canvas) strokePoints(points []image.Point, closed bool, stroke StrokeSt
 	if !stroke.valid() || len(points) == 0 {
 		return
 	}
+	stroke = c.mappedStroke(stroke)
 	points = c.mapPoints(points)
 	if stroke.Cap != StrokeCapSquare || stroke.Join != StrokeJoinMiter {
 		c.strokePointsStyled(points, closed, stroke)
 		return
 	}
 	c.strokePointsLegacy(points, closed, stroke)
+}
+
+// mappedStroke converts lengths used by line-based strokes into device pixels.
+// Area-based strokes are inverse-mapped by fillWhere and scale with their
+// geometry already; lines map their points first and therefore need their brush
+// and dash lengths mapped explicitly.
+func (c *Canvas) mappedStroke(stroke StrokeStyle) StrokeStyle {
+	matrix := c.state.matrix
+	scaleX := math.Hypot(matrix.A, matrix.B)
+	scaleY := math.Hypot(matrix.C, matrix.D)
+	scale := math.Min(scaleX, scaleY)
+	if scale == 1 {
+		return stroke
+	}
+	mapLength := func(value int, minimum bool) int {
+		if value == 0 {
+			return 0
+		}
+		mapped := int(math.Round(float64(value) * scale))
+		if minimum && mapped < 1 {
+			return 1
+		}
+		return mapped
+	}
+	stroke.Width = mapLength(stroke.Width, true)
+	stroke.DashOffset = mapLength(stroke.DashOffset, false)
+	if len(stroke.Dash) != 0 {
+		stroke.Dash = slices.Clone(stroke.Dash)
+		for index := range stroke.Dash {
+			stroke.Dash[index] = mapLength(stroke.Dash[index], true)
+		}
+	}
+	return stroke
 }
 
 // strokePointsLegacy is the original square-brush rasterizer. Keeping the
@@ -308,12 +343,12 @@ func strokePointAt(segments []strokeSegment, position float64) (floatPoint, floa
 		}
 		t := (position - segment.start) / segment.length
 		return floatPoint{
-				x: float64(segment.from.X) + t*float64(segment.to.X-segment.from.X),
-				y: float64(segment.from.Y) + t*float64(segment.to.Y-segment.from.Y),
-			}, floatPoint{
-				x: float64(segment.to.X-segment.from.X) / segment.length,
-				y: float64(segment.to.Y-segment.from.Y) / segment.length,
-			}, true
+			x: float64(segment.from.X) + t*float64(segment.to.X-segment.from.X),
+			y: float64(segment.from.Y) + t*float64(segment.to.Y-segment.from.Y),
+		}, floatPoint{
+			x: float64(segment.to.X-segment.from.X) / segment.length,
+			y: float64(segment.to.Y-segment.from.Y) / segment.length,
+		}, true
 	}
 	return floatPoint{}, floatPoint{}, false
 }

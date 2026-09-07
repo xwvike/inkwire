@@ -76,6 +76,10 @@ type emitted struct {
 	Source     string     `json:"source,omitempty"`
 	Processing string     `json:"processing,omitempty"`
 	Overrides  *overrides `json:"overrides,omitempty"`
+	Natural    *size      `json:"natural,omitempty"`
+	SourceSize *size      `json:"sourceSize,omitempty"`
+	Stretch    bool       `json:"stretch,omitempty"`
+	Map        bool       `json:"map,omitempty"`
 
 	// The drawing half. A page says none of these; they come from an svg
 	// element, where the vocabulary is geometry rather than boxes.
@@ -327,14 +331,18 @@ type gridChild struct {
 
 // anchor is a box placed against the container's edges.
 type anchor struct {
-	Node   *emitted `json:"node"`
-	Top    any      `json:"top,omitempty"`
-	Right  any      `json:"right,omitempty"`
-	Bottom any      `json:"bottom,omitempty"`
-	Left   any      `json:"left,omitempty"`
-	Width  any      `json:"width,omitempty"`
-	Height any      `json:"height,omitempty"`
-	Layer  int      `json:"layer,omitempty"`
+	Node       *emitted `json:"node"`
+	Top        any      `json:"top,omitempty"`
+	Right      any      `json:"right,omitempty"`
+	Bottom     any      `json:"bottom,omitempty"`
+	Left       any      `json:"left,omitempty"`
+	Width      any      `json:"width,omitempty"`
+	Height     any      `json:"height,omitempty"`
+	Ratio      float64  `json:"ratio,omitempty"`
+	Replaced   bool     `json:"replaced,omitempty"`
+	AutoWidth  bool     `json:"autoWidth,omitempty"`
+	AutoHeight bool     `json:"autoHeight,omitempty"`
+	Layer      int      `json:"layer,omitempty"`
 }
 
 // lengthValue writes a length the way the schema reads one: a plain number of

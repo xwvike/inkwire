@@ -145,6 +145,19 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 			return nil, nodeError(path, err)
 		}
 		return d.decodeImage(value, path)
+	case "svgViewport":
+		var value svgViewportJSON
+		if err := decodeStrictBytes(raw, &value); err != nil {
+			return nil, nodeError(path, err)
+		}
+		child, err := d.decodeNode(value.Child, path+".child")
+		if err != nil {
+			return nil, err
+		}
+		return compose.SVGViewport{
+			Natural: value.Natural.point(), Source: value.SourceSize.point(),
+			Stretch: value.Stretch, Map: value.Map, Child: child,
+		}, nil
 	case "absolute":
 		var value absoluteJSON
 		if err := decodeStrictBytes(raw, &value); err != nil {
@@ -240,6 +253,8 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 				Top: child.Top.length, Right: child.Right.length,
 				Bottom: child.Bottom.length, Left: child.Left.length,
 				Width: child.Width.length, Height: child.Height.length,
+				Ratio: child.Ratio, Replaced: child.Replaced,
+				AutoWidth: child.AutoWidth, AutoHeight: child.AutoHeight,
 				Layer: child.Layer, Node: node,
 			}
 		}
@@ -754,14 +769,27 @@ type relativeJSON struct {
 }
 
 type anchorJSON struct {
-	Node   json.RawMessage `json:"node"`
-	Top    offsetJSON      `json:"top,omitempty"`
-	Right  offsetJSON      `json:"right,omitempty"`
-	Bottom offsetJSON      `json:"bottom,omitempty"`
-	Left   offsetJSON      `json:"left,omitempty"`
-	Width  lengthJSON      `json:"width,omitempty"`
-	Height lengthJSON      `json:"height,omitempty"`
-	Layer  int             `json:"layer,omitempty"`
+	Node       json.RawMessage `json:"node"`
+	Top        offsetJSON      `json:"top,omitempty"`
+	Right      offsetJSON      `json:"right,omitempty"`
+	Bottom     offsetJSON      `json:"bottom,omitempty"`
+	Left       offsetJSON      `json:"left,omitempty"`
+	Width      lengthJSON      `json:"width,omitempty"`
+	Height     lengthJSON      `json:"height,omitempty"`
+	Ratio      float64         `json:"ratio,omitempty"`
+	Replaced   bool            `json:"replaced,omitempty"`
+	AutoWidth  bool            `json:"autoWidth,omitempty"`
+	AutoHeight bool            `json:"autoHeight,omitempty"`
+	Layer      int             `json:"layer,omitempty"`
+}
+
+type svgViewportJSON struct {
+	Type       string          `json:"type"`
+	Natural    sizeJSON        `json:"natural"`
+	SourceSize sizeJSON        `json:"sourceSize,omitempty"`
+	Stretch    bool            `json:"stretch,omitempty"`
+	Map        bool            `json:"map,omitempty"`
+	Child      json.RawMessage `json:"child"`
 }
 
 type clipJSON struct {

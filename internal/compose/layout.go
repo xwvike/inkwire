@@ -812,6 +812,12 @@ type Anchor struct {
 	Top, Right, Bottom, Left Length
 	Width, Height            Length
 	Node                     Node
+	// Replaced selects intrinsic sizing rather than ordinary auto-size
+	// stretching. Ratio and the auto flags describe the SVG dimensions before
+	// its insets are resolved.
+	Ratio                 float64
+	Replaced              bool
+	AutoWidth, AutoHeight bool
 	// Layer orders overlapping children. Higher is painted later, so it
 	// appears over lower ones; equal layers keep their document order.
 	Layer int
@@ -837,7 +843,10 @@ func (a Anchored) measure(ctx *compileContext, maximum image.Point, path string)
 		if !child.Width.valid() || !child.Height.valid() {
 			return image.Point{}, fmt.Errorf("%s: size must not be negative", nodePath)
 		}
-		if _, err := child.Node.measure(ctx, child.maximum(maximum), nodePath); err != nil {
+		if child.Ratio < 0 || math.IsNaN(child.Ratio) || math.IsInf(child.Ratio, 0) {
+			return image.Point{}, fmt.Errorf("%s: ratio must be finite and non-negative", nodePath)
+		}
+		if _, err := child.Node.measure(ctx, child.measureMaximum(maximum), nodePath); err != nil {
 			return image.Point{}, err
 		}
 	}
@@ -860,7 +869,7 @@ func (a Anchored) paint(ctx *compileContext, list *display.DisplayList, bounds i
 		// edge, or neither edge, establishes their position. Measure against the
 		// space left after the declared insets so wrapping still follows the
 		// containing block rather than the whole page.
-		natural, err := child.Node.measure(ctx, child.maximum(bounds.Size()), nodePath)
+		natural, err := child.Node.measure(ctx, child.measureMaximum(bounds.Size()), nodePath)
 		if err != nil {
 			return err
 		}
@@ -903,11 +912,21 @@ func (a Anchor) maximum(available image.Point) image.Point {
 	)
 }
 
+func (a Anchor) measureMaximum(available image.Point) image.Point {
+	if a.Replaced {
+		return image.Pt(unboundedMeasure, unboundedMeasure)
+	}
+	return a.maximum(available)
+}
+
 // resolve turns the insets into a rectangle inside the container, following
 // the same rules CSS does for an absolutely positioned box. An auto-sized
 // child uses its measured natural size unless both edges on that axis are
 // stated, in which case the edges stretch it between them.
 func (a Anchor) resolve(bounds image.Rectangle, natural image.Point) image.Rectangle {
+	if a.Replaced {
+		return a.resolveReplaced(bounds, natural)
+	}
 	span := func(startLen, endLen, sizeLen Length, natural, low, high int) (int, int) {
 		available := high - low
 		// The insets are distances and may be negative, so that a box can be
@@ -931,4 +950,44 @@ func (a Anchor) resolve(bounds image.Rectangle, natural image.Point) image.Recta
 	left, right := span(a.Left, a.Right, a.Width, natural.X, bounds.Min.X, bounds.Max.X)
 	top, bottom := span(a.Top, a.Bottom, a.Height, natural.Y, bounds.Min.Y, bounds.Max.Y)
 	return image.Rect(left, top, right, bottom)
+}
+
+func (a Anchor) resolveReplaced(bounds image.Rectangle, natural image.Point) image.Rectangle {
+	available := bounds.Size()
+	width, hasWidth := a.Width.Resolve(available.X)
+	height, hasHeight := a.Height.Resolve(available.Y)
+	if !hasWidth {
+		width = natural.X
+	}
+	if !hasHeight {
+		height = natural.Y
+	}
+
+	if a.Ratio > 0 {
+		switch {
+		case !a.AutoWidth && a.AutoHeight:
+			height = ratioHeight(width, a.Ratio)
+		case a.AutoWidth && !a.AutoHeight:
+			width = ratioWidth(height, a.Ratio)
+		case a.AutoWidth && a.AutoHeight:
+			left, _ := a.Left.Offset(available.X)
+			right, _ := a.Right.Offset(available.X)
+			width = max(0, available.X-left-right)
+			height = ratioHeight(width, a.Ratio)
+		}
+	}
+	width, height = max(0, width), max(0, height)
+
+	place := func(startLen, endLen Length, size, low, high int) int {
+		if start, ok := startLen.Offset(high - low); ok {
+			return low + start
+		}
+		if end, ok := endLen.Offset(high - low); ok {
+			return high - end - size
+		}
+		return low
+	}
+	left := place(a.Left, a.Right, width, bounds.Min.X, bounds.Max.X)
+	top := place(a.Top, a.Bottom, height, bounds.Min.Y, bounds.Max.Y)
+	return image.Rect(left, top, left+width, top+height)
 }

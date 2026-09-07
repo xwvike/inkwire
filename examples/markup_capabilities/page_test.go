@@ -7,7 +7,7 @@ import (
 	"github.com/xwvike/inkwire/internal/testscene"
 )
 
-var pages = []string{"layout", "inline", "paint", "svg", "resources", "cascade", "potrace"}
+var pages = []string{"layout", "inline", "paint", "svg", "svg-inset", "resources", "cascade", "potrace"}
 
 func TestCapabilityPagesMatchReferences(t *testing.T) {
 	for _, page := range pages {

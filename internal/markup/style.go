@@ -127,16 +127,22 @@ type style struct {
 	// onto a larger surface, and a turn puts a turn into the state everything
 	// under it works its own geometry out through. One is exact at whole
 	// numbers, the other at any angle at all.
-	rotate          float64
-	rotateOrigin    *[2]length
-	ratio           float64
-	columns         []compose.Track
-	rows            []compose.Track
-	rowGap          int
-	columnGap       int
-	rowGapLength    length
-	columnGapLength length
-	gapSet          bool
+	rotate       float64
+	rotateOrigin *[2]length
+	ratio        float64
+	// Replaced sizing metadata is supplied by SVG after its attributes and
+	// viewBox have been read. It is not CSS and never inherits.
+	replaced           bool
+	replacedAutoWidth  bool
+	replacedAutoHeight bool
+	intrinsicRatio     float64
+	columns            []compose.Track
+	rows               []compose.Track
+	rowGap             int
+	columnGap          int
+	rowGapLength       length
+	columnGapLength    length
+	gapSet             bool
 	// The three properties a drawing is painted with. SVG states them as
 	// attributes and CSS states them as properties, and CSS wins — a
 	// presentation attribute is a rule of no specificity, so any selector

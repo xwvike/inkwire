@@ -529,6 +529,7 @@ curl -F 'page=@page.html;type=text/html' \
 | [inline](examples/markup_capabilities/inline.html) | 400x300 | 行内流、原子盒、垂直对齐 |
 | [paint](examples/markup_capabilities/paint.html) | 400x300 | 墨水、边框、裁剪、可见性、变换 |
 | [svg](examples/markup_capabilities/svg.html) | 400x300 | SVG 图元、路径、图案、分组 |
+| [svg-inset](examples/markup_capabilities/svg-inset.html) | 400x300 | inset 尺寸、viewBox 比例、视口缩放 |
 | [resources](examples/markup_capabilities/resources.html) | 400x300 | 本地图片、外部 SVG、object-fit |
 | [cascade](examples/markup_capabilities/cascade.html) | 400x300 | 来源顺序、优先级、important、继承 |
 | [potrace](examples/markup_capabilities/potrace.html) | 500x500 | 带 viewBox 和带符号变换的外部 SVG |
@@ -566,6 +567,7 @@ curl -F 'page=@page.html;type=text/html' \
   </tr>
   <tr>
     <td><a href="examples/claude_usage/page.html"><img src="examples/claude_usage/claude_usage.png" alt="claude usage"></a></td>
+    <td><a href="examples/markup_capabilities/svg-inset.html"><img src="examples/markup_capabilities/svg-inset.png" alt="svg inset"></a></td>
   </tr>
 </table>
 
