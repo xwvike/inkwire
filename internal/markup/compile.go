@@ -60,14 +60,14 @@ type compiler struct {
 	// once, and without this an element's unsupported declarations would be
 	// reported once per visit.
 	computedFor map[*html.Node]style
-	// clips are the clipPath elements the drawing being compiled defines,
-	// which is the one thing in a drawing that is named where it is written
-	// and used somewhere else.
+	// clips are the clipPath elements the document being compiled defines.
+	// Inline SVGs share one fragment namespace; an external SVG image gets a
+	// fresh compiler and therefore a separate one.
 	clips map[string]*html.Node
-	// patterns are the same, for the element that says what a fill tiles with.
+	// patterns are the same, for elements that state what a fill tiles with.
 	patterns map[string]*html.Node
 	// elements are the named SVG elements a <use> may reference. They are
-	// indexed per drawing, just like clip paths and patterns.
+	// indexed per document, just like clip paths and patterns.
 	elements map[string]*html.Node
 	// useStack prevents a malformed cyclic chain of <use> references from
 	// recursing until the compiler stack is exhausted.
@@ -107,6 +107,7 @@ func (options Compiler) Compile(markup, css string) (Document, error) {
 		return Document{}, fmt.Errorf("parse markup: %w", err)
 	}
 	c := &compiler{computedFor: map[*html.Node]style{}, drawings: options.Drawings}
+	c.indexSVGReferences(root)
 	css, styled := c.gatherStyles(root, css, options.StylesheetName, options.Stylesheets)
 	if strings.TrimSpace(css) == "" && !styled {
 		// Said here because here is where every source of style has been
@@ -831,6 +832,7 @@ func (c *compiler) externalDrawing(source string, current style, path string) *e
 	isolated.sheet = &stylesheet{}
 	isolated.computedFor = map[*html.Node]style{}
 	isolated.warningSink = &c.warnings
+	isolated.indexSVGReferences(root)
 	resourcePath := fmt.Sprintf("%s<%s>", path, source)
 	resourceStyle := isolated.computed(element, rootStyle(), resourcePath)
 	// The image's CSS dimensions are the outer replaced box, but the vector

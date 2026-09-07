@@ -43,12 +43,6 @@ func (c *compiler) svg(node *html.Node, current style, path string) *emitted {
 		return nil
 	}
 	box := rect{Width: width, Height: height}
-	c.clips, c.patterns = map[string]*html.Node{}, map[string]*html.Node{}
-	c.elements = map[string]*html.Node{}
-	c.useStack = map[string]bool{}
-	clipPaths(node, c.clips)
-	patterns(node, c.patterns)
-	elements(node, c.elements)
 	drawing := &emitted{Type: "absolute", Clip: true}
 	var children []placed
 	c.svgChildren(node, box, c.svgPaint(node, rootPaint(), current, path), current, frame, path, &children)
@@ -682,20 +676,39 @@ var readAttributes = map[string]bool{
 	"xml:space": true, "aria-hidden": true, "role": true, "focusable": true,
 }
 
-// elements indexes every named element in a drawing. SVG definitions are not
-// painted during the normal walk; this table is the lookup used by <use>.
-func elements(node *html.Node, into map[string]*html.Node) {
-	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		if child.Type != html.ElementNode || child.Namespace != svgNamespace {
-			continue
-		}
-		if id := strings.TrimSpace(attribute(child, "id")); id != "" {
-			if _, exists := into[id]; !exists {
-				into[id] = child
+// indexSVGReferences builds the fragment namespace shared by every inline SVG
+// in one document. The first matching ID wins, as it does for a fragment lookup
+// in an HTML document. External SVG images call this on their separately parsed
+// document, so references cannot cross the image boundary.
+func (c *compiler) indexSVGReferences(root *html.Node) {
+	c.clips = map[string]*html.Node{}
+	c.patterns = map[string]*html.Node{}
+	c.elements = map[string]*html.Node{}
+	c.useStack = map[string]bool{}
+	var walk func(*html.Node)
+	walk = func(node *html.Node) {
+		if node.Type == html.ElementNode && node.Namespace == svgNamespace {
+			if id := strings.TrimSpace(attribute(node, "id")); id != "" {
+				if _, exists := c.elements[id]; !exists {
+					c.elements[id] = node
+				}
+				switch node.Data {
+				case "clipPath":
+					if _, exists := c.clips[id]; !exists {
+						c.clips[id] = node
+					}
+				case "pattern":
+					if _, exists := c.patterns[id]; !exists {
+						c.patterns[id] = node
+					}
+				}
 			}
 		}
-		elements(child, into)
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
 	}
+	walk(root)
 }
 
 // reportUnread names the attributes on an element that this build does not act
@@ -945,22 +958,6 @@ func readNumbers(arguments string) []float64 {
 // own box would be, and it is the only arrangement that puts the shape where
 // the drawing said it goes.
 
-// clipPaths indexes the clipPath elements a drawing defines, wherever they sit.
-func clipPaths(node *html.Node, into map[string]*html.Node) {
-	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		if child.Type != html.ElementNode || child.Namespace != svgNamespace {
-			continue
-		}
-		if child.Data == "clipPath" {
-			if id := strings.TrimSpace(attribute(child, "id")); id != "" {
-				into[id] = child
-			}
-			continue
-		}
-		clipPaths(child, into)
-	}
-}
-
 // clipped wraps a placed shape in the clip its element names.
 func (c *compiler) clipped(node *html.Node, box rect, frame svgFrame, shape placed, path string) placed {
 	reference := strings.TrimSpace(attribute(node, "clip-path"))
@@ -1177,20 +1174,4 @@ func (c *compiler) patternFill(value string, path string) (*emitted, bool) {
 		inks[string(letter)] = ink
 	}
 	return &emitted{Type: "pattern", Rows: rows, Inks: inks}, true
-}
-
-// patterns indexes the pattern elements a drawing defines, wherever they sit.
-func patterns(node *html.Node, into map[string]*html.Node) {
-	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		if child.Type != html.ElementNode || child.Namespace != svgNamespace {
-			continue
-		}
-		if child.Data == "pattern" {
-			if id := strings.TrimSpace(attribute(child, "id")); id != "" {
-				into[id] = child
-			}
-			continue
-		}
-		patterns(child, into)
-	}
 }

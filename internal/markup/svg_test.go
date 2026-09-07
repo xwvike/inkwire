@@ -118,6 +118,35 @@ func TestSVGUseExpandsNamedDefinitionsWithEachUseStyleAndPosition(t *testing.T) 
 	}
 }
 
+func TestInlineSVGReferencesShareTheDocumentFragmentNamespace(t *testing.T) {
+	page, err := Compile(
+		`<div class="page">
+			<svg class="definitions" viewBox="0 0 20 20"><defs>
+				<rect id="mark" x="1" y="2" width="3" height="4"/>
+				<clipPath id="cut"><rect width="10" height="10"/></clipPath>
+				<pattern id="tile" width="2" height="2" patternUnits="userSpaceOnUse"><rect width="1" height="2"/></pattern>
+			</defs></svg>
+			<svg viewBox="0 0 20 20">
+				<use href="#mark"/>
+				<rect x="5" width="10" height="10" fill="url(#tile)" clip-path="url(#cut)"/>
+			</svg>
+		</div>`,
+		`.page { display: flex; width: 20px; height: 20px; } .definitions { display: none; } svg { width: 20px; height: 20px; }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, warning := range page.Warnings {
+		t.Errorf("warning: %s", warning.Message)
+	}
+	flat := strings.Join(strings.Fields(string(page.JSON)), "")
+	if !strings.Contains(flat, `"bounds":{"x":1,"y":2,"width":3,"height":4}`) {
+		t.Fatalf("<use> did not resolve an ID from another inline SVG:\n%s", page.JSON)
+	}
+	if !strings.Contains(flat, `"type":"clipRect"`) || !strings.Contains(flat, `"type":"pattern"`) {
+		t.Fatalf("paint references did not resolve definitions from another inline SVG:\n%s", page.JSON)
+	}
+}
+
 // Nothing in a drawing stops the page being drawn either, and what was not
 // drawn is named. These are the ones SVG makes easy to write by accident.
 func TestADrawingSaysWhatItCouldNotDraw(t *testing.T) {
