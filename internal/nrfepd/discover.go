@@ -1,3 +1,10 @@
+//go:build !js
+
+// This file reaches the radio. It is kept out of a js build so that the parts
+// of this package that do not — the device catalogue, the wire encoders, the
+// protocol framing — can be compiled for a browser, where the page renders a
+// frame and something else carries it to the tag.
+
 package nrfepd
 
 import (
@@ -31,13 +38,6 @@ type FoundDevice struct {
 // tag vanished from a scan that could plainly see it.
 func Advertises(result bluetooth.ScanResult) bool {
 	return result.HasServiceUUID(serviceUUID) || LooksLikeName(result.LocalName())
-}
-
-// LooksLikeName reports whether an advertised name follows this firmware's
-// convention. It answers a weaker question than Advertises and is kept for the
-// places that have a name and nothing else, such as a target somebody typed.
-func LooksLikeName(name string) bool {
-	return strings.HasPrefix(strings.ToUpper(name), NamePrefix)
 }
 
 // deviceSet accumulates a scan into one entry per address.

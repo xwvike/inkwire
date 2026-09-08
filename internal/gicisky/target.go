@@ -58,3 +58,12 @@ const macHexDigits = 12
 func isHexDigit(r rune) bool {
 	return (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')
 }
+
+// TargetName is the name a factory Gicisky tag advertises under.
+// TargetName is advertised by every tag while it powers up, before it
+// settles on its own NEMR name. It identifies the product, not a tag.
+const TargetName = "PICKSMART"
+
+func looksLikeTag(name string) bool {
+	return strings.EqualFold(name, TargetName) || strings.HasPrefix(strings.ToUpper(name), "NEMR")
+}

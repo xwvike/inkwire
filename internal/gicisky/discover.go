@@ -1,3 +1,10 @@
+//go:build !js
+
+// This file reaches the radio. It is kept out of a js build so that the parts
+// of this package that do not — the device catalogue, the wire encoders, the
+// protocol framing — can be compiled for a browser, where the page renders a
+// frame and something else carries it to the tag.
+
 package gicisky
 
 import (
@@ -108,10 +115,6 @@ func (s *deviceSet) sorted() []FoundDevice {
 	return devices
 }
 
-func looksLikeTag(name string) bool {
-	return strings.EqualFold(name, TargetName) || strings.HasPrefix(strings.ToUpper(name), "NEMR")
-}
-
 // Collector accumulates one scan into this family's devices.
 //
 // It exists so a single pass of the radio can feed both families at once.
@@ -137,4 +140,14 @@ func describeTarget(target string) string {
 		return "of any name"
 	}
 	return strconv.Quote(target)
+}
+
+func giciskyAdvertisement(result bluetooth.ScanResult) (Advertisement, bool) {
+	for _, element := range result.ManufacturerData() {
+		if element.CompanyID != ManufacturerCompanyID {
+			continue
+		}
+		return ParseAdvertisement(element.Data)
+	}
+	return Advertisement{}, false
 }

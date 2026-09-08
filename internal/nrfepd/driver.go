@@ -1,3 +1,10 @@
+//go:build !js
+
+// This file reaches the radio. It is kept out of a js build so that the parts
+// of this package that do not — the device catalogue, the wire encoders, the
+// protocol framing — can be compiled for a browser, where the page renders a
+// frame and something else carries it to the tag.
+
 // Package nrfepd drives e-paper tags running the EPD-nRF5 replacement
 // firmware, https://github.com/tsl0922/EPD-nRF5.
 //
@@ -18,7 +25,6 @@ package nrfepd
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/xwvike/inkwire/internal/ble"
@@ -26,15 +32,6 @@ import (
 )
 
 const (
-	// NamePrefix is what this firmware advertises: the name is DEVICE_NAME
-	// with the last two bytes of the address after it, so every tag of this
-	// family starts the same way and none of them share a whole name.
-	//
-	// Unlike a Gicisky tag, the name is all there is. Nothing in the
-	// advertisement says what panel is attached; that is kept in the
-	// firmware's own flash and only comes out once it is asked.
-	NamePrefix = "NRF_EPD"
-
 	DefaultScanTimeout = 15 * time.Second
 	DefaultRetryDelay  = 2 * time.Second
 	DefaultAttempts    = 3
@@ -92,20 +89,6 @@ func (d *Driver) logf(format string, args ...any) {
 	if d.Logf != nil {
 		d.Logf(format, args...)
 	}
-}
-
-// MatchesTarget decides whether a device answers to the target given. An empty
-// target takes any tag of this family, which is what a single-tag setup wants;
-// anything else is matched by name or by address.
-//
-// Unlike the other family there is nothing to derive: this firmware's name
-// carries the last two bytes of the address rather than the whole of it, so a
-// full address cannot be turned into the name it implies.
-func MatchesTarget(target, name, address string) bool {
-	if target == "" {
-		return LooksLikeName(name)
-	}
-	return strings.EqualFold(name, target) || strings.EqualFold(address, target)
 }
 
 // retrying runs an attempt until one succeeds or they run out.

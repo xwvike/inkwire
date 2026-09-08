@@ -1,3 +1,10 @@
+//go:build !js
+
+// This file reaches the radio. It is kept out of a js build so that the parts
+// of this package that do not — the device catalogue, the wire encoders, the
+// protocol framing — can be compiled for a browser, where the page renders a
+// frame and something else carries it to the tag.
+
 // Package gicisky drives the factory-firmware BLE price tags sold as Gicisky
 // and advertised as PICKSMART.
 //
@@ -24,9 +31,6 @@ import (
 )
 
 const (
-	// TargetName is advertised by every tag while it powers up, before it
-	// settles on its own NEMR name. It identifies the product, not a tag.
-	TargetName = "PICKSMART"
 
 	// Finding the tag is the slowest and least predictable step: six
 	// measured scans at RSSI -47 to -54 took between 4.3 and 11.5 seconds,

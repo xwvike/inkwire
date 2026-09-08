@@ -1,7 +1,5 @@
 package gicisky
 
-import "tinygo.org/x/bluetooth"
-
 // ManufacturerCompanyID is the company identifier Gicisky tags advertise under.
 // 0x5053 is ASCII "PS", for PICKSMART.
 const ManufacturerCompanyID = 0x5053
@@ -48,14 +46,4 @@ func ParseAdvertisement(data []byte) (Advertisement, bool) {
 		Firmware: uint16(data[2])<<8 | uint16(data[3]),
 		Battery:  data[1],
 	}, true
-}
-
-func giciskyAdvertisement(result bluetooth.ScanResult) (Advertisement, bool) {
-	for _, element := range result.ManufacturerData() {
-		if element.CompanyID != ManufacturerCompanyID {
-			continue
-		}
-		return ParseAdvertisement(element.Data)
-	}
-	return Advertisement{}, false
 }

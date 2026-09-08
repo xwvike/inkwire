@@ -1,3 +1,10 @@
+//go:build !js
+
+// This file reaches the radio. It is kept out of a js build so that the parts
+// of this package that do not — the device catalogue, the wire encoders, the
+// protocol framing — can be compiled for a browser, where the page renders a
+// frame and something else carries it to the tag.
+
 package gicisky
 
 import (
