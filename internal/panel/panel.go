@@ -200,8 +200,25 @@ func (p Panel) palette() string {
 	return p.Gicisky.Palette.String()
 }
 
-// shows reports whether the panel has somewhere to put an ink.
+// shows reports whether an ink can reach this panel.
+//
+// That is a question about the packer as much as about the hardware, and the
+// two answers are not always the same: the four-ink EPD-nRF5 models have a
+// yellow this build has no packing for. Asking the family what it can encode,
+// rather than reading the palette here, is what keeps this in step with what
+// happens at the wire — a page whose ink is flattened by this is a page that
+// goes out, and one that is not is one that packs.
 func (p Panel) shows(ink display.Ink) bool {
+	if p.Family == tag.NRFEPD {
+		return p.NRFEPD.Encodes(ink)
+	}
+	return p.Gicisky.Encodes(ink)
+}
+
+// hasInk reports what the hardware can show, which is what the panel's palette
+// says and nothing more. It differs from shows exactly where this build is the
+// thing in the way, and that difference is worth telling an author about.
+func (p Panel) hasInk(ink display.Ink) bool {
 	switch ink {
 	case display.InkBlack, display.InkWhite:
 		return true
@@ -278,11 +295,19 @@ func frameHas(frame *display.Frame, want display.Ink) bool {
 // down, and a report that does not mention it would be a page that changed
 // colour on the way out with nothing saying so.
 func unsupportedInk(p Panel, ink display.Ink) compose.Warning {
+	// Two different things send a pixel through the flattening, and an author
+	// can act on one of them. A page written for the wrong tag is theirs to
+	// change; a panel whose ink this build cannot pack is not, and telling
+	// them it "has no yellow" when it is printed on the box would send them
+	// looking for a mistake they did not make.
+	reason := fmt.Sprintf("%s has no %s", p, ink)
+	if p.hasInk(ink) {
+		reason = fmt.Sprintf("%s has %s, but this build cannot pack it for that panel", p, ink)
+	}
 	return compose.Warning{
-		Path: "document",
-		Code: "unsupported-ink",
-		Message: fmt.Sprintf("%s has no %s, so every %s pixel was drawn black instead",
-			p, ink, ink),
+		Path:    "document",
+		Code:    "unsupported-ink",
+		Message: fmt.Sprintf("%s, so every %s pixel was drawn black instead", reason, ink),
 	}
 }
 

@@ -26,6 +26,28 @@ import (
 // It lived in display until the drawing layer stopped knowing the names of tag
 // families. gicisky.Encode was always next to its own protocol; this is now
 // next to its own too.
+// Encodes reports whether this build can put an ink into the planes this panel
+// wants.
+//
+// For this family it is not the same question as whether the panel can show
+// it, and three models are the reason: JD79668 and JD79665 really do have four
+// inks, but the packing here is two planes with three of their four states
+// used, and this build has no code for the packing that would carry a fourth.
+// The panel has yellow; these bytes have nowhere to put it.
+//
+// Saying so here, rather than only in the pixel loop, is what lets a page
+// carrying yellow be flattened and drawn for such a panel instead of being
+// accepted by the layout and then refused at the wire.
+func (m Model) Encodes(ink display.Ink) bool {
+	switch ink {
+	case display.InkWhite, display.InkBlack:
+		return true
+	case display.InkRed:
+		return m.Palette != PaletteBW
+	}
+	return false
+}
+
 func Encode(frame *display.Frame, model Model) (black, colour []byte, err error) {
 	if frame == nil {
 		return nil, nil, fmt.Errorf("frame must not be nil")
@@ -56,15 +78,28 @@ func Encode(frame *display.Frame, model Model) (black, colour []byte, err error)
 			ink, _ := frame.InkAt(x, y)
 			switch {
 			case ink == display.InkWhite:
-			// An ink this panel has no plane for is refused rather than drawn
-			// as something else. Yellow used to fall through to black here,
-			// which made the two families disagree about the same mistake:
-			// gicisky refused it and this one silently changed the picture.
-			// Callers who would rather have the page than the refusal go
-			// through panel.Render, which flattens and says so in the report.
-			case ink == display.InkRed && !red, ink == display.InkYellow:
+			// An ink with no plane to go in is refused rather than drawn as
+			// something else. Yellow used to fall through to black here, which
+			// made the two families disagree about the same mistake: gicisky
+			// refused it and this one silently changed the picture. Callers who
+			// would rather have the page than the refusal go through
+			// panel.Render, which asks Encodes, flattens what it cannot carry,
+			// and says so in the report.
+			case ink == display.InkRed && !red:
 				return nil, nil, fmt.Errorf("%s panel cannot show %s ink at (%d,%d)",
 					model.Palette, ink, x, y)
+			// Yellow is refused on every model, including the ones whose panel
+			// really has it. Saying "cannot show" there would be untrue, and
+			// the difference is what a caller needs: one is a page written for
+			// the wrong tag, the other is a gap in this build.
+			case ink == display.InkYellow && model.Palette != PaletteBWRY:
+				return nil, nil, fmt.Errorf("%s panel cannot show yellow ink at (%d,%d)",
+					model.Palette, x, y)
+			case ink == display.InkYellow:
+				return nil, nil, fmt.Errorf(
+					"%s shows yellow but this build cannot encode it: the packing here is two "+
+						"planes and has no fourth state, so yellow at (%d,%d) has nowhere to go",
+					model.Name, x, y)
 			case ink == display.InkRed:
 				colour[index] &^= mask
 				black[index] &^= mask

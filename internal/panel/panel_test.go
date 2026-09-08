@@ -121,6 +121,62 @@ func TestAnInkThePanelHasNoPlaceForIsDrawnBlackAndReported(t *testing.T) {
 	}
 }
 
+// A panel whose ink this build cannot pack flattens it rather than accepting a
+// page that would be refused at the wire.
+//
+// The four-ink EPD-nRF5 models are the case: the panel really does have yellow,
+// and the packing here is two planes with no fourth state for it. Reading the
+// palette alone said the ink was fine, and the page then failed at the encoder
+// with "BWRY panel cannot show yellow ink" — a message that was not true about
+// the panel and left nowhere to go. What the author needs is the page, plus
+// the reason, and the reason is this build rather than their tag.
+func TestAnInkThisBuildCannotPackIsFlattenedAndSaysWhy(t *testing.T) {
+	for _, name := range []string{"JD79668_420_BWRY", "JD79665_750_BWRY", "JD79665_583_BWRY"} {
+		target := nrfepdPanel(t, name)
+		result, page, err := Render(filled(display.InkYellow), target)
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		if len(page.Flattened) == 0 {
+			t.Errorf("%s: yellow went through unflattened, and the encoder has no plane for it", name)
+		}
+		var reason string
+		for _, warning := range result.Report.Warnings {
+			if warning.Code == "unsupported-ink" {
+				reason = warning.Message
+			}
+		}
+		if !strings.Contains(reason, "cannot pack") {
+			t.Errorf("%s: warning = %q, want it to blame this build rather than the panel", name, reason)
+		}
+		// The panel does have the ink, so saying it has none would send an
+		// author looking for a mistake they did not make.
+		if strings.Contains(reason, "has no yellow") {
+			t.Errorf("%s: warning = %q, and the panel is a four-ink panel", name, reason)
+		}
+	}
+}
+
+// The other family packs four inks, so the same page goes through untouched.
+// This is the half that says the question being asked is about the packer and
+// not about the family.
+func TestAFourInkGiciskyPanelKeepsItsYellow(t *testing.T) {
+	for _, id := range []uint16{0x002E, 0x004E} {
+		target := giciskyPanel(t, id)
+		result, page, err := Render(filled(display.InkYellow), target)
+		if err != nil {
+			t.Fatalf("0x%04X: %v", id, err)
+		}
+		if len(page.Flattened) != 0 {
+			t.Errorf("0x%04X: flattened %v, and packFourColor has a code for yellow", id, page.Flattened)
+		}
+		if got, _ := result.Frame.InkAt(1, 1); got != display.InkYellow {
+			t.Errorf("0x%04X: preview pixel = %s, want yellow", id, got)
+		}
+	}
+}
+
 // A panel that has the ink is left alone, which is the half that says the
 // flattening is looking at the palette rather than at every coloured pixel.
 func TestAPanelThatHasTheInkIsLeftAlone(t *testing.T) {

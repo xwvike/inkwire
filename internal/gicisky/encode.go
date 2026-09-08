@@ -65,6 +65,27 @@ func Encode(frame *display.Frame, profile Profile) ([]byte, error) {
 	return append(black, red...), nil
 }
 
+// Encodes reports whether this build can put an ink into the bytes this panel
+// wants.
+//
+// It is deliberately not the same question as whether the panel can show it.
+// A four-ink profile is written by packFourColor, which has a code for yellow;
+// every other profile goes through the plane packer, which has two planes, no
+// fourth state, and reads yellow as white. Asking about the packer that will
+// actually run is what stops the answer here and the answer at the wire from
+// drifting apart.
+func (p Profile) Encodes(ink display.Ink) bool {
+	switch ink {
+	case display.InkWhite, display.InkBlack:
+		return true
+	case display.InkRed:
+		return p.Palette != PaletteBW
+	case display.InkYellow:
+		return p.Palette == PaletteBWRY && p.FourColor
+	}
+	return false
+}
+
 func validatePalette(frame *display.Frame, profile Profile) error {
 	for y := 0; y < frame.Height(); y++ {
 		for x := 0; x < frame.Width(); x++ {

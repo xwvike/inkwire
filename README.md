@@ -303,7 +303,7 @@ as `unsupported-ink`.
 | `0x10` | UC8179_583_BWR | 648x480 | BWR | planes |
 | `0x11` | UC8179_583_BW | 648x480 | BW | planes |
 | `0x08` `0x09` `0x0e` `0x0f` | UC8159 | 640x384 / 600x448 | BW/BWR | nibbles, **unimplemented** |
-| `0x05` `0x0c` `0x0d` | JD796xx | 400x300 / 800x480 / 648x480 | BWRY | **unimplemented** |
+| `0x05` `0x0c` `0x0d` | JD796xx | 400x300 / 800x480 / 648x480 | BWRY | planes; **yellow unimplemented**, drawn black with a warning |
 
 `0x03` verified; others print `unverified`:
 
