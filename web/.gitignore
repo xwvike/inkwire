@@ -1,0 +1,8 @@
+# Build output. inkwire.wasm is 16 MB and changes with every commit to the
+# renderer, so it is built rather than stored; wasm_exec.js and panels.json
+# come from the toolchain and the driver catalogues for the same reason.
+static/inkwire.wasm
+static/wasm_exec.js
+static/panels.json
+static/completions.json
+verify/inkwire

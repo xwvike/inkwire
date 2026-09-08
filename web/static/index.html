@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inkwire Studio</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header class="bar">
+  <h1>Inkwire<span>Studio</span></h1>
+  <label class="field">
+    <span>Panel</span>
+    <select id="panel"></select>
+  </label>
+  <label class="field" id="custom-size" hidden>
+    <span>Size</span>
+    <input id="size-w" type="number" min="1" max="4000" value="296" aria-label="width">
+    <em>×</em>
+    <input id="size-h" type="number" min="1" max="4000" value="128" aria-label="height">
+  </label>
+  <label class="field">
+    <span>Zoom</span>
+    <select id="zoom">
+      <option value="1">1×</option>
+      <option value="2" selected>2×</option>
+      <option value="3">3×</option>
+      <option value="4">4×</option>
+      <option value="6">6×</option>
+    </select>
+  </label>
+  <span class="spacer"></span>
+  <span id="status" class="status">loading renderer…</span>
+  <button id="download" type="button" disabled>Download PNG</button>
+</header>
+
+<main class="split">
+  <section class="pane editor-pane">
+    <nav class="tabs" role="tablist">
+      <button class="tab is-active" data-source="markup" role="tab">HTML</button>
+      <button class="tab" data-source="css" role="tab">CSS</button>
+      <span class="spacer"></span>
+      <select id="starter" aria-label="starter page">
+        <option value="">starter pages…</option>
+      </select>
+    </nav>
+    <div class="editor" data-editor="markup" aria-label="HTML source"></div>
+    <div class="editor" data-editor="css" aria-label="CSS source" hidden></div>
+  </section>
+
+  <section class="pane output-pane">
+    <nav class="tabs" role="tablist">
+      <button class="tab is-active" data-view="preview" role="tab">Preview</button>
+      <button class="tab" data-view="measure" role="tab">Layout</button>
+      <button class="tab" data-view="scene" role="tab">Scene</button>
+      <span class="spacer"></span>
+      <span id="timing" class="timing"></span>
+    </nav>
+
+    <div class="view is-active" data-view="preview">
+      <div class="stage">
+        <div class="paper">
+          <img id="preview" alt="rendered page">
+        </div>
+      </div>
+    </div>
+
+    <div class="view" data-view="measure">
+      <div class="scroll"><table class="nodes"><tbody id="nodes"></tbody></table></div>
+    </div>
+
+    <div class="view" data-view="scene">
+      <div class="scroll"><pre id="scene" class="dump"></pre></div>
+    </div>
+
+    <footer class="report">
+      <div class="report-head">
+        <strong id="report-count">no warnings</strong>
+        <span id="missing-runes"></span>
+      </div>
+      <ul id="warnings" class="warnings"></ul>
+    </footer>
+  </section>
+</main>
+
+<script src="wasm_exec.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

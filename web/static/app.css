@@ -1,0 +1,321 @@
+/* Inkwire Studio.
+ *
+ * The workspace is neutral grey on purpose: everything this tool draws is one
+ * or four inks on white paper, and a coloured chrome around it would make the
+ * preview look like something it is not. */
+
+:root {
+  --ink: #16181d;
+  --ink-soft: #5b6472;
+  --ink-faint: #98a1ae;
+  --line: #d8dce3;
+  --line-soft: #e8ebf0;
+  --surface: #ffffff;
+  --workspace: #eceef2;
+  --chrome: #f7f8fa;
+  --accent: #2f6df6;
+  --warn: #a8620a;
+  --warn-bg: #fdf6ec;
+  --bad: #c0392b;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --row: 20px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--workspace);
+}
+
+/* ---------- top bar ---------- */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 14px;
+  height: 46px;
+  flex: 0 0 auto;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--line);
+}
+
+.bar h1 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.bar h1 span {
+  color: var(--ink-faint);
+  font-weight: 400;
+  margin-left: 5px;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.field > span {
+  color: var(--ink-soft);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.field em { color: var(--ink-faint); font-style: normal; }
+
+select, input[type="number"], button {
+  font: inherit;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 4px 7px;
+}
+
+input[type="number"] { width: 66px; }
+
+select:focus-visible, input:focus-visible, button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled { opacity: 0.45; cursor: default; }
+button:not(:disabled):hover { border-color: var(--ink-faint); }
+
+.spacer { flex: 1 1 auto; }
+
+.status {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.status.is-bad { color: var(--bad); }
+
+/* ---------- split ---------- */
+
+.split {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) minmax(360px, 1fr);
+  min-height: 0;
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface);
+}
+
+.editor-pane { border-right: 1px solid var(--line); }
+
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+  height: 34px;
+  flex: 0 0 auto;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--line);
+}
+
+.tab {
+  border: 0;
+  background: none;
+  border-radius: 4px;
+  padding: 4px 10px;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.tab.is-active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.tabs select { padding: 2px 6px; font-size: 12px; }
+
+.timing {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+/* ---------- code editor ----------
+ *
+ * CodeMirror fills this box entirely. The theme in app.js reads the same
+ * custom properties defined above, so the editor is styled from one palette
+ * rather than carrying a second one of its own. */
+
+.editor {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.editor[hidden] { display: none; }
+
+.editor .cm-editor { height: 100%; }
+
+/* ---------- output ---------- */
+
+.view {
+  display: none;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.view.is-active { display: flex; flex-direction: column; }
+
+.stage {
+  flex: 1 1 auto;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow: auto;
+  background:
+    linear-gradient(45deg, #e4e7ec 25%, transparent 25%) 0 0 / 16px 16px,
+    linear-gradient(-45deg, #e4e7ec 25%, transparent 25%) 0 8px / 16px 16px,
+    linear-gradient(45deg, transparent 75%, #e4e7ec 75%) 8px -8px / 16px 16px,
+    linear-gradient(-45deg, transparent 75%, #e4e7ec 75%) -8px 0 / 16px 16px,
+    var(--workspace);
+}
+
+.paper {
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(20, 24, 32, 0.18), 0 8px 28px rgba(20, 24, 32, 0.12);
+  line-height: 0;
+}
+
+#preview {
+  display: block;
+  image-rendering: pixelated;
+}
+
+#preview:not([src]) { display: none; }
+
+.scroll {
+  flex: 1 1 auto;
+  overflow: auto;
+  min-height: 0;
+}
+
+.dump {
+  margin: 0;
+  padding: 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 17px;
+  white-space: pre;
+}
+
+.nodes {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.nodes td {
+  padding: 3px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  white-space: nowrap;
+}
+
+.nodes td:first-child { width: 100%; white-space: pre; }
+.nodes td.num { text-align: right; color: var(--ink-soft); }
+.nodes td.kind { color: var(--ink-faint); }
+
+/* ---------- report ---------- */
+
+.report {
+  flex: 0 0 auto;
+  max-height: 34%;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+  background: var(--chrome);
+}
+
+.report-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 12px;
+  font-size: 12px;
+}
+
+.report-head strong { font-weight: 600; }
+.report-head strong.is-warn { color: var(--warn); }
+.report-head strong.is-bad { color: var(--bad); }
+
+#missing-runes {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--bad);
+}
+
+.warnings {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: auto;
+  min-height: 0;
+}
+
+.warnings li {
+  padding: 6px 12px;
+  border-top: 1px solid var(--line-soft);
+  background: var(--warn-bg);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.warnings li.is-bad { background: #fdefed; }
+
+.warnings code {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--warn);
+  margin-right: 7px;
+}
+
+.warnings li.is-bad code { color: var(--bad); }
+
+.warnings .path {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  margin-top: 2px;
+}
+
+@media (max-width: 860px) {
+  .split { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+  .editor-pane { border-right: 0; border-bottom: 1px solid var(--line); }
+}
