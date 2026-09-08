@@ -182,6 +182,162 @@ button:not(:disabled):hover { border-color: var(--ink-faint); }
 
 .editor .cm-editor { height: 100%; }
 
+/* ---------- files ----------
+ *
+ * The map the module reads its stylesheets and pictures from. A page here has
+ * no directory beside it, so this is the whole of what its links can reach. */
+
+.files {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  background: var(--surface);
+}
+
+.files[hidden] { display: none; }
+
+.files-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.files-head p {
+  margin: 0;
+  flex: 1 1 auto;
+  color: var(--ink-soft);
+  line-height: 1.55;
+}
+
+.files-head code {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--chrome);
+  border: 1px solid var(--line-soft);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+
+.pick span {
+  display: inline-block;
+  white-space: nowrap;
+  cursor: pointer;
+  font-size: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 5px 10px;
+}
+
+.pick span:hover { border-color: var(--ink-faint); }
+
+.file-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.file-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.file-list .thumb {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  background: var(--chrome);
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ink-faint);
+}
+
+.file-list .thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+}
+
+.file-list .name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.file-list .used {
+  font-size: 11px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.file-list .used.is-unused { color: var(--warn); }
+
+.file-list .size {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.file-list .drop-file {
+  border: 0;
+  background: none;
+  color: var(--ink-faint);
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+
+.file-list .drop-file:hover { color: var(--bad); background: #fdefed; }
+
+.files-empty {
+  margin: 0;
+  padding: 22px 14px;
+  text-align: center;
+  color: var(--ink-faint);
+}
+
+.files-empty[hidden] { display: none; }
+
+#file-count:not(:empty) {
+  margin-left: 5px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+/* The whole window takes a drop, because aiming at a panel that may not even
+ * be the visible tab is a rule nobody should have to learn. */
+body.is-dropping::after {
+  content: "Drop to add to the page's files";
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  color: var(--accent);
+  background: rgba(47, 109, 246, 0.07);
+  border: 2px dashed var(--accent);
+  pointer-events: none;
+}
+
 /* ---------- output ---------- */
 
 .view {

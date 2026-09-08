@@ -23,6 +23,7 @@ import (
 	"github.com/xwvike/inkwire/internal/compose"
 	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/markup"
+	"github.com/xwvike/inkwire/internal/panel"
 	"github.com/xwvike/inkwire/internal/scene"
 )
 
@@ -74,7 +75,7 @@ func compilePage(markupSource, cssSource string, files map[string][]byte) (marku
 		if data, ok := files[name]; ok {
 			return data, nil
 		}
-		return nil, fmt.Errorf("%s: no such resource; add it in the resources panel", name)
+		return nil, fmt.Errorf("%s: no file of that name was given to this page", name)
 	}
 	compiler := markup.Compiler{
 		Stylesheets:    read,
@@ -107,11 +108,12 @@ func document(markupSource, cssSource string, files map[string][]byte) (compose.
 	return decoded, warnings, nil
 }
 
-// renderJS draws a page at a size and answers with the picture.
+// renderJS draws a page and answers with the picture.
 //
-// Arguments: markup, css, width, height, resources. The size is the viewport,
-// not a suggestion: a page's own width and height are CSS layout values, and
-// this is the panel it has to fit.
+// Arguments: markup, css, width, height, resources, and optionally a panel key
+// of the form family:id. The size is the viewport, not a suggestion: a page's
+// own width and height are CSS layout values, and this is what it has to fit.
+// A panel key supersedes the size and brings the panel's palette with it.
 func renderJS(this js.Value, args []js.Value) any {
 	markupSource, cssSource, files, err := arguments(args)
 	if err != nil {
@@ -129,7 +131,25 @@ func renderJS(this js.Value, args []js.Value) any {
 	if err != nil {
 		return failure(err, warnings)
 	}
-	result, renderErr := scene.RenderForSize(decoded, image.Pt(width, height))
+
+	// Naming a panel asks for that panel's picture rather than a picture of
+	// that size: the inks it cannot show are flattened, and what was flattened
+	// is reported. Without one this is a plain viewport, which is what a custom
+	// size means — there is no panel whose palette it could be checked against.
+	var result scene.Result
+	var renderErr error
+	var page panel.Page
+	var known panel.Panel
+	named := len(args) >= 6 && args[5].Type() == js.TypeString && args[5].String() != ""
+	if named {
+		known, err = panel.ByKey(args[5].String())
+		if err != nil {
+			return failure(err, warnings)
+		}
+		result, page, renderErr = panel.Render(decoded, known)
+	} else {
+		result, renderErr = scene.RenderForSize(decoded, image.Pt(width, height))
+	}
 	warnings = append(warnings, result.Report.Warnings...)
 	if result.Frame == nil {
 		return failure(renderErr, warnings)
@@ -141,6 +161,13 @@ func renderJS(this js.Value, args []js.Value) any {
 	}
 	out := js.Global().Get("Object").New()
 	out.Set("ok", true)
+	if named {
+		out.Set("panel", known.String())
+		out.Set("flattened", flattenedJS(page.Flattened))
+		// What the tag would be sent. Nothing here writes it, but a page that
+		// will not fit is worth knowing about before the wire is involved.
+		out.Set("payloadBytes", page.Len())
+	}
 	out.Set("png", base64.StdEncoding.EncodeToString(encoded.Bytes()))
 	out.Set("width", result.Frame.Width())
 	out.Set("height", result.Frame.Height())
@@ -251,6 +278,17 @@ func warningsJS(warnings []compose.Warning) js.Value {
 		item.Set("code", warning.Code)
 		item.Set("message", warning.Message)
 		array.Call("push", item)
+	}
+	return array
+}
+
+// flattenedJS reports the inks the panel could not show, which were drawn
+// black to make this page. A page designed in red on a black-and-white tag
+// still renders, and this is how it says what it lost.
+func flattenedJS(inks []display.Ink) js.Value {
+	array := js.Global().Get("Array").New()
+	for _, ink := range inks {
+		array.Call("push", ink.String())
 	}
 	return array
 }

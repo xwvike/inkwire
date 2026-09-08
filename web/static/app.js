@@ -17,6 +17,13 @@ import {
 
 const $ = (selector) => document.querySelector(selector);
 
+// Anything that reaches innerHTML goes through this first. Warning text and
+// node paths are the renderer's words, not the page author's, but they quote
+// the page — a selector, a declaration, an element name — and a page is free
+// to contain angle brackets.
+const escapeHTML = (text) =>
+  String(text).replace(/[&<>]/g, (c) => (c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;"));
+
 /* ------------------------------------------------------------------ *
  * Completion
  *
@@ -310,6 +317,7 @@ function makeEditor(mount, language, isCSS, onChange) {
 const state = {
   api: null,
   panels: [],
+  panel: null,
   size: { width: 296, height: 128 },
   view: "preview",
   png: null,
@@ -351,7 +359,11 @@ function render() {
   const { width, height } = state.size;
   const started = performance.now();
 
-  const result = state.api.render(markup, css, width, height, {});
+  // Naming the panel is what makes this the panel's own picture: inks it
+  // cannot show are flattened the way the tag would flatten them, and what was
+  // flattened comes back to be reported. A custom size has no palette to check
+  // against, so it renders as drawn.
+  const result = state.api.render(markup, css, width, height, files(), state.panel ?? "");
   const elapsed = performance.now() - started;
   $("#timing").textContent = `${elapsed.toFixed(1)} ms`;
 
@@ -369,11 +381,15 @@ function render() {
     $("#download").disabled = true;
   }
 
-  setStatus(result.ok ? `${width}×${height}` : result.error ?? "render failed", !result.ok);
+  const drawn = result.payloadBytes
+    ? `${width}×${height} · ${result.payloadBytes} B on the wire`
+    : `${width}×${height}`;
+  setStatus(result.ok ? drawn : (result.error ?? "render failed"), !result.ok);
   report(result);
 
   if (state.view === "scene") refreshScene(markup, css);
   if (state.view === "measure") refreshMeasure(markup, css, width, height);
+  if (resources.size > 0) drawFileList();
 }
 
 function report(result) {
@@ -408,14 +424,14 @@ function report(result) {
 }
 
 function refreshScene(markup, css) {
-  const compiled = state.api.compile(markup, css, 0, 0, {});
+  const compiled = state.api.compile(markup, css, 0, 0, files());
   $("#scene").textContent = compiled.ok
     ? JSON.stringify(JSON.parse(compiled.json), null, 2)
     : compiled.error ?? "";
 }
 
 function refreshMeasure(markup, css, width, height) {
-  const measured = state.api.measure(markup, css, width, height, {});
+  const measured = state.api.measure(markup, css, width, height, files());
   const body = $("#nodes");
   body.innerHTML = "";
   for (const node of measured.nodes ?? []) {
@@ -440,6 +456,141 @@ function applyZoom() {
 }
 
 /* ------------------------------------------------------------------ *
+ * Files
+ *
+ * The module reads a page's stylesheets and pictures out of a name-to-bytes
+ * map, because a page in a browser has no directory beside it. This is that
+ * map, and the names in it are the strings the page writes — src="assets/x.png"
+ * is called "assets/x.png" here and nothing else.
+ * ------------------------------------------------------------------ */
+
+const resources = new Map();
+
+// A fresh object each render. The module copies the bytes out synchronously,
+// so nothing is retained on the other side, and building it here keeps the
+// store a Map — ordered, and able to hold a name that would collide with a
+// property of Object.
+function files() {
+  const out = {};
+  for (const [name, bytes] of resources) out[name] = bytes;
+  return out;
+}
+
+const IMAGE_TYPES = /\.(png|jpe?g|gif|webp|svg)$/i;
+
+// Whether the page as written actually asks for this name. A file nobody
+// references is not an error — it may be about to be — but it is worth saying,
+// because a name that does not match is the likeliest reason a picture is
+// missing, and the two look identical from the page.
+function isReferenced(name) {
+  const source = editors.markup.value + editors.css.value;
+  return source.includes(name);
+}
+
+const previews = new Map();
+
+function previewURL(name, bytes) {
+  if (previews.has(name)) return previews.get(name);
+  const type = name.toLowerCase().endsWith(".svg") ? "image/svg+xml" : "image/*";
+  const url = URL.createObjectURL(new Blob([bytes], { type }));
+  previews.set(name, url);
+  return url;
+}
+
+function forgetPreview(name) {
+  const url = previews.get(name);
+  if (url) URL.revokeObjectURL(url);
+  previews.delete(name);
+}
+
+function drawFileList() {
+  const list = $("#file-list");
+  list.innerHTML = "";
+  for (const [name, bytes] of resources) {
+    const item = document.createElement("li");
+
+    const thumb = document.createElement("span");
+    thumb.className = "thumb";
+    if (IMAGE_TYPES.test(name)) {
+      const image = document.createElement("img");
+      image.src = previewURL(name, bytes);
+      image.alt = "";
+      thumb.append(image);
+    } else {
+      thumb.textContent = (name.split(".").pop() ?? "?").slice(0, 4);
+    }
+
+    const label = document.createElement("span");
+    label.className = "name";
+    label.textContent = name;
+
+    const used = document.createElement("span");
+    const referenced = isReferenced(name);
+    used.className = referenced ? "used" : "used is-unused";
+    used.textContent = referenced ? "referenced" : "not referenced";
+
+    const size = document.createElement("span");
+    size.className = "size";
+    size.textContent = `${bytes.length.toLocaleString()} B`;
+
+    const remove = document.createElement("button");
+    remove.className = "drop-file";
+    remove.type = "button";
+    remove.title = `remove ${name}`;
+    remove.textContent = "\u00d7";
+    remove.addEventListener("click", () => {
+      resources.delete(name);
+      forgetPreview(name);
+      drawFileList();
+      render();
+    });
+
+    item.append(thumb, label, used, size, remove);
+    list.append(item);
+  }
+
+  $("#file-empty").hidden = resources.size > 0;
+  $("#file-count").textContent = resources.size > 0 ? String(resources.size) : "";
+}
+
+async function addFiles(fileList) {
+  for (const file of fileList) {
+    // webkitRelativePath is set when a directory is dropped, and it carries
+    // the path the page would write. A plain file has only its own name.
+    const name = file.webkitRelativePath || file.name;
+    forgetPreview(name);
+    resources.set(name, new Uint8Array(await file.arrayBuffer()));
+  }
+  drawFileList();
+  render();
+}
+
+// Dropping is accepted anywhere on the window. Aiming at a panel that may not
+// be the visible tab is a rule nobody should have to learn, and the page has
+// nothing else a file could mean.
+let dragDepth = 0;
+window.addEventListener("dragenter", (event) => {
+  if (![...event.dataTransfer.types].includes("Files")) return;
+  event.preventDefault();
+  dragDepth++;
+  document.body.classList.add("is-dropping");
+});
+window.addEventListener("dragover", (event) => {
+  if ([...event.dataTransfer.types].includes("Files")) event.preventDefault();
+});
+window.addEventListener("dragleave", () => {
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) document.body.classList.remove("is-dropping");
+});
+window.addEventListener("drop", (event) => {
+  if (![...event.dataTransfer.types].includes("Files")) return;
+  event.preventDefault();
+  dragDepth = 0;
+  document.body.classList.remove("is-dropping");
+  addFiles(event.dataTransfer.files);
+});
+
+/* ------------------------------------------------------------------ *
  * Wiring
  * ------------------------------------------------------------------ */
 
@@ -450,8 +601,8 @@ const schedule = () => {
 };
 
 const editors = {
-  markup: makeEditor($('[data-editor="markup"]'), html(), false, schedule),
-  css: makeEditor($('[data-editor="css"]'), css(), true, schedule),
+  markup: makeEditor($('.editor[data-source="markup"]'), html(), false, schedule),
+  css: makeEditor($('.editor[data-source="css"]'), css(), true, schedule),
 };
 
 for (const tab of document.querySelectorAll(".tab[data-source]")) {
@@ -459,13 +610,15 @@ for (const tab of document.querySelectorAll(".tab[data-source]")) {
     for (const other of document.querySelectorAll(".tab[data-source]")) {
       other.classList.toggle("is-active", other === tab);
     }
-    for (const editor of document.querySelectorAll(".editor")) {
-      editor.hidden = editor.dataset.editor !== tab.dataset.source;
+    for (const panel of document.querySelectorAll(".editor, .files")) {
+      panel.hidden = panel.dataset.source !== tab.dataset.source;
     }
     // A hidden CodeMirror measures nothing, so it is remeasured when shown.
     const shown = editors[tab.dataset.source];
-    shown.view.requestMeasure();
-    shown.focus();
+    if (shown) {
+      shown.view.requestMeasure();
+      shown.focus();
+    }
   });
 }
 
@@ -489,10 +642,12 @@ $("#panel").addEventListener("change", () => {
   const custom = value === "custom";
   $("#custom-size").hidden = !custom;
   if (custom) {
+    state.panel = null;
     readCustomSize();
   } else {
-    const panel = state.panels.find((p) => p.key + p.family === value);
+    const panel = state.panels.find((p) => p.key === value);
     if (panel) {
+      state.panel = panel.key;
       state.size = { width: panel.width, height: panel.height };
       $("#size-w").value = panel.width;
       $("#size-h").value = panel.height;
@@ -513,6 +668,13 @@ for (const input of [$("#size-w"), $("#size-h")]) {
     schedule();
   });
 }
+
+$("#file-input").addEventListener("change", (event) => {
+  addFiles(event.target.files);
+  // Clearing lets the same file be chosen again after it was removed, which
+  // otherwise looks like the picker silently doing nothing.
+  event.target.value = "";
+});
 
 $("#download").addEventListener("click", () => {
   if (!state.png) return;
@@ -540,7 +702,7 @@ async function loadPanels() {
     group.label = label;
     for (const panel of panels) {
       const option = document.createElement("option");
-      option.value = panel.key + panel.family;
+      option.value = panel.key;
       // The catalogue carries entries read off firmware tables as well as
       // ones confirmed against a tag. Which is which is worth saying.
       option.textContent =
@@ -558,7 +720,8 @@ async function loadPanels() {
   // The 2.9" BWR is the one this project has on a desk, so it opens on that.
   const preferred = state.panels.find((p) => p.verified) ?? state.panels[0];
   if (preferred) {
-    select.value = preferred.key + preferred.family;
+    select.value = preferred.key;
+    state.panel = preferred.key;
     state.size = { width: preferred.width, height: preferred.height };
     $("#size-w").value = preferred.width;
     $("#size-h").value = preferred.height;
@@ -725,6 +888,7 @@ function loadStarters() {
 
 (async () => {
   loadStarters();
+  drawFileList();
   await Promise.all([loadPanels(), loadVocabulary()]);
   const first = STARTERS["Hello panel"];
   editors.markup.value = first.markup;

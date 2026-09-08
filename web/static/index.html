@@ -40,13 +40,30 @@
     <nav class="tabs" role="tablist">
       <button class="tab is-active" data-source="markup" role="tab">HTML</button>
       <button class="tab" data-source="css" role="tab">CSS</button>
+      <button class="tab" data-source="files" role="tab">Files<span id="file-count"></span></button>
       <span class="spacer"></span>
       <select id="starter" aria-label="starter page">
         <option value="">starter pages…</option>
       </select>
     </nav>
-    <div class="editor" data-editor="markup" aria-label="HTML source"></div>
-    <div class="editor" data-editor="css" aria-label="CSS source" hidden></div>
+    <div class="editor" data-source="markup" aria-label="HTML source"></div>
+    <div class="editor" data-source="css" aria-label="CSS source" hidden></div>
+
+    <div class="files" data-source="files" hidden>
+      <div class="files-head">
+        <p>
+          A page in a browser has no directory beside it. Anything it links or
+          draws — a stylesheet, an image, an SVG — has to be added here under the
+          name the page writes, <code>assets/photo.png</code> and all.
+        </p>
+        <label class="pick">
+          <input id="file-input" type="file" multiple hidden>
+          <span>Add files…</span>
+        </label>
+      </div>
+      <ul id="file-list" class="file-list"></ul>
+      <p id="file-empty" class="files-empty">Drop files anywhere on this page.</p>
+    </div>
   </section>
 
   <section class="pane output-pane">

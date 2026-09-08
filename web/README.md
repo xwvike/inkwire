@@ -25,11 +25,12 @@ falls back from `instantiateStreaming` when one does not send
 |---|---|
 | Editor | CodeMirror 6 — highlighting, undo history, search, bracket matching, multiple cursors |
 | Completion | This renderer's 89 properties and their values, generated from `MARKUP.md`, plus the SVG elements it draws |
-| Preview | The rendered frame at 1×–6×, nearest-neighbour, on a paper ground |
+| Preview | The rendered frame at 1×–6×, nearest-neighbour, on a paper ground — with the panel's own palette, so an ink it cannot show is flattened here exactly as the tag would flatten it |
 | Layout | Every node and the box it ended up in — the `measure` command |
 | Scene | What the CSS compiled to — the `compile` command |
 | Report | Every declaration the renderer could not honour, and every glyph no bundled font could draw |
 | Panels | All 28 catalogued models, grouped by family, sized and labelled by palette |
+| Files | Drop a stylesheet, image or SVG anywhere on the window and the page can link it, under the name the page writes |
 
 ## Verifying it
 
@@ -40,13 +41,19 @@ rather than asserted:
 node web/verify/parity.mjs       # wasm vs CLI, byte for byte, on every example
 node web/verify/completions.mjs  # every completion offered actually renders
 node web/verify/starters.mjs     # the pages the editor opens with render clean
+node web/verify/calls.mjs        # the page calls nothing that does not exist
 ```
 
 `parity.mjs` needs the CLI beside it: `go build -o web/verify/inkwire ./cmd/inkwire`.
 
-At the time of writing all 14 example pages produce identical PNG bytes from
-the module and from the command, and all 89 properties, 175 values and 13 SVG
-elements the editor offers render without a warning.
+`calls.mjs` is there because a browser is the only thing that runs `app.js`,
+and a ReferenceError in it is silent to everything else — the module keeps
+working, the preview keeps drawing, and one tab quietly stops filling in.
+
+At the time of writing every example page produces identical PNG bytes from
+the module and from the command — 93 renders, each page as a bare viewport and
+again for every catalogued panel of its size — and all 89 properties, 175
+values and 13 SVG elements the editor offers render without a warning.
 
 That second check is the point of generating the vocabulary rather than taking
 a stock CSS list: a browser has some 500 properties and this renderer has 89,
@@ -56,19 +63,11 @@ moment someone is learning it.
 
 ## Known limits
 
-- **No push.** The page renders and downloads; it does not write to a tag. Web
-  Bluetooth would do it — the wire encoders are already pure Go and would come
-  along to wasm — but the driver packages import the radio library, so the
-  encoders cannot be reached from a browser build until they are split from it.
-  Web Bluetooth is also Chromium-only, so a push button needs a story for
-  Safari and Firefox before it is worth having.
-- **No ink flattening.** A panel that cannot show red is drawn here as though
-  it could. Flattening lives in `internal/panel`, which is on the far side of
-  the same split. The preview's geometry is exact; its palette is not yet.
-- **No page resources.** The module takes a name-to-bytes map for stylesheets
-  and pictures, and the editor passes an empty one, so a page that links a file
-  reports rather than drawing it. `parity.mjs` exercises the map, so the path
-  works; the editor has no UI for it yet.
+- **No push.** The page renders and downloads; it does not write to a tag. The
+  wire payload is computed — the status line says how many bytes the tag would
+  be sent — but nothing carries it. Web Bluetooth would, and is Chromium-only,
+  so a push button needs a story for Safari and Firefox before it is worth
+  having.
 - **Go, not TinyGo.** TinyGo produces 4.28 MB against Go's 16.7 MB and then
   panics inside `douceur`'s declaration parser on the first page. `build.sh
   tinygo` still builds it, so the next attempt costs one command.

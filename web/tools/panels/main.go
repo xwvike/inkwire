@@ -19,6 +19,8 @@ import (
 )
 
 type preset struct {
+	// Key is what panel.ByKey takes, family and all, so a caller never has to
+	// reassemble it from the parts and get the separator wrong.
 	Key      string `json:"key"`
 	Family   string `json:"family"`
 	Name     string `json:"name"`
@@ -37,7 +39,7 @@ func main() {
 	for _, p := range panels {
 		size := p.Size()
 		presets = append(presets, preset{
-			Key:      p.ID(),
+			Key:      p.Family + ":" + p.ID(),
 			Family:   p.Family,
 			Name:     p.Name(),
 			Width:    size.X,

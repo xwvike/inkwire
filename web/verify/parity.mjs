@@ -87,16 +87,35 @@ function declaredSize(api, { markup, css, resources }) {
 	return size && size.width > 0 && size.height > 0 ? size : null;
 }
 
-function cliRender(page, size) {
+// The panels whose size a page was written for. Naming one asks for its
+// palette as well as its size, so that is where inks get flattened — a
+// different code path from a bare viewport, and worth holding to the same
+// standard.
+const panels = JSON.parse(fs.readFileSync(path.join(staticDir, "panels.json"), "utf8"));
+const panelsSized = (size) =>
+	panels.filter((p) => p.width === size.width && p.height === size.height);
+
+// A page the panel cannot take is still drawn: the command writes the
+// picture and then exits non-zero, because what it looks like is what says
+// which part of it has to change. The picture is the thing being compared,
+// so a refusal is read from the file rather than from the exit status —
+// and the module is held to refusing the same pages, below.
+function cliRender(page, argv) {
 	const out = path.join(os.tmpdir(), `parity-${process.pid}.png`);
-	execFileSync(
-		path.join(root, "web", "verify", "inkwire"),
-		["render", "-size", `${size.width}x${size.height}`, "-o", out, page],
-		{ stdio: ["ignore", "ignore", "pipe"] },
-	);
+	let refused = false;
+	try {
+		execFileSync(
+			path.join(root, "web", "verify", "inkwire"),
+			["render", ...argv, "-o", out, page],
+			{ stdio: ["ignore", "ignore", "pipe"] },
+		);
+	} catch {
+		refused = true;
+		if (!fs.existsSync(out)) return { refused, bytes: null };
+	}
 	const bytes = fs.readFileSync(out);
 	fs.unlinkSync(out);
-	return bytes;
+	return { refused, bytes };
 }
 
 const api = await boot();
@@ -113,26 +132,48 @@ for (const page of pages()) {
 		continue;
 	}
 
-	const rendered = api.render(source.markup, source.css, size.width, size.height, source.resources);
-	if (!rendered.png) {
-		failed++;
-		console.log(`  FAIL  ${relative}  wasm produced no picture: ${rendered.error ?? "?"}`);
-		continue;
-	}
+	// Once as a bare viewport, then once for every panel of that size.
+	const targets = [
+		{ label: `${size.width}x${size.height}`, key: "", argv: ["-size", `${size.width}x${size.height}`] },
+		...panelsSized(size).map((p) => ({
+			label: `${p.key} ${p.palette}`,
+			key: p.key,
+			argv: ["-panel", p.key],
+		})),
+	];
 
-	const fromWasm = Buffer.from(rendered.png, "base64");
-	const fromCLI = cliRender(page, size);
-	checked++;
-	if (fromWasm.equals(fromCLI)) {
-		console.log(`  ok    ${relative}  ${size.width}x${size.height}  ${fromWasm.length}B`);
-	} else {
-		failed++;
-		console.log(
-			`  FAIL  ${relative}  ${size.width}x${size.height}  ` +
-				`wasm ${fromWasm.length}B vs cli ${fromCLI.length}B`,
+	for (const target of targets) {
+		const rendered = api.render(
+			source.markup, source.css, size.width, size.height, source.resources, target.key,
 		);
+		if (!rendered.png) {
+			failed++;
+			console.log(`  FAIL  ${relative}  ${target.label}  wasm drew nothing: ${rendered.error ?? "?"}`);
+			continue;
+		}
+
+		const fromWasm = Buffer.from(rendered.png, "base64");
+		const cli = cliRender(page, target.argv);
+		checked++;
+		const note = cli.refused ? " (both refused)" : "";
+		if (cli.bytes && fromWasm.equals(cli.bytes) && rendered.ok !== cli.refused) {
+			console.log(`  ok    ${relative}  ${target.label}  ${fromWasm.length}B${note}`);
+		} else if (cli.bytes && fromWasm.equals(cli.bytes)) {
+			failed++;
+			console.log(
+				`  FAIL  ${relative}  ${target.label}  same pixels but ` +
+					`wasm ${rendered.ok ? "accepted" : "refused"} and cli ` +
+					`${cli.refused ? "refused" : "accepted"}`,
+			);
+		} else {
+			failed++;
+			console.log(
+				`  FAIL  ${relative}  ${target.label}  ` +
+					`wasm ${fromWasm.length}B vs cli ${cli.bytes?.length ?? "none"}B`,
+			);
+		}
 	}
 }
 
-console.log(`\n${toolchain}: ${checked} pages compared, ${failed} differing`);
+console.log(`\n${toolchain}: ${checked} renders compared, ${failed} differing`);
 process.exit(failed === 0 ? 0 : 1);
