@@ -1419,7 +1419,7 @@ async function loadPanels() {
       // catalogue entry has been checked against hardware is a fact about this
       // project rather than about the tag — the firmware is the same either
       // way, so it does not help anyone choosing a panel.
-      option.textContent = `${panel.width}×${panel.height}  ${panel.name}`;
+      option.textContent = `${panel.width}×${panel.height} ${panel.name}`;
       group.append(option);
     }
     select.append(group);

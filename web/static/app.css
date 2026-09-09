@@ -55,10 +55,21 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
-/* Sized to the longest option, which is 27 characters, so nothing is ever cut
- * and the select does not grow past what it holds. */
+/* Narrow enough that the bar fits a 13" laptop on one row.
+ *
+ * It used to be sized to the longest option so that nothing was ever cut, and
+ * that cost about 200px of a bar that has a title, three steps, a zoom, a
+ * status line and a button to fit — on a 1440px screen the whole thing wrapped
+ * to a second row.
+ *
+ * Only the selected option is shown when the list is closed, and a browser
+ * sizes the open list to its content rather than to the select, so a longer
+ * name is cut in the closed state and whole everywhere it is being read. Of
+ * the 28 panels, 19 fit this outright; the rest are the four-digit sizes whose
+ * names run to 18 characters, and what is cut is the tail of a model number
+ * whose size — the part a page is laid out for — is still in front of it. */
 #panel {
-  max-width: 29ch;
+  max-width: 22ch;
 }
 
 .bar h1 {
@@ -196,6 +207,18 @@ button.is-busy::before {
 }
 
 .step:first-child { border-left: 0; }
+
+/* The horizontal padding separates a step's parts from the rule that divides
+ * it from the next one. At the last step there is no next one, so it stops
+ * being separation and becomes a margin — and a 10px margin against 3px above
+ * and below reads as the button having slipped off centre.
+ *
+ * Two more than the vertical inset rather than the same: level with it looked
+ * pinched, because the rounded corner of the container eats into the gap at
+ * exactly the height the button's own rounded corner does. The first step
+ * keeps its 10px — what sits against that edge is a round badge, which wants
+ * the room a button does not. */
+.step:last-child { padding-right: 5px; }
 
 .step .n {
   display: grid;
