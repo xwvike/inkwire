@@ -112,6 +112,44 @@ button {
 button:disabled { opacity: 0.45; cursor: default; }
 button:not(:disabled):hover { border-color: var(--ink-faint); }
 
+/* A button that is waiting on something.
+ *
+ * Only for waits the page is actually in: while the browser's own chooser is
+ * open, nothing is happening here and a spinner would be claiming otherwise.
+ * It goes on after the device is granted, when connecting really has begun. */
+button.is-busy {
+  position: relative;
+  padding-left: 22px;
+  color: var(--ink-soft);
+}
+
+button.is-busy::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  margin-top: -5px;
+  border: 1.5px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Buttons keep their width while their label changes, so the strip does not
+ * shuffle sideways every time one of them starts working. */
+#connect { min-width: 7.5em; }
+#push { min-width: 6em; }
+
+@media (prefers-reduced-motion: reduce) {
+  button.is-busy::before { animation-duration: 2.4s; }
+}
+
 .spacer { flex: 1 1 auto; }
 
 .status {

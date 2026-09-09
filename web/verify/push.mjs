@@ -90,6 +90,43 @@ function stubTag({ messageSize = 244 } = {}) {
   };
 }
 
+// The tag's side of internal/nrfepd/session.go.
+//
+// This family says nothing until it is asked. An init draws two answers out of
+// it — a binary configuration blob naming the model, and a line of text about
+// the link — and only then does the session know what shape of page to ask
+// for. Everything after that is frames on the same characteristic.
+function stubNRFEPD({ modelID = 0x03, mtu = 244 } = {}) {
+  let notify = null;
+  let frames = 0;
+  let refreshed = false;
+  const answer = (bytes) => queueMicrotask(() => notify?.(new Uint8Array(bytes)));
+
+  // epd_config_t: pins, then the model at byte 7, then more pins and modes.
+  const config = [2, 3, 4, 5, 6, 7, 8, modelID, 9, 10, 11, 0, 0];
+
+  return {
+    attach(fn) {
+      notify = fn;
+    },
+    write(bytes) {
+      const frame = new Uint8Array(bytes);
+      if (frame[0] === 0x01) {
+        answer(config);
+        answer([...`mtu=${mtu} rle=1`].map((c) => c.charCodeAt(0)));
+      } else if (frame[0] === 0x05) {
+        refreshed = true;
+      } else {
+        frames++;
+      }
+      return Promise.resolve();
+    },
+    saw() {
+      return { frames, refreshed };
+    },
+  };
+}
+
 // A page whose whole content is a picture, so that a resource going missing is
 // the difference between a page and a blank one — which is the bug this exists
 // for.
@@ -179,5 +216,43 @@ for (const testCase of CASES) {
   }
 }
 
-console.log(`\n${CASES.length} uploads driven into a stub tag, ${failed} wrong`);
+// EPD-nRF5, where the panel is not chosen but reported. Nothing is named here:
+// the stub says it is model 0x03 and the page is drawn for whatever that is,
+// which is the whole difference between the two families.
+{
+  const tag = stubNRFEPD({ modelID: 0x03 });
+  const session = globalThis.inkwire.upload({
+    markup: CASES[0].markup,
+    css: CASES[0].css,
+    files: {},
+    family: "nrfepd",
+    // The real wait is thirty seconds of the panel drawing, which is a fact
+    // about e-paper rather than anything under test here.
+    settleMs: 50,
+    transport: { write: (bytes) => tag.write(bytes) },
+  });
+  if (!session.ok) {
+    failed++;
+    console.log(`  FAIL  EPD-nRF5: upload refused: ${session.error}`);
+  } else {
+    tag.attach(session.notify);
+    try {
+      await session.done;
+      const { frames, refreshed } = tag.saw();
+      // 400x300 black and colour planes at 240 bytes a frame is well over a
+      // hundred; the number that matters is that it is not none.
+      if (frames > 0 && refreshed) {
+        console.log(`  ok    EPD-nRF5 model 0x03  ${frames} frames, then refresh`);
+      } else {
+        failed++;
+        console.log(`  FAIL  EPD-nRF5: ${frames} frames, refresh ${refreshed}`);
+      }
+    } catch (error) {
+      failed++;
+      console.log(`  FAIL  EPD-nRF5: ${error?.message ?? error}`);
+    }
+  }
+}
+
+console.log(`\n${CASES.length + 1} uploads driven into a stub tag, ${failed} wrong`);
 process.exit(failed === 0 ? 0 : 1);

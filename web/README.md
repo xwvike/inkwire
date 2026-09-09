@@ -79,9 +79,11 @@ moment someone is learning it.
   Detect reads the model and selects it, and says so if you then pick another.
   Without it, Detect is disabled and the panel is picked from the list, which is
   what every other tool for these tags requires anyway.
-- **One tag per page load.** A Web Bluetooth grant lasts as long as the page, so
-  a second push reuses the tag rather than reopening the chooser. Switching to a
-  different tag means reloading: `getDevices` is behind the same flag.
+- **A tag is remembered for the page, not beyond it.** Choosing one grants it
+  for as long as the page is open, so pushing repeatedly does not reopen the
+  chooser; Change reopens it to reach a different tag. Nothing survives a
+  reload, because `getDevices` is behind the same flag as advertisement
+  reading.
 - **Go, not TinyGo.** TinyGo produces 4.28 MB against Go's 16.7 MB and then
   panics inside `douceur`'s declaration parser on the first page. `build.sh
   tinygo` still builds it, so the next attempt costs one command.

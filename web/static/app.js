@@ -321,6 +321,8 @@ const state = {
   // What a tag said about itself, once one has been asked. Null until then,
   // and the whole reason the chosen panel can be checked rather than trusted.
   detected: null,
+  // Which protocol the chosen tag speaks, learned by what it serves.
+  family: null,
   // The tag granted in this page's lifetime. Web Bluetooth grants are per
   // page, so this is as long as it can be remembered without getDevices,
   // which Chrome also keeps behind a flag.
@@ -461,6 +463,9 @@ async function render() {
 function report(result) {
   const warnings = result.warnings ?? [];
   const list = $("#warnings");
+  // Warnings are rebuilt whole and read from the top: the first one is usually
+  // the one that explains the rest, so this does not follow the end.
+  listMode(list, "warnings");
   list.innerHTML = "";
   for (const warning of warnings) {
     const item = document.createElement("li");
@@ -675,7 +680,14 @@ window.addEventListener("drop", (event) => {
 // The service cannot be a filter on its own: these tags do not put it in the
 // advertisement, so the name is what the dialog matches on and the service is
 // only declared so it may be used after.
+// The two families serve different things. A Gicisky tag has the 16-bit FEF0
+// with a control and a data characteristic; an EPD-nRF5 tag has a vendor
+// 128-bit service and does everything over one. Which one answers is how the
+// page tells them apart — the name will not, and neither will the advertisement
+// in a browser that cannot read one.
 const TAG_SERVICE = 0xfef0;
+const NRF_SERVICE = "62750001-d828-918d-fb46-b6c11c675aec";
+const NRF_CHARACTERISTIC = "62750002-d828-918d-fb46-b6c11c675aec";
 const GICISKY_COMPANY = 0x5053;
 
 // How long to wait for one advertisement. A tag advertises every couple of
@@ -696,17 +708,37 @@ function step(text, kind) {
   drawDetectSteps();
 }
 
+// Whether the list is showing steps or warnings. The two share the panel and
+// are rebuilt on different terms, so switching between them starts over.
+function listMode(list, mode) {
+  if (list.dataset.mode === mode) return false;
+  list.dataset.mode = mode;
+  list.innerHTML = "";
+  return true;
+}
+
 function drawDetectSteps() {
   const list = $("#warnings");
-  list.innerHTML = "";
+  // A step log is appended to rather than rebuilt. An upload writes forty of
+  // them, and rebuilding the list each time is quadratic — and, worse, throws
+  // away where the reader had scrolled to.
+  if (listMode(list, "steps") || list.childElementCount > detectSteps.length) {
+    list.innerHTML = "";
+  }
+  // Following the newest entry, unless the reader has scrolled up to look at
+  // something. Yanking them back down would be the tool arguing with them.
+  const following = list.scrollHeight - list.scrollTop - list.clientHeight < 24;
+
   const first = detectSteps[0]?.at ?? 0;
-  for (const entry of detectSteps) {
+  for (let index = list.childElementCount; index < detectSteps.length; index++) {
+    const entry = detectSteps[index];
     const item = document.createElement("li");
     if (entry.kind === "bad") item.className = "is-bad";
     item.innerHTML =
       `<code>${String(entry.at - first).padStart(5)} ms</code>${escapeHTML(entry.text)}`;
     list.append(item);
   }
+  if (following) list.scrollTop = list.scrollHeight;
   const count = $("#report-count");
   const failed = detectSteps.some((entry) => entry.kind === "bad");
   count.textContent = failed ? "detection stopped" : "detecting…";
@@ -818,6 +850,49 @@ async function readAdvertisement(device) {
 // Gicisky tag says which panel it has there and nowhere else.
 const CAN_READ_ADVERTISEMENTS = "watchAdvertisements" in (globalThis.BluetoothDevice?.prototype ?? {});
 
+// Marks a button as waiting, and says what for.
+//
+// It is deliberately not tied to the button being disabled: a button is
+// disabled for the whole of an action, and part of that action is the browser
+// showing its own chooser, where the page is waiting on a person rather than
+// working. A spinner through that would be claiming to be busy while doing
+// nothing at all.
+function working(selector, label) {
+  const button = $(selector);
+  if (!label) {
+    button.classList.remove("is-busy");
+    // The stored label is what to go back to, and a step may have changed it
+    // while the spinner was up — Choose becomes Change once a tag is granted.
+    if (button.dataset.label) button.textContent = button.dataset.label;
+    delete button.dataset.label;
+    return;
+  }
+  if (!button.dataset.label) button.dataset.label = button.textContent;
+  button.classList.add("is-busy");
+  button.textContent = label;
+}
+
+// Which family a connected tag belongs to, by what it serves. Neither name nor
+// advertisement can answer this in a browser, and getting it wrong means
+// speaking the wrong protocol at a tag that will not answer.
+async function familyOf(server) {
+  try {
+    const service = await server.getPrimaryService(TAG_SERVICE);
+    await service.getCharacteristic(CONTROL_CHARACTERISTIC);
+    await service.getCharacteristic(DATA_CHARACTERISTIC);
+    return "gicisky";
+  } catch {
+    // Not that one, then.
+  }
+  try {
+    const service = await server.getPrimaryService(NRF_SERVICE);
+    await service.getCharacteristic(NRF_CHARACTERISTIC);
+    return "nrfepd";
+  } catch {
+    return null;
+  }
+}
+
 // Step 2. Granting, identifying and checking are one action because they are
 // one question — "which tag, and is it the one this page is drawn for?" — and
 // because splitting them made the page ask for the same tag twice.
@@ -830,13 +905,20 @@ async function chooseTag() {
 
   button.disabled = true;
   detectSteps = [];
+  // Choosing again is how a second tag is reached, and what the last one said
+  // about itself is not true of this one. Clearing first means a chooser that
+  // is then cancelled leaves nothing stale behind either.
+  state.detected = null;
+  showDetected();
   try {
     step("opening the chooser");
     const device = await navigator.bluetooth.requestDevice({
       acceptAllDevices: true,
-      optionalServices: [TAG_SERVICE],
+      optionalServices: [TAG_SERVICE, NRF_SERVICE],
     });
     step(`granted "${device.name ?? "unnamed"}"`);
+    // From here the page is the one doing the waiting.
+    working("#connect", "Connecting");
 
     // Read the model first: connecting can stop a tag advertising, and this is
     // the only place the model is written. A failure here is not fatal — it is
@@ -866,33 +948,49 @@ async function chooseTag() {
       step("this Chrome cannot read advertisements, so the panel stays as chosen");
     }
 
-    // Then prove the tag is the thing it looks like, before Push is offered.
-    // Finding out at the third step that the second one granted a pair of
-    // headphones is a worse place to find out.
+    // Then prove the tag is the thing it looks like, and learn which family it
+    // belongs to, before Push is offered. Finding out at the third step that
+    // the second one granted a pair of headphones is a worse place to find out.
     const server = await device.gatt.connect();
-    const service = await server.getPrimaryService(TAG_SERVICE);
-    await service.getCharacteristic(CONTROL_CHARACTERISTIC);
-    await service.getCharacteristic(DATA_CHARACTERISTIC);
+    const family = await familyOf(server);
     device.gatt.disconnect();
-    step("it serves FEF0 with both characteristics — ready to push");
+    if (!family) {
+      step("this device serves neither FEF0 nor the EPD-nRF5 service", "bad");
+      setStatus("that is not a tag this can write to", true);
+      return;
+    }
+    step(
+      family === "gicisky"
+        ? "it serves FEF0 with both characteristics — ready to push"
+        : "it serves the EPD-nRF5 service — ready to push, and it will say which panel it has",
+    );
 
+    state.family = family;
     state.device = device;
     $("#tag-name").textContent = device.name ?? "unnamed";
     $("#tag-name").hidden = false;
-    button.textContent = "Change";
+    // The label the spinner will fall back to when it clears, rather than the
+    // text itself: this is inside the try, and the restore happens after it.
+    button.dataset.label = "Change";
     setStatus(`tag ready: ${device.name ?? "unnamed"}`);
   } catch (error) {
     if (error?.name === "NotFoundError") {
       detectSteps = [];
       $("#warnings").innerHTML = "";
+      delete $("#warnings").dataset.mode;
       setStatus("no tag chosen");
     } else {
       step(`${error?.name ?? "Error"}: ${error?.message ?? error}`, "bad");
       setStatus(String(error?.message ?? error), true);
       state.device = null;
+      state.family = null;
       $("#tag-name").hidden = true;
+      // There is no tag any more, so the button is offering to choose one
+      // rather than to change it.
+      button.dataset.label = "Choose";
     }
   } finally {
+    working("#connect", null);
     button.disabled = false;
     showDetected();
     refreshSteps();
@@ -918,12 +1016,13 @@ function refreshSteps() {
   set("#step-tag", haveTag ? "done" : navigator.bluetooth ? "ready" : "blocked");
   set("#step-push", !haveTag || !drew ? "blocked" : "ready");
 
-  $("#push").disabled = !haveTag || !drew || !state.panel;
+  const needsPanel = state.family === "gicisky" && !state.panel;
+  $("#push").disabled = !haveTag || !drew || needsPanel;
   $("#push").title = !navigator.bluetooth
     ? "This browser has no Web Bluetooth. Chrome and Edge have it."
     : !haveTag
       ? "Choose a tag first."
-      : !state.panel
+      : needsPanel
         ? "A custom size is not a tag; choose a panel."
         : `Write this page to ${state.device?.name ?? "the tag"}.`;
   $("#connect").disabled = !navigator.bluetooth;
@@ -952,28 +1051,43 @@ const DATA_CHARACTERISTIC = 0xfef2;
 // already had, where a write is a call that returns when the radio says so.
 async function push() {
   const button = $("#push");
-  if (!state.panel) {
-    setStatus("choose a panel first — a custom size is not a tag", true);
-    return;
-  }
   if (!state.device) {
     setStatus("choose a tag first", true);
+    return;
+  }
+  // Gicisky needs a panel named because it advertises one and this build has
+  // to draw for it. EPD-nRF5 does not: it reports its model partway through
+  // the conversation, and asking beforehand would only be a chance to be wrong.
+  if (state.family === "gicisky" && !state.panel) {
+    setStatus("choose a panel first — a custom size is not a tag", true);
     return;
   }
 
   button.disabled = true;
   detectSteps = [];
+  // Unlike choosing, every part of this is the page working: there is no
+  // dialog in the middle of it.
+  working("#push", "Sending");
   const device = state.device;
   try {
     step(`connecting to "${device.name ?? "unnamed"}"`);
     const server = await device.gatt.connect();
-    const service = await server.getPrimaryService(TAG_SERVICE);
-    const control = await service.getCharacteristic(CONTROL_CHARACTERISTIC);
-    const data = await service.getCharacteristic(DATA_CHARACTERISTIC);
+    const nrf = state.family === "nrfepd";
+    const service = await server.getPrimaryService(nrf ? NRF_SERVICE : TAG_SERVICE);
+    // Gicisky talks over two characteristics and EPD-nRF5 over one, which is
+    // the only difference the page has to know: the worker asks for a write by
+    // name and this is where a name becomes a characteristic.
+    const channels = nrf
+      ? { write: await service.getCharacteristic(NRF_CHARACTERISTIC) }
+      : {
+          control: await service.getCharacteristic(CONTROL_CHARACTERISTIC),
+          data: await service.getCharacteristic(DATA_CHARACTERISTIC),
+        };
+    const listenOn = nrf ? channels.write : channels.control;
 
     state.api.on("write", async ({ id, which, bytes }) => {
       try {
-        await (which === "control" ? control : data).writeValue(bytes);
+        await channels[which].writeValue(bytes);
         state.api.post({ kind: "wrote", id });
       } catch (error) {
         state.api.post({ kind: "wrote", id, error: String(error?.message ?? error) });
@@ -984,21 +1098,22 @@ async function push() {
 
     // Notifications start before the first write, because the tag answers the
     // first command and an answer nobody is listening for is a stall.
-    control.addEventListener("characteristicvaluechanged", (event) => {
+    listenOn.addEventListener("characteristicvaluechanged", (event) => {
       const value = event.target.value;
       state.api.post({
         kind: "notify",
         bytes: new Uint8Array(value.buffer, value.byteOffset, value.byteLength),
       });
     });
-    await control.startNotifications();
-    step("listening on FEF1");
+    await listenOn.startNotifications();
+    step(nrf ? "listening on the EPD characteristic" : "listening on FEF1");
 
     const result = await state.api.upload({
       markup: editors.markup.value,
       css: editors.css.value,
       files: files(),
-      panel: state.panel,
+      panel: state.panel ?? "",
+      family: state.family,
     });
     if (!result.ok) {
       step(result.error, "bad");
@@ -1006,7 +1121,11 @@ async function push() {
       return;
     }
     step("the tag took the page and is refreshing");
-    setStatus(`pushed ${result.payloadBytes} B to ${device.name ?? "the tag"}`);
+    setStatus(
+      result.payloadBytes
+        ? `pushed ${result.payloadBytes} B to ${device.name ?? "the tag"}`
+        : `pushed to ${device.name ?? "the tag"}`,
+    );
   } catch (error) {
     step(`${error?.name ?? "Error"}: ${error?.message ?? error}`, "bad");
     setStatus(String(error?.message ?? error), true);
@@ -1021,6 +1140,7 @@ async function push() {
     } catch {
       // Already gone.
     }
+    working("#push", null);
     button.disabled = false;
     refreshSteps();
   }

@@ -21,11 +21,13 @@ import (
 	"fmt"
 	"image"
 	"syscall/js"
+	"time"
 
 	"github.com/xwvike/inkwire/internal/compose"
 	"github.com/xwvike/inkwire/internal/display"
 	"github.com/xwvike/inkwire/internal/gicisky"
 	"github.com/xwvike/inkwire/internal/markup"
+	"github.com/xwvike/inkwire/internal/nrfepd"
 	"github.com/xwvike/inkwire/internal/panel"
 	"github.com/xwvike/inkwire/internal/scene"
 	"github.com/xwvike/inkwire/internal/tag"
@@ -168,7 +170,7 @@ func renderJS(this js.Value, args []js.Value) any {
 	out := js.Global().Get("Object").New()
 	out.Set("ok", true)
 	if named {
-		out.Set("panel", known.String())
+		out.Set("panel", describe(known))
 		out.Set("flattened", flattenedJS(page.Flattened))
 		// What the tag would be sent. Nothing here writes it, but a page that
 		// will not fit is worth knowing about before the wire is involved.
@@ -309,7 +311,7 @@ func identifyJS(this js.Value, args []js.Value) any {
 	size := found.Size()
 	out.Set("identified", true)
 	out.Set("key", found.Family+":"+found.ID())
-	out.Set("panel", found.String())
+	out.Set("panel", describe(found))
 	out.Set("width", size.X)
 	out.Set("height", size.Y)
 	return out
@@ -382,6 +384,120 @@ func (t *browserTransport) write(fn js.Value, payload []byte) error {
 	return awaitPromise(fn.Invoke(buffer))
 }
 
+// nrfTransport is nrfepd's session transport over one browser characteristic.
+//
+// This family writes and listens on the same characteristic, so there is only
+// one write here where Gicisky has two.
+type nrfTransport struct {
+	write         js.Value
+	notifications chan []byte
+}
+
+func (t *nrfTransport) Notifications() <-chan []byte { return t.notifications }
+
+func (t *nrfTransport) Write(frame []byte) error {
+	if t.write.Type() != js.TypeFunction {
+		return errors.New("the page did not supply a write")
+	}
+	buffer := js.Global().Get("Uint8Array").New(len(frame))
+	js.CopyBytesToJS(buffer, frame)
+	return awaitPromise(t.write.Invoke(buffer))
+}
+
+// uploadNRFEPD writes a page to an EPD-nRF5 tag.
+//
+// The panel is not named by the caller and cannot be: this family keeps its
+// model in the firmware's own flash rather than in an advertisement, so it is
+// learned partway through the conversation. That is what PageFor is for — the
+// session asks for the page once the tag has said what shape it needs, and
+// this draws it then. A caller that had to choose the panel first would be
+// guessing, and a page built for the wrong size does not come out looking
+// wrong: it fills the panel with bytes that mean something else.
+func uploadNRFEPD(request call, wiring js.Value, warnings []compose.Warning) any {
+	transport := &nrfTransport{
+		write: wiring.Get("write"),
+		// Buffered because the tag answers while the session is still deciding
+		// to listen, and a notification dropped here stalls the conversation
+		// for the full response timeout.
+		notifications: make(chan []byte, 8),
+	}
+
+	logf := func(format string, values ...any) {}
+	if report := wiring.Get("log"); report.Type() == js.TypeFunction {
+		logf = func(format string, values ...any) {
+			report.Invoke(fmt.Sprintf(format, values...))
+		}
+	}
+
+	// Filled in when the tag says what it is, which is also when the page can
+	// be drawn. Read only after the session finishes, on the same goroutine.
+	var drawn int
+	page := func(model nrfepd.Model) (black, colour []byte, err error) {
+		known := panel.OfNRFEPD(model)
+		logf("the tag says it is %s", describe(known))
+		decoded, pageWarnings, err := document(request.markup, request.css, request.files)
+		if err != nil {
+			return nil, nil, err
+		}
+		result, packed, err := panel.Render(decoded, known)
+		if err != nil {
+			return nil, nil, err
+		}
+		// The page is drawn inside the conversation, so anything it lost has
+		// no answer to be attached to. It is logged instead, which is where
+		// the rest of this conversation is going.
+		for _, warning := range append(pageWarnings, result.Report.Warnings...) {
+			logf("%s: %s", warning.Code, warning.Message)
+		}
+		drawn = packed.Len()
+		return packed.Black, packed.Colour, nil
+	}
+
+	settle := js.Global().Get("Object").New()
+	var resolve, reject js.Value
+	promise := js.Global().Get("Promise").New(js.FuncOf(func(this js.Value, args []js.Value) any {
+		resolve, reject = args[0], args[1]
+		return nil
+	}))
+
+	notify := js.FuncOf(func(this js.Value, args []js.Value) any {
+		if len(args) == 0 || args[0].Type() != js.TypeObject {
+			return nil
+		}
+		value := make([]byte, args[0].Length())
+		js.CopyBytesToGo(value, args[0])
+		select {
+		case transport.notifications <- value:
+		default:
+			logf("dropped a notification: %x", value)
+		}
+		return nil
+	})
+
+	go func() {
+		defer notify.Release()
+		settle := nrfepd.DefaultSettle
+		if request.settleMs > 0 {
+			settle = time.Duration(request.settleMs) * time.Millisecond
+		}
+		timings := nrfepd.Timings{Response: nrfepd.DefaultResponseTimeout, Settle: settle}
+		if err := nrfepd.Session(context.Background(), transport, page, timings, logf); err != nil {
+			reject.Invoke(js.Global().Get("Error").New(err.Error()))
+			return
+		}
+		resolve.Invoke(js.ValueOf(drawn))
+	}()
+
+	settle.Set("ok", true)
+	settle.Set("notify", notify)
+	settle.Set("done", promise)
+	settle.Set("family", "nrfepd")
+	settle.Set("warnings", warningsJS(warnings))
+	// Unlike Gicisky there is no size to report yet: the tag has not been asked
+	// what it is. It says so in the log when it answers.
+	return settle
+}
+
 // uploadJS draws a page for a panel and writes it to a tag the page has
 // already connected to.
 //
@@ -400,20 +516,24 @@ func uploadJS(this js.Value, args []js.Value) any {
 	}
 	wiring := request.transport
 	if wiring.Type() != js.TypeObject {
-		return failure(errors.New("upload needs a transport with writeControl and writeData"), nil)
+		return failure(errors.New("upload needs a transport"), nil)
+	}
+
+	// The two families do not agree on when the panel is known, so they do not
+	// agree on what an upload needs. A Gicisky tag advertises its model, so the
+	// page names one and this draws for it; an EPD-nRF5 tag keeps it in
+	// firmware, so nothing can be named and the session asks for the page once
+	// the tag has answered. The page says which service it found.
+	if request.family == tag.NRFEPD {
+		return uploadNRFEPD(request, wiring, nil)
 	}
 
 	known, err := panel.ByKey(request.panel)
 	if err != nil {
 		return failure(err, nil)
 	}
-	// Only one family is spoken here. EPD-nRF5 has its own session, which asks
-	// the tag what it is after connecting rather than before, and pretending
-	// one uploader drives both would be a worse answer than saying so.
 	if known.Family != tag.Gicisky {
-		return failure(fmt.Errorf(
-			"%s is an EPD-nRF5 panel, and only Gicisky tags can be written from the browser so far",
-			known), nil)
+		return failure(fmt.Errorf("%s is not a Gicisky panel", known), nil)
 	}
 
 	decoded, warnings, err := document(request.markup, request.css, request.files)
@@ -487,7 +607,7 @@ func uploadJS(this js.Value, args []js.Value) any {
 	settle.Set("notify", notify)
 	settle.Set("done", promise)
 	settle.Set("payloadBytes", len(page.Bytes))
-	settle.Set("panel", known.String())
+	settle.Set("panel", describe(known))
 	settle.Set("warnings", warningsJS(warnings))
 	return settle
 }
@@ -525,7 +645,7 @@ func payloadJS(this js.Value, args []js.Value) any {
 
 	out := js.Global().Get("Object").New()
 	out.Set("ok", true)
-	out.Set("panel", known.String())
+	out.Set("panel", describe(known))
 	out.Set("warnings", warningsJS(warnings))
 	// Gicisky takes one buffer; EPD-nRF5 takes a black plane and, on a colour
 	// panel, a second. Which fields are set follows the family, the same way
@@ -558,8 +678,16 @@ type call struct {
 	markup, css   string
 	files         map[string][]byte
 	panel         string
+	family        string
 	width, height int
-	transport     js.Value
+	// settleMs is how long to wait for an EPD-nRF5 panel to finish drawing,
+	// which the command exposes as -settle for the same reason: the default is
+	// thirty seconds and there is no way to know it from here. Zero means the
+	// default; the command's "no wait at all" is not reachable from a page,
+	// because a page that returned before the tag stopped drawing would invite
+	// a second push into the middle of the first.
+	settleMs  int
+	transport js.Value
 }
 
 func readCall(args []js.Value) (call, error) {
@@ -571,6 +699,8 @@ func readCall(args []js.Value) (call, error) {
 		markup:    text(fields, "markup"),
 		css:       text(fields, "css"),
 		panel:     text(fields, "panel"),
+		family:    text(fields, "family"),
+		settleMs:  number(fields, "settleMs"),
 		files:     resources(fields.Get("files")),
 		width:     number(fields, "width"),
 		height:    number(fields, "height"),
@@ -610,6 +740,22 @@ func warningsJS(warnings []compose.Warning) js.Value {
 		array.Call("push", item)
 	}
 	return array
+}
+
+// describe names a panel for the page.
+//
+// It is deliberately not panel.String(), which ends with "(unverified)" when
+// nobody has checked the catalogue entry against real hardware. That is a fact
+// about this project rather than about the tag — the firmware is the same
+// either way — so it belongs in the command's output, where the reader is
+// diagnosing, and not in front of someone choosing a panel to draw for.
+func describe(p panel.Panel) string {
+	size := p.Size()
+	palette := p.Gicisky.Palette.String()
+	if p.Family == tag.NRFEPD {
+		palette = p.NRFEPD.Palette.String()
+	}
+	return fmt.Sprintf("%s %dx%d %s", p.Name(), size.X, size.Y, palette)
 }
 
 // flattenedJS reports the inks the panel could not show, which were drawn
