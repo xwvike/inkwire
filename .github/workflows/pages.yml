@@ -1,0 +1,63 @@
+name: Pages
+
+# The studio is built rather than stored: inkwire.wasm is 16 MB and changes
+# with every commit to the renderer, so it is in .gitignore and made here.
+#
+# Web Bluetooth needs a secure context, which is the reason this is worth
+# deploying at all — the page can push to a tag from anywhere over HTTPS, and
+# from nowhere over HTTP but localhost.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time, and a newer push wins rather than queueing behind
+# a build whose result is already out of date.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Build the studio
+        run: ./web/build.sh
+
+      # The checks that can run without a browser, so a page that cannot draw
+      # what the command draws is never deployed. parity needs the command
+      # beside it.
+      - name: Check it
+        run: |
+          go build -o web/verify/inkwire ./cmd/inkwire
+          node web/verify/parity.mjs
+          node web/verify/completions.mjs
+          node web/verify/starters.mjs
+          node web/verify/calls.mjs
+          node web/verify/push.mjs
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/static
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
