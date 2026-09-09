@@ -119,7 +119,8 @@
   </section>
 </main>
 
-<script src="wasm_exec.js"></script>
+<!-- The renderer lives in worker.js, which loads wasm_exec.js itself. This
+     thread never touches the module, so it does not carry the runtime. -->
 <script type="module" src="app.js"></script>
 </body>
 </html>

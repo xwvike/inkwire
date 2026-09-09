@@ -26,7 +26,7 @@ like a cache. It looks like the layout is broken.
 |---|---|
 | Editor | CodeMirror 6 — highlighting, undo history, search, bracket matching, multiple cursors |
 | Completion | This renderer's 89 properties and their values, generated from `MARKUP.md`, plus the SVG elements it draws |
-| Preview | The rendered frame at 1×–6×, nearest-neighbour, on a paper ground — with the panel's own palette, so an ink it cannot show is flattened here exactly as the tag would flatten it |
+| Preview | The rendered frame at 1×–6×, nearest-neighbour, on a paper ground, drawn in a worker so that typing never waits on it — with the panel's own palette, so an ink it cannot show is flattened here exactly as the tag would flatten it |
 | Layout | Every node and the box it ended up in — the `measure` command |
 | Scene | What the CSS compiled to — the `compile` command |
 | Report | Every declaration the renderer could not honour, and every glyph no bundled font could draw |
@@ -43,15 +43,17 @@ rather than asserted:
 node web/verify/parity.mjs       # wasm vs CLI, byte for byte, on every example
 node web/verify/completions.mjs  # every completion offered actually renders
 node web/verify/starters.mjs     # the pages the editor opens with render clean
-node web/verify/calls.mjs        # the page calls nothing that does not exist
+node web/verify/calls.mjs        # the page and the worker call nothing that does not exist, and agree on their messages
 node web/verify/push.mjs         # a whole upload, into a tag that is not there
 ```
 
 `parity.mjs` needs the CLI beside it: `go build -o web/verify/inkwire ./cmd/inkwire`.
 
-`calls.mjs` is there because a browser is the only thing that runs `app.js`,
-and a ReferenceError in it is silent to everything else — the module keeps
-working, the preview keeps drawing, and one tab quietly stops filling in.
+`calls.mjs` is there because a browser is the only thing that runs `app.js` and
+`worker.js`, and a ReferenceError in either is silent to everything else — the
+module keeps working, the preview keeps drawing, and one tab quietly stops
+filling in. It also compares the two sides of the worker's postMessage
+contract, where a renamed op is a call that never answers.
 
 At the time of writing every example page produces identical PNG bytes from
 the module and from the command — 93 renders, each page as a bare viewport and

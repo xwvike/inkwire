@@ -331,23 +331,54 @@ const state = {
   pending: 0,
 };
 
-async function boot() {
-  const go = new Go();
-  const ready = new Promise((resolve) => {
-    globalThis.inkwireReady = resolve;
-  });
-  // Streaming needs the server to say application/wasm. Plenty of static file
-  // servers do not, and falling back is cheaper than requiring one.
-  let module;
-  try {
-    module = await WebAssembly.instantiateStreaming(fetch("inkwire.wasm"), go.importObject);
-  } catch {
-    const bytes = await (await fetch("inkwire.wasm")).arrayBuffer();
-    module = await WebAssembly.instantiate(bytes, go.importObject);
-  }
-  go.run(module.instance);
-  await ready;
-  return globalThis.inkwire;
+// The renderer runs in a worker, so the only thing on this thread is the page.
+// Every call is a message with an id and every answer is a promise; the worker
+// also speaks on its own initiative, for the two things an upload needs — a
+// characteristic write it cannot perform, and the uploader's own log.
+function startWorker() {
+  const worker = new Worker("worker.js");
+  const waiting = new Map();
+  let next = 0;
+  const handlers = { write: null, log: null, sending: null };
+
+  worker.onmessage = (event) => {
+    const message = event.data;
+    if (message.kind) {
+      handlers[message.kind]?.(message);
+      return;
+    }
+    const pending = waiting.get(message.id);
+    waiting.delete(message.id);
+    if (!pending) return;
+    if (message.ok) pending.resolve(message.result);
+    else pending.reject(new Error(message.error));
+  };
+
+  worker.onerror = (event) => {
+    for (const [, pending] of waiting) pending.reject(new Error(event.message ?? "the worker failed"));
+    waiting.clear();
+    setStatus(`renderer failed: ${event.message ?? "worker error"}`, true);
+  };
+
+  const call = (op, request) =>
+    new Promise((resolve, reject) => {
+      const id = ++next;
+      waiting.set(id, { resolve, reject });
+      worker.postMessage({ id, op, request });
+    });
+
+  return {
+    render: (request) => call("render", request),
+    compile: (request) => call("compile", request),
+    measure: (request) => call("measure", request),
+    payload: (request) => call("payload", request),
+    identify: (bytes) => call("identify", { bytes }),
+    upload: (request) => call("upload", request),
+    on(kind, handler) {
+      handlers[kind] = handler;
+    },
+    post: (message) => worker.postMessage(message),
+  };
 }
 
 function setStatus(text, bad) {
@@ -359,25 +390,39 @@ function setStatus(text, bad) {
 // render runs the whole pipeline and puts every part of the answer somewhere a
 // person can see it: the picture, the boxes it was laid out in, the scene it
 // compiled to, and everything the renderer could not honour.
-function render() {
+// Answers can arrive out of order, and an older one painted over a newer one
+// is worse than no answer at all: it shows a page that is not the one on
+// screen. Every render carries the number it was started with, and only the
+// latest is allowed to land.
+let renderCount = 0;
+
+async function render() {
   if (!state.api) return;
   const markup = editors.markup.value;
   const css = editors.css.value;
   const { width, height } = state.size;
   const started = performance.now();
+  const mine = ++renderCount;
 
   // Naming the panel is what makes this the panel's own picture: inks it
   // cannot show are flattened the way the tag would flatten them, and what was
   // flattened comes back to be reported. A custom size has no palette to check
   // against, so it renders as drawn.
-  const result = state.api.render({
-    markup,
-    css,
-    width,
-    height,
-    files: files(),
-    panel: state.panel ?? "",
-  });
+  let result;
+  try {
+    result = await state.api.render({
+      markup,
+      css,
+      width,
+      height,
+      files: files(),
+      panel: state.panel ?? "",
+    });
+  } catch (error) {
+    if (mine === renderCount) setStatus(String(error?.message ?? error), true);
+    return;
+  }
+  if (mine !== renderCount) return;
   const elapsed = performance.now() - started;
   $("#timing").textContent = `${elapsed.toFixed(1)} ms`;
 
@@ -407,8 +452,8 @@ function render() {
   setStatus(result.ok ? drawn : (result.error ?? "render failed"), !result.ok);
   report(result);
 
-  if (state.view === "scene") refreshScene(markup, css);
-  if (state.view === "measure") refreshMeasure(markup, css, width, height);
+  if (state.view === "scene") void refreshScene(markup, css);
+  if (state.view === "measure") void refreshMeasure(markup, css, width, height);
   if (resources.size > 0) drawFileList();
   refreshSteps();
 }
@@ -444,15 +489,15 @@ function report(result) {
     : "";
 }
 
-function refreshScene(markup, css) {
-  const compiled = state.api.compile({ markup, css, files: files() });
+async function refreshScene(markup, css) {
+  const compiled = await state.api.compile({ markup, css, files: files() });
   $("#scene").textContent = compiled.ok
     ? JSON.stringify(JSON.parse(compiled.json), null, 2)
     : compiled.error ?? "";
 }
 
-function refreshMeasure(markup, css, width, height) {
-  const measured = state.api.measure({ markup, css, width, height, files: files() });
+async function refreshMeasure(markup, css, width, height) {
+  const measured = await state.api.measure({ markup, css, width, height, files: files() });
   const body = $("#nodes");
   body.innerHTML = "";
   for (const node of measured.nodes ?? []) {
@@ -801,7 +846,7 @@ async function chooseTag() {
       try {
         step("reading the advertisement for the model");
         const bytes = await readAdvertisement(device);
-        const found = state.api.identify(bytes);
+        const found = await state.api.identify(bytes);
         if (found.ok) {
           state.detected = found;
           if (found.identified) {
@@ -897,6 +942,14 @@ const DATA_CHARACTERISTIC = 0xfef2;
 //
 // Writes are acknowledged. Both the command and the reference upload page do
 // it that way, and the tag's flow control is built on the acknowledgement.
+// Step 3. The tag was chosen and checked at step 2, so this asks nothing and
+// decides nothing: it connects, hands the page to the uploader in the worker,
+// and carries bytes between the two.
+//
+// The uploader is in the worker and the characteristics are here, because a
+// GATT characteristic exists only on this thread. So the worker asks for each
+// write and this answers when it is done — which is the same shape the Go side
+// already had, where a write is a call that returns when the radio says so.
 async function push() {
   const button = $("#push");
   if (!state.panel) {
@@ -911,7 +964,6 @@ async function push() {
   button.disabled = true;
   detectSteps = [];
   const device = state.device;
-  let session = null;
   try {
     step(`connecting to "${device.name ?? "unnamed"}"`);
     const server = await device.gatt.connect();
@@ -919,40 +971,49 @@ async function push() {
     const control = await service.getCharacteristic(CONTROL_CHARACTERISTIC);
     const data = await service.getCharacteristic(DATA_CHARACTERISTIC);
 
+    state.api.on("write", async ({ id, which, bytes }) => {
+      try {
+        await (which === "control" ? control : data).writeValue(bytes);
+        state.api.post({ kind: "wrote", id });
+      } catch (error) {
+        state.api.post({ kind: "wrote", id, error: String(error?.message ?? error) });
+      }
+    });
+    state.api.on("log", ({ text }) => step(text));
+    state.api.on("sending", ({ payloadBytes, panel }) => step(`sending ${payloadBytes} bytes for ${panel}`));
+
     // Notifications start before the first write, because the tag answers the
     // first command and an answer nobody is listening for is a stall.
     control.addEventListener("characteristicvaluechanged", (event) => {
       const value = event.target.value;
-      session?.notify(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+      state.api.post({
+        kind: "notify",
+        bytes: new Uint8Array(value.buffer, value.byteOffset, value.byteLength),
+      });
     });
     await control.startNotifications();
     step("listening on FEF1");
 
-    session = state.api.upload({
+    const result = await state.api.upload({
       markup: editors.markup.value,
       css: editors.css.value,
       files: files(),
       panel: state.panel,
-      transport: {
-        writeControl: (bytes) => control.writeValue(bytes),
-        writeData: (bytes) => data.writeValue(bytes),
-        log: (text) => step(text),
-      },
     });
-    if (!session.ok) {
-      step(session.error, "bad");
-      setStatus(session.error, true);
+    if (!result.ok) {
+      step(result.error, "bad");
+      setStatus(result.error, true);
       return;
     }
-    step(`sending ${session.payloadBytes} bytes for ${session.panel}`);
-
-    await session.done;
     step("the tag took the page and is refreshing");
-    setStatus(`pushed ${session.payloadBytes} B to ${device.name ?? "the tag"}`);
+    setStatus(`pushed ${result.payloadBytes} B to ${device.name ?? "the tag"}`);
   } catch (error) {
     step(`${error?.name ?? "Error"}: ${error?.message ?? error}`, "bad");
     setStatus(String(error?.message ?? error), true);
   } finally {
+    state.api.on("write", null);
+    state.api.on("log", null);
+    state.api.on("sending", null);
     // A tag left connected refuses the next attempt, and the next attempt is
     // the one where whatever went wrong gets looked at again.
     try {
@@ -1287,10 +1348,14 @@ function loadStarters() {
   editors.markup.value = first.markup;
   editors.css.value = first.css;
   try {
-    state.api = await boot();
+    state.api = startWorker();
+    // The first call is also the proof it started: the worker instantiates the
+    // module on its first message, so a failure surfaces here rather than at
+    // the first keystroke.
+    await state.api.compile({ markup: "<div></div>", css: "" });
     setStatus("ready");
-    render();
+    await render();
   } catch (error) {
-    setStatus(`renderer failed to load: ${error}`, true);
+    setStatus(`renderer failed to load: ${error?.message ?? error}`, true);
   }
 })();

@@ -21,8 +21,9 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..", "..");
-const file = path.join(root, "web", "static", "app.js");
-const source = fs.readFileSync(file, "utf8");
+// Both files run only in a browser, and neither is reached by any other check
+// here: app.js on the page's thread, worker.js on the renderer's.
+const FILES = ["app.js", "worker.js"];
 
 // Comments and string bodies are not code, and both are full of prose that
 // reads like a call. Template literals keep their ${...} parts, which are.
@@ -85,6 +86,15 @@ function stripNonCode(text) {
   return out;
 }
 
+let failures = 0;
+
+for (const name of FILES) {
+  failures += check(name, fs.readFileSync(path.join(root, "web", "static", name), "utf8"));
+}
+failures += checkMessageContract();
+process.exit(failures === 0 ? 0 : 1);
+
+function check(file, source) {
 const code = stripNonCode(source);
 
 // Names the file brings into scope. Parameters are included because a callback
@@ -123,6 +133,7 @@ const KNOWN = new Set([
   "parseFloat", "parseInt", "performance", "queueMicrotask",
   "requestAnimationFrame", "setInterval", "setTimeout", "structuredClone",
   "window", "AbortController", "AbortSignal", "Event", "CustomEvent",
+  "Worker", "MessageChannel", "Blob", "importScripts", "self", "postMessage",
   "DOMException", "BluetoothUUID", "DataView", "ArrayBuffer",
   // Keywords and operators that a naive scan reads as calls.
   "if", "for", "while", "switch", "catch", "return", "typeof", "function",
@@ -159,10 +170,47 @@ for (const match of code.matchAll(/\.(?:map|filter|forEach|find|some|every|sort)
 
 for (const [name, where] of missing) {
   console.log(
-    `  FAIL  app.js:${where.line}  ${name} is ${where.how} and never declared, imported or standard`,
+    `  FAIL  ${file}:${where.line}  ${name} is ${where.how} and never declared, imported or standard`,
   );
 }
-console.log(
-  `\n${declared.size} names in scope, ${missing.size} missing`,
-);
-process.exit(missing.size === 0 ? 0 : 1);
+console.log(`  ${file}: ${declared.size} names in scope, ${missing.size} missing`);
+return missing.size;
+}
+
+// The page and the worker only ever meet through postMessage, so nothing
+// checks that they agree — a renamed op is a call that silently never answers,
+// and a renamed kind is a message quietly dropped. Both sides are read for the
+// names they use and the two sets are compared.
+function checkMessageContract() {
+  const app = fs.readFileSync(path.join(root, "web", "static", "app.js"), "utf8");
+  const worker = fs.readFileSync(path.join(root, "web", "static", "worker.js"), "utf8");
+
+  const names = (text, pattern) => new Set([...text.matchAll(pattern)].map((m) => m[1]));
+
+  // Ops: the page calls them, the worker's switch answers them.
+  const sent = names(app, /\bcall\("(\w+)"/g);
+  const handled = names(worker, /^\s*case "(\w+)":/gm);
+  // Kinds: the worker announces them, the page registers handlers for them.
+  const announced = names(worker, /postMessage\(\{\s*kind:\s*"(\w+)"/g);
+  const listened = names(app, /\.on\("(\w+)"/g);
+  // And the reverse: kinds the page posts, which the worker reads by name.
+  const posted = names(app, /post\(\{\s*kind:\s*"(\w+)"/g);
+  const read = names(worker, /message\.kind === "(\w+)"/g);
+
+  let wrong = 0;
+  const compare = (label, from, to, fromName, toName) => {
+    for (const name of from) {
+      if (to.has(name)) continue;
+      wrong++;
+      console.log(`  FAIL  ${label}: ${fromName} uses "${name}" and ${toName} never handles it`);
+    }
+  };
+  compare("op", sent, handled, "app.js", "worker.js");
+  compare("kind", announced, listened, "worker.js", "app.js");
+  compare("kind", posted, read, "app.js", "worker.js");
+
+  console.log(
+    `  contract: ${sent.size} ops, ${announced.size + posted.size} message kinds, ${wrong} unmatched`,
+  );
+  return wrong;
+}
