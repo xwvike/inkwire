@@ -39,6 +39,7 @@ func main() {
 	api.Set("compile", js.FuncOf(compileJS))
 	api.Set("measure", js.FuncOf(measureJS))
 	api.Set("identify", js.FuncOf(identifyJS))
+	api.Set("identifyNRFEPD", js.FuncOf(identifyNRFEPDJS))
 	api.Set("upload", js.FuncOf(uploadJS))
 	api.Set("payload", js.FuncOf(payloadJS))
 	js.Global().Set("inkwire", api)
@@ -260,6 +261,45 @@ func measureJS(this js.Value, args []js.Value) any {
 	if renderErr != nil {
 		out.Set("error", renderErr.Error())
 	}
+	return out
+}
+
+// identifyNRFEPDJS reads the configuration an EPD-nRF5 tag answers an init
+// with, and says which panel is in front of the page.
+//
+// This family keeps its model in the firmware's own flash rather than in an
+// advertisement, so the only way to learn it is to connect, write the init and
+// read what comes back — which is why the page could not name the panel before
+// and had to ask somebody to pick one. The bytes are byte 7 of epd_config_t
+// and the rest of the pin map, and this does the same lookup the session does
+// so that the two cannot disagree about what a tag is.
+func identifyNRFEPDJS(this js.Value, args []js.Value) any {
+	if len(args) < 1 || args[0].Type() != js.TypeObject {
+		return failure(errors.New("identifyNRFEPD needs the configuration as bytes"), nil)
+	}
+	data := make([]byte, args[0].Length())
+	js.CopyBytesToGo(data, args[0])
+
+	config, err := nrfepd.ParseConfig(data)
+	if err != nil {
+		return failure(err, nil)
+	}
+	out := js.Global().Get("Object").New()
+	model, known := config.Model()
+	if !known {
+		// A tag this build has no entry for is still a tag. Saying which id it
+		// reported is what somebody would need to add it.
+		out.Set("ok", true)
+		out.Set("identified", false)
+		out.Set("id", fmt.Sprintf("0x%02X", config.ModelID))
+		return out
+	}
+	found := panel.OfNRFEPD(model)
+	out.Set("ok", true)
+	out.Set("identified", true)
+	out.Set("id", fmt.Sprintf("0x%02X", config.ModelID))
+	out.Set("key", found.Family+":"+found.ID())
+	out.Set("panel", describe(found))
 	return out
 }
 

@@ -86,12 +86,58 @@ function stripNonCode(text) {
   return out;
 }
 
+// The object the worker hands the module, against the keys the module reads
+// out of it.
+//
+// This is a third contract, and the one that had nobody watching it. push.mjs
+// drives the module with a transport it builds itself, so it proves the Go
+// side and says nothing about the worker; the message contract above is
+// between the page and the worker, which is a different pair. In between sat
+// the object worker.js passes into api.upload, and when EPD-nRF5 was added to
+// the module and to the page, the worker was left supplying only the two keys
+// Gicisky needs. The tag connected, the notifications arrived, and the first
+// write failed with "the page did not supply a write".
+//
+// The keys come out of main.go rather than a list here, because a list here
+// would be one more copy to forget.
+function checkTransportWiring() {
+  const module = fs.readFileSync(path.join(root, "web", "wasm", "main.go"), "utf8");
+  const worker = stripNonCode(fs.readFileSync(path.join(root, "web", "static", "worker.js"), "utf8"));
+
+  const wanted = new Set();
+  for (const [, key] of module.matchAll(/wiring\.Get\("(\w+)"\)/g)) wanted.add(key);
+  if (wanted.size < 3) {
+    console.log(`  FAIL  wiring: found ${wanted.size} keys in main.go, which cannot be right`);
+    return 1;
+  }
+
+  // The transport literal, so a key named anywhere else in the worker does not
+  // count as supplying one.
+  const literal = worker.match(/transport:\s*\{([\s\S]*?)\n\s*\},/);
+  if (!literal) {
+    console.log("  FAIL  wiring: worker.js has no transport object");
+    return 1;
+  }
+  const supplied = new Set();
+  for (const [, key] of literal[1].matchAll(/(\w+):/g)) supplied.add(key);
+
+  let wrong = 0;
+  for (const key of wanted) {
+    if (supplied.has(key)) continue;
+    wrong++;
+    console.log(`  FAIL  wiring: the module reads transport.${key} and worker.js never supplies it`);
+  }
+  console.log(`  wiring: ${wanted.size} keys read, ${wrong} unsupplied`);
+  return wrong;
+}
+
 let failures = 0;
 
 for (const name of FILES) {
   failures += check(name, fs.readFileSync(path.join(root, "web", "static", name), "utf8"));
 }
 failures += checkMessageContract();
+failures += checkTransportWiring();
 process.exit(failures === 0 ? 0 : 1);
 
 function check(file, source) {

@@ -375,6 +375,7 @@ function startWorker() {
     measure: (request) => call("measure", request),
     payload: (request) => call("payload", request),
     identify: (bytes) => call("identify", { bytes }),
+    identifyNRFEPD: (bytes) => call("identifyNRFEPD", { bytes }),
     upload: (request) => call("upload", request),
     on(kind, handler) {
       handlers[kind] = handler;
@@ -893,6 +894,82 @@ async function familyOf(server) {
   }
 }
 
+// Ask an EPD-nRF5 tag which panel it has, the only way there is to ask.
+//
+// This family keeps its model in the firmware's flash rather than in an
+// advertisement, so nothing is known about it until it is connected to and
+// sent an init — which is why the page used to make somebody pick a panel for
+// a tag that knew perfectly well what it was. The reference tool does the same
+// thing on connect, and the init only powers the panel up; the firmware puts
+// it back to sleep when the connection ends.
+//
+// The tag answers with several notifications and only one of them is the
+// configuration. The rest are lines of text — slots, a session id, the link's
+// message size — so the binary one is the one that is not text, which is the
+// same rule internal/nrfepd uses.
+const NRF_CONFIG_WAIT = 6000;
+
+function looksLikeText(bytes) {
+  if (bytes.length === 0) return false;
+  return bytes.every((b) => b >= 0x20 && b <= 0x7e);
+}
+
+async function askNRFEPDPanel(server) {
+  const service = await server.getPrimaryService(NRF_SERVICE);
+  const characteristic = await service.getCharacteristic(NRF_CHARACTERISTIC);
+
+  let settle;
+  const answered = new Promise((resolve) => {
+    settle = resolve;
+  });
+  const listener = (event) => {
+    const value = event.target.value;
+    const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    if (!looksLikeText(bytes)) settle(bytes.slice());
+  };
+
+  characteristic.addEventListener("characteristicvaluechanged", listener);
+  try {
+    await characteristic.startNotifications();
+    await characteristic.writeValue(Uint8Array.of(0x01));
+    const config = await Promise.race([
+      answered,
+      new Promise((resolve) => setTimeout(() => resolve(null), NRF_CONFIG_WAIT)),
+    ]);
+    if (!config) return null;
+    return state.api.identifyNRFEPD(config);
+  } finally {
+    characteristic.removeEventListener("characteristicvaluechanged", listener);
+    // Leaving notifications on would keep delivering into a listener that is
+    // gone; the connection is about to be dropped either way.
+    try {
+      await characteristic.stopNotifications();
+    } catch {
+      // The tag may already be going; nothing here depends on it.
+    }
+  }
+}
+
+// Hold the panel list to the one the tag reported.
+//
+// A tag that has said what it is leaves nothing to choose, and an editable
+// list invites choosing wrong — the preview would then be drawn for a panel
+// that is not the one being written to. The options stay visible rather than
+// being removed, so it is clear what was decided and by whom.
+function lockPanelTo(key) {
+  const select = $("#panel");
+  for (const option of select.options) option.disabled = option.value !== key;
+  select.value = key;
+  select.dispatchEvent(new Event("change"));
+  $("#step-panel").classList.add("is-fixed");
+}
+
+function unlockPanels() {
+  const select = $("#panel");
+  for (const option of select.options) option.disabled = false;
+  $("#step-panel").classList.remove("is-fixed");
+}
+
 // Step 2. Granting, identifying and checking are one action because they are
 // one question — "which tag, and is it the one this page is drawn for?" — and
 // because splitting them made the page ask for the same tag twice.
@@ -953,6 +1030,18 @@ async function chooseTag() {
     // the second one granted a pair of headphones is a worse place to find out.
     const server = await device.gatt.connect();
     const family = await familyOf(server);
+    // An EPD-nRF5 tag is asked what it is while the connection is still open,
+    // because that answer is the whole reason this family needs no panel
+    // picked for it.
+    let reported = null;
+    if (family === "nrfepd") {
+      try {
+        step("asking the tag which panel it has");
+        reported = await askNRFEPDPanel(server);
+      } catch (error) {
+        step(`could not ask the tag: ${error?.message ?? error}`);
+      }
+    }
     device.gatt.disconnect();
     if (!family) {
       step("this device serves neither FEF0 nor the EPD-nRF5 service", "bad");
@@ -965,6 +1054,21 @@ async function chooseTag() {
         : "it serves the EPD-nRF5 service — ready to push, and it will say which panel it has",
     );
 
+    if (family === "nrfepd") {
+      if (reported?.ok && reported.identified) {
+        step(`the tag says it is ${reported.panel}`);
+        lockPanelTo(reported.key);
+      } else if (reported?.ok) {
+        step(`the tag reports model ${reported.id}, which this build has no entry for`, "bad");
+        unlockPanels();
+      } else {
+        step("the tag did not say which panel it has; pick one", "bad");
+        unlockPanels();
+      }
+    } else {
+      unlockPanels();
+    }
+
     state.family = family;
     state.device = device;
     $("#tag-name").textContent = device.name ?? "unnamed";
@@ -972,6 +1076,7 @@ async function chooseTag() {
     // The label the spinner will fall back to when it clears, rather than the
     // text itself: this is inside the try, and the restore happens after it.
     button.dataset.label = "Change";
+    $("#clear").hidden = false;
     setStatus(`tag ready: ${device.name ?? "unnamed"}`);
   } catch (error) {
     if (error?.name === "NotFoundError") {
@@ -995,6 +1100,39 @@ async function chooseTag() {
     showDetected();
     refreshSteps();
   }
+}
+
+// Stop pointing at the chosen tag.
+//
+// Named for what it does. There is no connection to end here: this page
+// disconnects after identifying a tag and again after every push, because a
+// tag left connected refuses the next attempt — so by the time anyone reaches
+// for this, the radio is already idle. Nor does it hand the browser's grant
+// back; that would be device.forget(), which is not called, and the grant
+// lasts as long as the page does either way.
+//
+// What is actually cleared is this page's idea of which tag it is writing to,
+// and the panel that tag had locked. The disconnect is a safety net for the
+// case where something did leave a connection open.
+function clearTag() {
+  try {
+    state.device?.gatt?.disconnect();
+  } catch {
+    // Already gone, which is the state this is asking for.
+  }
+  state.device = null;
+  state.family = null;
+  state.detected = null;
+  unlockPanels();
+  $("#tag-name").hidden = true;
+  $("#clear").hidden = true;
+  const button = $("#connect");
+  button.dataset.label = "Choose";
+  button.textContent = "Choose";
+  detectSteps = [];
+  showDetected();
+  setStatus("no tag chosen");
+  refreshSteps();
 }
 
 // Which step is asking for attention, which are satisfied, and which cannot be
@@ -1228,6 +1366,7 @@ for (const input of [$("#size-w"), $("#size-h")]) {
 }
 
 $("#connect").addEventListener("click", chooseTag);
+$("#clear").addEventListener("click", clearTag);
 $("#push").addEventListener("click", push);
 
 // Step 2 says up front what it will and will not be able to do, because the

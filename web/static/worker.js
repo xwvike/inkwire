@@ -97,12 +97,24 @@ self.onmessage = async (event) => {
         self.postMessage({ id, ok: true, result: api.identify(request.bytes) });
         return;
       }
+      // The same question for the other family, whose answer arrives over the
+      // connection rather than in an advertisement.
+      case "identifyNRFEPD": {
+        self.postMessage({ id, ok: true, result: api.identifyNRFEPD(request.bytes) });
+        return;
+      }
       case "upload": {
         session = api.upload({
           ...request,
           transport: {
+            // Gicisky talks over two characteristics and EPD-nRF5 over one, so
+            // the module reads a different key for each and the page turns a
+            // name into a characteristic. Only the first family was wired here
+            // when the second was added, and the module said so the only way it
+            // could: "the page did not supply a write".
             writeControl: (bytes) => proxyWrite("control", bytes),
             writeData: (bytes) => proxyWrite("data", bytes),
+            write: (bytes) => proxyWrite("write", bytes),
             log: (text) => self.postMessage({ kind: "log", text }),
           },
         });
@@ -114,10 +126,20 @@ self.onmessage = async (event) => {
         // The answer to "did it arrive" is the one worth waiting for, so the
         // reply is held until the upload settles rather than sent when it
         // starts. What the page needs meanwhile comes as log messages.
-        self.postMessage({ kind: "sending", payloadBytes: session.payloadBytes, panel: session.panel });
+        // Gicisky knows its panel and its payload before it connects, so it can
+        // say what it is about to send. EPD-nRF5 cannot: the tag names its own
+        // panel partway through the conversation and the module logs that when
+        // it answers. "sending undefined bytes for undefined" is worse than
+        // saying nothing at all.
+        if (session.payloadBytes !== undefined) {
+          self.postMessage({ kind: "sending", payloadBytes: session.payloadBytes, panel: session.panel });
+        }
         try {
-          await session.done;
-          self.postMessage({ id, ok: true, result: { ok: true, payloadBytes: session.payloadBytes } });
+          // The upload settles with the byte count for the family that only
+          // learns it on the way, and with nothing to add for the one that knew
+          // it all along.
+          const sent = await session.done;
+          self.postMessage({ id, ok: true, result: { ok: true, payloadBytes: session.payloadBytes ?? sent } });
         } finally {
           session = null;
           // Anything still waiting cannot be answered now.

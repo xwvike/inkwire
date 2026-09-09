@@ -634,3 +634,11 @@ body.is-dropping::after {
   .split { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
   .editor-pane { border-right: 0; border-bottom: 1px solid var(--line); }
 }
+
+/* A panel the tag itself named. The list stays visible so it is clear what was
+   decided, but nothing in it can be picked — choosing another would draw the
+   preview for a panel that is not the one being written to. */
+.step.is-fixed select {
+  opacity: 0.75;
+  cursor: not-allowed;
+}
