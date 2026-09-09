@@ -10,16 +10,35 @@
 
 <header class="bar">
   <h1>Inkwire<span>Studio</span></h1>
-  <label class="field">
-    <span>Panel</span>
-    <select id="panel"></select>
-  </label>
-  <label class="field" id="custom-size" hidden>
-    <span>Size</span>
-    <input id="size-w" type="number" min="1" max="4000" value="296" aria-label="width">
-    <em>×</em>
-    <input id="size-h" type="number" min="1" max="4000" value="128" aria-label="height">
-  </label>
+
+  <ol class="steps">
+    <li class="step" id="step-panel">
+      <span class="n">1</span>
+      <span class="what">Panel</span>
+      <select id="panel" aria-label="panel"></select>
+      <span class="sizes" id="custom-size" hidden>
+        <input id="size-w" type="number" min="1" max="4000" value="296" aria-label="width">
+        <em>×</em>
+        <input id="size-h" type="number" min="1" max="4000" value="128" aria-label="height">
+      </span>
+      <span id="detected" class="detected" hidden></span>
+    </li>
+
+    <li class="step" id="step-tag">
+      <span class="n">2</span>
+      <span class="what">Tag</span>
+      <button id="connect" type="button">Choose</button>
+      <span id="tag-name" class="tagname" hidden></span>
+    </li>
+
+    <li class="step" id="step-push">
+      <span class="n">3</span>
+      <span class="what">Send</span>
+      <button id="push" type="button" disabled>Push</button>
+    </li>
+  </ol>
+
+  <span class="spacer"></span>
   <label class="field">
     <span>Zoom</span>
     <select id="zoom">
@@ -30,7 +49,6 @@
       <option value="6">6×</option>
     </select>
   </label>
-  <span class="spacer"></span>
   <span id="status" class="status">loading renderer…</span>
   <button id="download" type="button" disabled>Download PNG</button>
 </header>

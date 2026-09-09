@@ -122,7 +122,8 @@ const KNOWN = new Set([
   "globalThis", "isFinite", "isNaN", "localStorage", "location", "navigator",
   "parseFloat", "parseInt", "performance", "queueMicrotask",
   "requestAnimationFrame", "setInterval", "setTimeout", "structuredClone",
-  "window",
+  "window", "AbortController", "AbortSignal", "Event", "CustomEvent",
+  "DOMException", "BluetoothUUID", "DataView", "ArrayBuffer",
   // Keywords and operators that a naive scan reads as calls.
   "if", "for", "while", "switch", "catch", "return", "typeof", "function",
   "await", "new", "delete", "void", "in", "of", "do", "else", "case", "yield",
@@ -130,17 +131,38 @@ const KNOWN = new Set([
 ]);
 
 const missing = new Map();
+const note = (name, index, how) => {
+  if (declared.has(name) || KNOWN.has(name) || missing.has(name)) return;
+  missing.set(name, { line: source.slice(0, index).split("\n").length, how });
+};
+
+// Called: escapeHTML(x).
 for (const match of code.matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)\s*\(/g)) {
-  const name = match[1];
-  if (declared.has(name) || KNOWN.has(name)) continue;
-  const line = source.slice(0, match.index).split("\n").length;
-  if (!missing.has(name)) missing.set(name, line);
+  note(match[1], match.index, "called");
 }
 
-for (const [name, line] of missing) {
-  console.log(`  FAIL  app.js:${line}  ${name}() is called and never declared, imported or standard`);
+// Handed over to be called later: addEventListener("click", push). This is the
+// one that got away — push was deleted by an edit that took the function above
+// it too, and nothing noticed, because a callback is a reference and not a
+// call. It reads as fine right up until the button is pressed.
+for (const match of code.matchAll(
+  /\.(?:addEventListener|removeEventListener)\s*\(\s*[^,]+,\s*([A-Za-z_$][\w$]*)\s*[,)]/g,
+)) {
+  note(match[1], match.index, "used as a listener");
+}
+for (const match of code.matchAll(/\.(?:then|catch|finally)\s*\(\s*([A-Za-z_$][\w$]*)\s*[,)]/g)) {
+  note(match[1], match.index, "used as a promise callback");
+}
+for (const match of code.matchAll(/\.(?:map|filter|forEach|find|some|every|sort)\s*\(\s*([A-Za-z_$][\w$]*)\s*\)/g)) {
+  note(match[1], match.index, "used as an array callback");
+}
+
+for (const [name, where] of missing) {
+  console.log(
+    `  FAIL  app.js:${where.line}  ${name} is ${where.how} and never declared, imported or standard`,
+  );
 }
 console.log(
-  `\n${declared.size} names in scope, ${missing.size} called but undefined`,
+  `\n${declared.size} names in scope, ${missing.size} missing`,
 );
 process.exit(missing.size === 0 ? 0 : 1);

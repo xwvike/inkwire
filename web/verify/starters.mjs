@@ -44,7 +44,12 @@ const HEIGHT = 128;
 
 let problems = 0;
 for (const [name, starter] of Object.entries(STARTERS)) {
-  const result = globalThis.inkwire.render(starter.markup, starter.css, WIDTH, HEIGHT, {});
+  const result = globalThis.inkwire.render({
+    markup: starter.markup,
+    css: starter.css,
+    width: WIDTH,
+    height: HEIGHT,
+  });
   const warnings = result.warnings ?? [];
   const missing = result.missingRunes ?? [];
   const clean = result.ok && warnings.length === 0 && missing.length === 0;

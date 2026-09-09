@@ -15,16 +15,20 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"image"
 	"syscall/js"
 
 	"github.com/xwvike/inkwire/internal/compose"
 	"github.com/xwvike/inkwire/internal/display"
+	"github.com/xwvike/inkwire/internal/gicisky"
 	"github.com/xwvike/inkwire/internal/markup"
 	"github.com/xwvike/inkwire/internal/panel"
 	"github.com/xwvike/inkwire/internal/scene"
+	"github.com/xwvike/inkwire/internal/tag"
 )
 
 func main() {
@@ -32,6 +36,9 @@ func main() {
 	api.Set("render", js.FuncOf(renderJS))
 	api.Set("compile", js.FuncOf(compileJS))
 	api.Set("measure", js.FuncOf(measureJS))
+	api.Set("identify", js.FuncOf(identifyJS))
+	api.Set("upload", js.FuncOf(uploadJS))
+	api.Set("payload", js.FuncOf(payloadJS))
 	js.Global().Set("inkwire", api)
 
 	// A page that loads the module has to know when it may call it. The
@@ -115,19 +122,19 @@ func document(markupSource, cssSource string, files map[string][]byte) (compose.
 // own width and height are CSS layout values, and this is what it has to fit.
 // A panel key supersedes the size and brings the panel's palette with it.
 func renderJS(this js.Value, args []js.Value) any {
-	markupSource, cssSource, files, err := arguments(args)
+	request, err := readCall(args)
 	if err != nil {
 		return failure(err, nil)
 	}
-	if len(args) < 4 {
-		return failure(fmt.Errorf("render needs markup, css, width and height"), nil)
-	}
-	width, height := args[2].Int(), args[3].Int()
-	if width <= 0 || height <= 0 {
-		return failure(fmt.Errorf("render size must be positive, got %dx%d", width, height), nil)
+	named := request.panel != ""
+	var bounds image.Point
+	if !named {
+		if bounds, err = request.size(); err != nil {
+			return failure(err, nil)
+		}
 	}
 
-	decoded, warnings, err := document(markupSource, cssSource, files)
+	decoded, warnings, err := document(request.markup, request.css, request.files)
 	if err != nil {
 		return failure(err, warnings)
 	}
@@ -140,15 +147,14 @@ func renderJS(this js.Value, args []js.Value) any {
 	var renderErr error
 	var page panel.Page
 	var known panel.Panel
-	named := len(args) >= 6 && args[5].Type() == js.TypeString && args[5].String() != ""
 	if named {
-		known, err = panel.ByKey(args[5].String())
+		known, err = panel.ByKey(request.panel)
 		if err != nil {
 			return failure(err, warnings)
 		}
 		result, page, renderErr = panel.Render(decoded, known)
 	} else {
-		result, renderErr = scene.RenderForSize(decoded, image.Pt(width, height))
+		result, renderErr = scene.RenderForSize(decoded, bounds)
 	}
 	warnings = append(warnings, result.Report.Warnings...)
 	if result.Frame == nil {
@@ -190,11 +196,11 @@ func renderJS(this js.Value, args []js.Value) any {
 // arithmetic to the layout, so when a box lands in the wrong place the question
 // is what the CSS turned into.
 func compileJS(this js.Value, args []js.Value) any {
-	markupSource, cssSource, files, err := arguments(args)
+	request, err := readCall(args)
 	if err != nil {
 		return failure(err, nil)
 	}
-	page, err := compilePage(markupSource, cssSource, files)
+	page, err := compilePage(request.markup, request.css, request.files)
 	warnings := make([]compose.Warning, 0, len(page.Warnings))
 	for _, warning := range page.Warnings {
 		warnings = append(warnings, compose.Warning(warning))
@@ -215,23 +221,20 @@ func compileJS(this js.Value, args []js.Value) any {
 // not where its author expected can be read off rather than guessed at from
 // the picture.
 func measureJS(this js.Value, args []js.Value) any {
-	markupSource, cssSource, files, err := arguments(args)
+	request, err := readCall(args)
 	if err != nil {
 		return failure(err, nil)
 	}
-	if len(args) < 4 {
-		return failure(fmt.Errorf("measure needs markup, css, width and height"), nil)
-	}
-	width, height := args[2].Int(), args[3].Int()
-	if width <= 0 || height <= 0 {
-		return failure(fmt.Errorf("measure size must be positive, got %dx%d", width, height), nil)
+	bounds, err := request.size()
+	if err != nil {
+		return failure(err, nil)
 	}
 
-	decoded, warnings, err := document(markupSource, cssSource, files)
+	decoded, warnings, err := document(request.markup, request.css, request.files)
 	if err != nil {
 		return failure(err, warnings)
 	}
-	result, renderErr := scene.TraceForSize(decoded, image.Pt(width, height))
+	result, renderErr := scene.TraceForSize(decoded, bounds)
 	warnings = append(warnings, result.Report.Warnings...)
 	if renderErr != nil && result.Frame == nil {
 		return failure(renderErr, warnings)
@@ -258,16 +261,343 @@ func measureJS(this js.Value, args []js.Value) any {
 	return out
 }
 
-// arguments reads the three every call shares.
-func arguments(args []js.Value) (markupSource, cssSource string, files map[string][]byte, err error) {
-	if len(args) < 2 {
-		return "", "", nil, fmt.Errorf("expected markup and css")
+// identifyJS reads a Gicisky advertisement and says which panel is in front of
+// the browser.
+//
+// This is the difference between this and the pages these tags usually ship
+// with. There, the panel is a dropdown and picking the wrong entry is a page
+// drawn for hardware that is not there, with nothing to say so. Here the tag
+// says what it is — the model is in the manufacturer data, under company
+// 0x5053 — and the same table the CLI resolves it against is in this module,
+// so the answer is the same answer.
+//
+// A tag that answers without saying what panel it has is reported as itself
+// rather than refused. Nothing can be drawn for it, but "this is a Gicisky tag
+// advertising id 0x00C1, which this build has no entry for" is a far better
+// thing to be told than nothing, and it is the sentence that gets a model
+// added to the table.
+func identifyJS(this js.Value, args []js.Value) any {
+	if len(args) < 1 || args[0].Type() != js.TypeObject {
+		return failure(fmt.Errorf("identify needs the manufacturer data as bytes"), nil)
 	}
-	files = nil
-	if len(args) >= 5 {
-		files = resources(args[4])
+	data := make([]byte, args[0].Length())
+	js.CopyBytesToGo(data, args[0])
+
+	advertised, ok := gicisky.ParseAdvertisement(data)
+	out := js.Global().Get("Object").New()
+	if !ok {
+		out.Set("ok", false)
+		out.Set("error", fmt.Sprintf(
+			"the manufacturer data is %d bytes; a Gicisky advertisement is %d", len(data), 5))
+		return out
 	}
-	return args[0].String(), args[1].String(), files, nil
+
+	out.Set("ok", true)
+	out.Set("id", fmt.Sprintf("0x%04X", advertised.ID))
+	out.Set("firmware", fmt.Sprintf("0x%04X", advertised.Firmware))
+	// The voltage is the reading; no charge percentage is derived from it,
+	// because a coin cell's curve is not linear and a made-up percentage reads
+	// as fact.
+	out.Set("voltage", advertised.Voltage())
+
+	profile, known := gicisky.LookupProfile(advertised.ID, advertised.Firmware)
+	if !known {
+		out.Set("identified", false)
+		return out
+	}
+	found := panel.OfGicisky(profile)
+	size := found.Size()
+	out.Set("identified", true)
+	out.Set("key", found.Family+":"+found.ID())
+	out.Set("panel", found.String())
+	out.Set("width", size.X)
+	out.Set("height", size.Y)
+	return out
+}
+
+// awaitPromise blocks the calling goroutine until a JS promise settles.
+//
+// The Go side of an upload is written as straight-line code — write, wait for
+// the answer, write again — because that is what the conversation is. The
+// browser's side of every one of those writes is a promise. Parking on a
+// channel is what lets the two meet: the goroutine yields, the event loop runs
+// and settles the promise, and the callback hands the answer back.
+//
+// This must never be called from a JS callback. On that stack the event loop
+// is not running, so the promise cannot settle and the receive is a deadlock.
+func awaitPromise(value js.Value) error {
+	if value.Type() != js.TypeObject || value.Get("then").Type() != js.TypeFunction {
+		return nil // Not a promise: the write was synchronous and has happened.
+	}
+	settled := make(chan error, 1)
+	onDone := js.FuncOf(func(this js.Value, args []js.Value) any {
+		settled <- nil
+		return nil
+	})
+	defer onDone.Release()
+	onFail := js.FuncOf(func(this js.Value, args []js.Value) any {
+		message := "the browser refused the write"
+		if len(args) > 0 && args[0].Type() == js.TypeObject {
+			if text := args[0].Get("message"); text.Type() == js.TypeString {
+				message = text.String()
+			}
+		}
+		settled <- errors.New(message)
+		return nil
+	})
+	defer onFail.Release()
+	value.Call("then", onDone).Call("catch", onFail)
+	return <-settled
+}
+
+// browserTransport is gicisky.Transport backed by two GATT characteristics.
+//
+// It is the whole of what the browser adds. Everything about the protocol —
+// the stages, the block size the tag asks for, the acknowledgements, the
+// timeouts — stays in internal/gicisky, which is the code the command has been
+// driving real tags with. Reimplementing that in JavaScript is what every
+// other browser tool for these tags does, and it is where their bugs are.
+type browserTransport struct {
+	control       js.Value
+	data          js.Value
+	notifications chan []byte
+}
+
+func (t *browserTransport) Notifications() <-chan []byte { return t.notifications }
+
+func (t *browserTransport) WriteControl(payload []byte) error {
+	return t.write(t.control, payload)
+}
+
+func (t *browserTransport) WriteData(payload []byte) error {
+	return t.write(t.data, payload)
+}
+
+func (t *browserTransport) write(fn js.Value, payload []byte) error {
+	if fn.Type() != js.TypeFunction {
+		return errors.New("the page did not supply this write")
+	}
+	buffer := js.Global().Get("Uint8Array").New(len(payload))
+	js.CopyBytesToJS(buffer, payload)
+	return awaitPromise(fn.Invoke(buffer))
+}
+
+// uploadJS draws a page for a panel and writes it to a tag the page has
+// already connected to.
+//
+// Arguments: markup, css, resources, panel key, and an object carrying
+// writeControl, writeData and an optional log. It answers with an object
+// holding a promise that settles when the tag has taken the page, and a notify
+// the page calls with every value the control characteristic reports.
+//
+// The connection is the page's because only the page can make one: a GATT
+// server is reached through a device the user granted in a dialog this module
+// cannot open. What the module keeps is the part that has been tested.
+func uploadJS(this js.Value, args []js.Value) any {
+	request, err := readCall(args)
+	if err != nil {
+		return failure(err, nil)
+	}
+	wiring := request.transport
+	if wiring.Type() != js.TypeObject {
+		return failure(errors.New("upload needs a transport with writeControl and writeData"), nil)
+	}
+
+	known, err := panel.ByKey(request.panel)
+	if err != nil {
+		return failure(err, nil)
+	}
+	// Only one family is spoken here. EPD-nRF5 has its own session, which asks
+	// the tag what it is after connecting rather than before, and pretending
+	// one uploader drives both would be a worse answer than saying so.
+	if known.Family != tag.Gicisky {
+		return failure(fmt.Errorf(
+			"%s is an EPD-nRF5 panel, and only Gicisky tags can be written from the browser so far",
+			known), nil)
+	}
+
+	decoded, warnings, err := document(request.markup, request.css, request.files)
+	if err != nil {
+		return failure(err, warnings)
+	}
+	result, page, err := panel.Render(decoded, known)
+	warnings = append(warnings, result.Report.Warnings...)
+	if err != nil {
+		return failure(err, warnings)
+	}
+	if len(page.Bytes) == 0 {
+		return failure(errors.New("the page packed to nothing"), warnings)
+	}
+
+	transport := &browserTransport{
+		control: wiring.Get("writeControl"),
+		data:    wiring.Get("writeData"),
+		// Buffered because the tag answers while the uploader is still
+		// deciding to listen, and a notification dropped here stalls the
+		// conversation for the full response timeout.
+		notifications: make(chan []byte, 8),
+	}
+
+	logf := func(format string, values ...any) {}
+	if report := wiring.Get("log"); report.Type() == js.TypeFunction {
+		logf = func(format string, values ...any) {
+			report.Invoke(fmt.Sprintf(format, values...))
+		}
+	}
+
+	settle := js.Global().Get("Object").New()
+	var resolve, reject js.Value
+	promise := js.Global().Get("Promise").New(js.FuncOf(func(this js.Value, args []js.Value) any {
+		resolve, reject = args[0], args[1]
+		return nil
+	}))
+
+	notify := js.FuncOf(func(this js.Value, args []js.Value) any {
+		if len(args) == 0 || args[0].Type() != js.TypeObject {
+			return nil
+		}
+		value := make([]byte, args[0].Length())
+		js.CopyBytesToGo(value, args[0])
+		select {
+		case transport.notifications <- value:
+		default:
+			// The uploader is not reading and the buffer is full. Dropping is
+			// better than blocking a JS callback, which would stop the event
+			// loop the uploader is waiting on.
+			logf("dropped a notification: %x", value)
+		}
+		return nil
+	})
+
+	// The upload runs on its own goroutine so that every await inside it yields
+	// to the event loop rather than to this call's caller.
+	go func() {
+		defer notify.Release()
+		uploader := gicisky.NewUploader(logf)
+		err := uploader.UploadWithOptions(
+			context.Background(), transport, page.Bytes, known.Gicisky.Upload())
+		if err != nil {
+			reject.Invoke(js.Global().Get("Error").New(err.Error()))
+			return
+		}
+		resolve.Invoke(js.ValueOf(len(page.Bytes)))
+	}()
+
+	settle.Set("ok", true)
+	settle.Set("notify", notify)
+	settle.Set("done", promise)
+	settle.Set("payloadBytes", len(page.Bytes))
+	settle.Set("panel", known.String())
+	settle.Set("warnings", warningsJS(warnings))
+	return settle
+}
+
+// payloadJS answers with the bytes a tag would be sent, without sending them.
+//
+// It is what the uploader is handed, so it is the thing to compare an upload
+// against: web/verify/push.mjs drives a complete upload into a stub tag and
+// checks that what arrived is this. Without that, the only test of the push
+// path was a tag on someone's desk, and the first bug it had — the resource
+// map read from the wrong argument, so every picture was missing — looked from
+// the outside like a successful upload of a blank page.
+//
+// It is also worth having on its own. A payload that can be saved is a payload
+// that can be compared against another tool's, which is how a protocol
+// disagreement gets found.
+func payloadJS(this js.Value, args []js.Value) any {
+	request, err := readCall(args)
+	if err != nil {
+		return failure(err, nil)
+	}
+	known, err := panel.ByKey(request.panel)
+	if err != nil {
+		return failure(err, nil)
+	}
+	decoded, warnings, err := document(request.markup, request.css, request.files)
+	if err != nil {
+		return failure(err, warnings)
+	}
+	result, page, err := panel.Render(decoded, known)
+	warnings = append(warnings, result.Report.Warnings...)
+	if err != nil {
+		return failure(err, warnings)
+	}
+
+	out := js.Global().Get("Object").New()
+	out.Set("ok", true)
+	out.Set("panel", known.String())
+	out.Set("warnings", warningsJS(warnings))
+	// Gicisky takes one buffer; EPD-nRF5 takes a black plane and, on a colour
+	// panel, a second. Which fields are set follows the family, the same way
+	// panel.Page sets them.
+	if len(page.Bytes) > 0 {
+		out.Set("bytes", base64.StdEncoding.EncodeToString(page.Bytes))
+	}
+	if len(page.Black) > 0 {
+		out.Set("black", base64.StdEncoding.EncodeToString(page.Black))
+	}
+	if len(page.Colour) > 0 {
+		out.Set("colour", base64.StdEncoding.EncodeToString(page.Colour))
+	}
+	return out
+}
+
+// call is one request from the page, read by name.
+//
+// It was positional, and the positions did not agree: render took a size before
+// the resource map and upload took a panel, so the same index meant different
+// things in different entry points. A shared reader hard-coded one of those
+// positions, upload's transport was read as its files, and every page it sent
+// went out with none of its pictures — an upload that succeeded in every
+// visible way and arrived blank.
+//
+// Compile made the shape of the mistake plain before it happened: it was being
+// given two zeroes it did not use, so that its files landed in the slot the
+// reader expected. Nothing here has a position now.
+type call struct {
+	markup, css   string
+	files         map[string][]byte
+	panel         string
+	width, height int
+	transport     js.Value
+}
+
+func readCall(args []js.Value) (call, error) {
+	if len(args) < 1 || args[0].Type() != js.TypeObject {
+		return call{}, errors.New("expected one object naming markup, css and whatever else the call needs")
+	}
+	fields := args[0]
+	return call{
+		markup:    text(fields, "markup"),
+		css:       text(fields, "css"),
+		panel:     text(fields, "panel"),
+		files:     resources(fields.Get("files")),
+		width:     number(fields, "width"),
+		height:    number(fields, "height"),
+		transport: fields.Get("transport"),
+	}, nil
+}
+
+func text(fields js.Value, name string) string {
+	if value := fields.Get(name); value.Type() == js.TypeString {
+		return value.String()
+	}
+	return ""
+}
+
+func number(fields js.Value, name string) int {
+	if value := fields.Get(name); value.Type() == js.TypeNumber {
+		return value.Int()
+	}
+	return 0
+}
+
+// size is the viewport a call asks to be laid out for.
+func (c call) size() (image.Point, error) {
+	if c.width <= 0 || c.height <= 0 {
+		return image.Point{}, fmt.Errorf("width and height must be positive, got %dx%d", c.width, c.height)
+	}
+	return image.Pt(c.width, c.height), nil
 }
 
 func warningsJS(warnings []compose.Warning) js.Value {

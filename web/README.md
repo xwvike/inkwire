@@ -11,13 +11,14 @@ of it.
 ## Build and run
 
 ```sh
-./web/build.sh              # writes static/inkwire.wasm, wasm_exec.js, panels.json
-cd web/static && python3 -m http.server 8731
+./web/build.sh          # writes static/inkwire.wasm, wasm_exec.js, panels.json, completions.json
+python3 web/serve.py    # http://127.0.0.1:8731/
 ```
 
-Then open <http://127.0.0.1:8731/>. Any static file server will do; the page
-falls back from `instantiateStreaming` when one does not send
-`application/wasm`.
+Any static file server will do — the page falls back from
+`instantiateStreaming` when one does not send `application/wasm` — but this one
+also sends no-store, and a cached stylesheet against fresh markup does not look
+like a cache. It looks like the layout is broken.
 
 ## What it does
 
@@ -31,6 +32,7 @@ falls back from `instantiateStreaming` when one does not send
 | Report | Every declaration the renderer could not honour, and every glyph no bundled font could draw |
 | Panels | All 28 catalogued models, grouped by family, sized and labelled by palette |
 | Files | Drop a stylesheet, image or SVG anywhere on the window and the page can link it, under the name the page writes |
+| Push | Writes the page to a Gicisky tag over Web Bluetooth, driven by `internal/gicisky`'s own uploader rather than a second copy of the protocol |
 
 ## Verifying it
 
@@ -42,6 +44,7 @@ node web/verify/parity.mjs       # wasm vs CLI, byte for byte, on every example
 node web/verify/completions.mjs  # every completion offered actually renders
 node web/verify/starters.mjs     # the pages the editor opens with render clean
 node web/verify/calls.mjs        # the page calls nothing that does not exist
+node web/verify/push.mjs         # a whole upload, into a tag that is not there
 ```
 
 `parity.mjs` needs the CLI beside it: `go build -o web/verify/inkwire ./cmd/inkwire`.
@@ -63,11 +66,20 @@ moment someone is learning it.
 
 ## Known limits
 
-- **No push.** The page renders and downloads; it does not write to a tag. The
-  wire payload is computed — the status line says how many bytes the tag would
-  be sent — but nothing carries it. Web Bluetooth would, and is Chromium-only,
-  so a push button needs a story for Safari and Firefox before it is worth
-  having.
+- **Gicisky only, and Chromium only.** Pushing speaks the Gicisky protocol;
+  EPD-nRF5 asks the tag what it is after connecting rather than before and has
+  its own session, which is not wired up here. Safari and Firefox have no Web
+  Bluetooth at all, and both buttons say so rather than failing when pressed.
+- **The panel is chosen by hand.** A Gicisky tag puts its model in its
+  advertisement and nowhere else — the GATT handshake reports the tag's message
+  size, not its panel — and Chrome keeps `watchAdvertisements` behind
+  `chrome://flags/#enable-experimental-web-platform-features`. With the flag on,
+  Detect reads the model and selects it, and says so if you then pick another.
+  Without it, Detect is disabled and the panel is picked from the list, which is
+  what every other tool for these tags requires anyway.
+- **One tag per page load.** A Web Bluetooth grant lasts as long as the page, so
+  a second push reuses the tag rather than reopening the chooser. Switching to a
+  different tag means reloading: `getDevices` is behind the same flag.
 - **Go, not TinyGo.** TinyGo produces 4.28 MB against Go's 16.7 MB and then
   panics inside `douceur`'s declaration parser on the first page. `build.sh
   tinygo` still builds it, so the next attempt costs one command.

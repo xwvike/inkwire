@@ -40,15 +40,25 @@ body {
 
 /* ---------- top bar ---------- */
 
+/* The bar carries a lot and the window is not always wide. A fixed height with
+ * no wrapping turns a narrow window into overlapping controls, so it grows a
+ * row instead — the steps stay together, and what follows them moves down. */
 .bar {
   display: flex;
   align-items: center;
-  gap: 18px;
-  padding: 0 14px;
-  height: 46px;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 5px 14px;
+  min-height: 40px;
   flex: 0 0 auto;
   background: var(--chrome);
   border-bottom: 1px solid var(--line);
+}
+
+/* Sized to the longest option, which is 27 characters, so nothing is ever cut
+ * and the select does not grow past what it holds. */
+#panel {
+  max-width: 29ch;
 }
 
 .bar h1 {
@@ -85,7 +95,7 @@ select, input[type="number"], button {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 5px;
-  padding: 4px 7px;
+  padding: 3px 7px;
 }
 
 input[type="number"] { width: 66px; }
@@ -111,6 +121,117 @@ button:not(:disabled):hover { border-color: var(--ink-faint); }
 }
 
 .status.is-bad { color: var(--bad); }
+
+/* ---------- the three steps ----------
+ *
+ * Choosing a panel, choosing a tag and sending are not three things a person
+ * may do in any order: the first decides what is drawn, the second decides
+ * where it goes, and the third needs both. Laid out flat they invite being
+ * clicked in the wrong order, and the wrong order fails in ways that look like
+ * the tool being broken. Numbered, and dimmed until their turn, they read as
+ * what they are. */
+
+.steps {
+  display: flex;
+  align-items: stretch;
+  /* Never squeezed. A step whose button reads "Choo…" has lost the only word
+   * that said what it does, and the bar wraps to a second row perfectly well —
+   * losing a row is cheaper than losing the label. */
+  flex: 0 0 auto;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px;
+  white-space: nowrap;
+  border-left: 1px solid var(--line-soft);
+}
+
+.step:first-child { border-left: 0; }
+
+.step .n {
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--surface);
+  background: var(--ink-faint);
+}
+
+.step .what {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+}
+
+/* A step whose turn it is. The number is the only thing that changes colour,
+ * because a whole row lighting up reads as an alert rather than as a cursor. */
+.step.is-ready .n { background: var(--accent); }
+
+/* A step already satisfied. It stays legible — the panel and the tag are both
+ * worth reading after they are chosen — but stops asking for attention. */
+.step.is-done .n { background: #6f8bb8; }
+
+.step.is-blocked { background: var(--chrome); }
+.step.is-blocked .what,
+.step.is-blocked .n { opacity: 0.55; }
+
+.step .sizes { display: inline-flex; align-items: center; gap: 5px; }
+.step .sizes[hidden] { display: none; }
+
+.tagname {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+  max-width: 15ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tagname[hidden] { display: none; }
+
+.detected {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #eaf1ff;
+  color: #1a4bb8;
+  border: 1px solid #c6d8ff;
+  white-space: nowrap;
+}
+
+.detected[hidden] { display: none; }
+
+.detected.is-mismatch {
+  background: var(--warn-bg);
+  color: var(--warn);
+  border-color: #eacf9f;
+}
+
+.detected.is-unknown {
+  background: #fdefed;
+  color: var(--bad);
+  border-color: #f0c8c2;
+}
 
 /* ---------- split ---------- */
 

@@ -81,7 +81,7 @@ function inputs(page) {
 // the same one. A render needs a target named to it; the page's own size is
 // the target its examples were written against.
 function declaredSize(api, { markup, css, resources }) {
-	const compiled = api.compile(markup, css, 0, 0, resources);
+	const compiled = api.compile({ markup, css, files: resources });
 	if (!compiled.ok) return null;
 	const size = JSON.parse(compiled.json).size;
 	return size && size.width > 0 && size.height > 0 ? size : null;
@@ -143,9 +143,14 @@ for (const page of pages()) {
 	];
 
 	for (const target of targets) {
-		const rendered = api.render(
-			source.markup, source.css, size.width, size.height, source.resources, target.key,
-		);
+		const rendered = api.render({
+			markup: source.markup,
+			css: source.css,
+			width: size.width,
+			height: size.height,
+			files: source.resources,
+			panel: target.key,
+		});
 		if (!rendered.png) {
 			failed++;
 			console.log(`  FAIL  ${relative}  ${target.label}  wasm drew nothing: ${rendered.error ?? "?"}`);

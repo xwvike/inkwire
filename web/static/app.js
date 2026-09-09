@@ -318,6 +318,13 @@ const state = {
   api: null,
   panels: [],
   panel: null,
+  // What a tag said about itself, once one has been asked. Null until then,
+  // and the whole reason the chosen panel can be checked rather than trusted.
+  detected: null,
+  // The tag granted in this page's lifetime. Web Bluetooth grants are per
+  // page, so this is as long as it can be remembered without getDevices,
+  // which Chrome also keeps behind a flag.
+  device: null,
   size: { width: 296, height: 128 },
   view: "preview",
   png: null,
@@ -363,7 +370,14 @@ function render() {
   // cannot show are flattened the way the tag would flatten them, and what was
   // flattened comes back to be reported. A custom size has no palette to check
   // against, so it renders as drawn.
-  const result = state.api.render(markup, css, width, height, files(), state.panel ?? "");
+  const result = state.api.render({
+    markup,
+    css,
+    width,
+    height,
+    files: files(),
+    panel: state.panel ?? "",
+  });
   const elapsed = performance.now() - started;
   $("#timing").textContent = `${elapsed.toFixed(1)} ms`;
 
@@ -375,21 +389,28 @@ function render() {
     image.height = result.height;
     applyZoom();
     $("#download").disabled = false;
+    $("#push").disabled = !state.panel || !navigator.bluetooth;
   } else {
     state.png = null;
     $("#preview").removeAttribute("src");
     $("#download").disabled = true;
+    $("#push").disabled = true;
   }
 
-  const drawn = result.payloadBytes
-    ? `${width}×${height} · ${result.payloadBytes} B on the wire`
-    : `${width}×${height}`;
+  // What the panel is, not just how big it is. Once a panel is chosen its
+  // palette and whether the catalogue entry was ever checked against hardware
+  // disappear back into the dropdown, and both change what arrives on the tag.
+  // The module already answers with all of it.
+  const drawn = [result.panel ?? `${width}×${height}`]
+    .concat(result.payloadBytes ? [`${result.payloadBytes} B on the wire`] : [])
+    .join(" · ");
   setStatus(result.ok ? drawn : (result.error ?? "render failed"), !result.ok);
   report(result);
 
   if (state.view === "scene") refreshScene(markup, css);
   if (state.view === "measure") refreshMeasure(markup, css, width, height);
   if (resources.size > 0) drawFileList();
+  refreshSteps();
 }
 
 function report(result) {
@@ -424,14 +445,14 @@ function report(result) {
 }
 
 function refreshScene(markup, css) {
-  const compiled = state.api.compile(markup, css, 0, 0, files());
+  const compiled = state.api.compile({ markup, css, files: files() });
   $("#scene").textContent = compiled.ok
     ? JSON.stringify(JSON.parse(compiled.json), null, 2)
     : compiled.error ?? "";
 }
 
 function refreshMeasure(markup, css, width, height) {
-  const measured = state.api.measure(markup, css, width, height, files());
+  const measured = state.api.measure({ markup, css, width, height, files: files() });
   const body = $("#nodes");
   body.innerHTML = "";
   for (const node of measured.nodes ?? []) {
@@ -591,6 +612,360 @@ window.addEventListener("drop", (event) => {
 });
 
 /* ------------------------------------------------------------------ *
+ * Detection
+ *
+ * The pages these tags usually ship with make the panel a dropdown, and
+ * picking the wrong entry draws a page for hardware that is not there with
+ * nothing to say so. A Gicisky tag does not need to be asked: the model is in
+ * its advertisement, under company 0x5053, and the module resolves it against
+ * the same table the command does.
+ *
+ * What the browser will not do is scan. requestLEScan is still behind a flag,
+ * so the only way to an advertisement is to be granted a device first — the
+ * user picks it from Chrome's own dialog — and then watch it. That is one more
+ * step than the command needs and it is the whole of the difference.
+ * ------------------------------------------------------------------ */
+
+// The service the firmware serves, and the two names a factory tag answers to.
+// The service cannot be a filter on its own: these tags do not put it in the
+// advertisement, so the name is what the dialog matches on and the service is
+// only declared so it may be used after.
+const TAG_SERVICE = 0xfef0;
+const GICISKY_COMPANY = 0x5053;
+
+// How long to wait for one advertisement. A tag advertises every couple of
+// seconds; longer than this and something else is wrong, and saying so beats
+// a spinner that never stops.
+const ADVERTISEMENT_TIMEOUT = 12000;
+
+// Detection happens in a dialog the page does not control, against a radio it
+// cannot see, in a browser feature that three of the four steps may not have.
+// When it stops, the only useful question is which step it stopped on — and a
+// line of small text in the corner cannot answer that, because the step before
+// has already overwritten it. So every step is written into the report panel,
+// which is large, scrolls, and keeps what came before.
+let detectSteps = [];
+
+function step(text, kind) {
+  detectSteps.push({ text, kind, at: Math.round(performance.now()) });
+  drawDetectSteps();
+}
+
+function drawDetectSteps() {
+  const list = $("#warnings");
+  list.innerHTML = "";
+  const first = detectSteps[0]?.at ?? 0;
+  for (const entry of detectSteps) {
+    const item = document.createElement("li");
+    if (entry.kind === "bad") item.className = "is-bad";
+    item.innerHTML =
+      `<code>${String(entry.at - first).padStart(5)} ms</code>${escapeHTML(entry.text)}`;
+    list.append(item);
+  }
+  const count = $("#report-count");
+  const failed = detectSteps.some((entry) => entry.kind === "bad");
+  count.textContent = failed ? "detection stopped" : "detecting…";
+  count.classList.toggle("is-bad", failed);
+  count.classList.toggle("is-warn", false);
+  $("#missing-runes").textContent = "";
+}
+
+function showDetected() {
+  const chip = $("#detected");
+  const found = state.detected;
+  if (!found) {
+    chip.hidden = true;
+    return;
+  }
+  chip.hidden = false;
+  chip.classList.toggle("is-unknown", !found.identified);
+  chip.classList.toggle("is-mismatch", found.identified && found.key !== state.panel);
+
+  if (!found.identified) {
+    chip.textContent = `tag advertises ${found.id}, which this build has no entry for`;
+    chip.title =
+      "The tag answered and said what it is, but no profile in the catalogue has that id. " +
+      "Nothing can be drawn for it until one is added.";
+    return;
+  }
+  const battery = `${found.voltage.toFixed(1)} V`;
+  chip.textContent =
+    found.key === state.panel
+      ? `detected · ${found.panel} · ${battery}`
+      : `tag says ${found.panel} — you have chosen another`;
+  chip.title = `Advertised id ${found.id}, firmware ${found.firmware}, battery ${battery}.`;
+}
+
+// Reads one advertisement from a device the user has granted, and answers with
+// what the module made of it.
+async function readAdvertisement(device) {
+  // Chrome has had this since 105 and nothing else has it at all. Saying so is
+  // better than a promise that never settles.
+  if (typeof device.watchAdvertisements !== "function") {
+    // Chrome keeps this behind chrome://flags/#enable-experimental-web-platform-features.
+    // A Gicisky tag puts its model in the advertisement and nowhere else — the
+    // GATT handshake reports the tag's message size, not its panel — so without
+    // this the model cannot be read at all, by anything, which is why every
+    // other tool for these tags asks you to pick it.
+    throw new Error(
+      "this Chrome has watchAdvertisements switched off, and a Gicisky tag says which " +
+        "panel it has only in its advertisement. Turn on " +
+        "chrome://flags/#enable-experimental-web-platform-features and restart to read it, " +
+        "or choose the panel by hand — every other tool for these tags makes you do that.",
+    );
+  }
+  const stop = new AbortController();
+  return new Promise((resolve, reject) => {
+    // Two failures look the same from outside and need different answers: no
+    // packet ever arrives, or packets arrive stripped of the manufacturer data
+    // the model is in. Counting them apart is the whole point of this.
+    let seen = 0;
+    const timer = setTimeout(() => {
+      stop.abort();
+      reject(
+        new Error(
+          seen === 0
+            ? "no advertisement arrived in 12s — the tag may be asleep, out of range, or " +
+              "already connected elsewhere; choose the panel by hand to carry on"
+            : `${seen} advertisements arrived and none carried manufacturer data 0x5053, ` +
+              "so this platform is not passing it on; choose the panel by hand to carry on",
+        ),
+      );
+    }, ADVERTISEMENT_TIMEOUT);
+
+    device.addEventListener(
+      "advertisementreceived",
+      (event) => {
+        const data = event.manufacturerData?.get(GICISKY_COMPANY);
+        if (!data) {
+          // Another packet from the same tag. Which companies it did carry is
+          // the evidence for whether the platform strips them or the tag is
+          // simply not saying yet.
+          seen++;
+          const companies = [...(event.manufacturerData?.keys() ?? [])];
+          step(
+            `advertisement ${seen}: rssi ${event.rssi ?? "?"}, manufacturer data from ` +
+              (companies.length
+                ? companies.map((id) => `0x${id.toString(16).padStart(4, "0")}`).join(", ")
+                : "nobody"),
+          );
+          return;
+        }
+        clearTimeout(timer);
+        stop.abort();
+        resolve(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+      },
+      { signal: stop.signal },
+    );
+
+    device
+      .watchAdvertisements({ signal: stop.signal })
+      .then(() => step("watching advertisements"))
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
+
+// Whether this browser will hand over an advertisement at all. Chrome keeps it
+// behind chrome://flags/#enable-experimental-web-platform-features, and a
+// Gicisky tag says which panel it has there and nowhere else.
+const CAN_READ_ADVERTISEMENTS = "watchAdvertisements" in (globalThis.BluetoothDevice?.prototype ?? {});
+
+// Step 2. Granting, identifying and checking are one action because they are
+// one question — "which tag, and is it the one this page is drawn for?" — and
+// because splitting them made the page ask for the same tag twice.
+async function chooseTag() {
+  const button = $("#connect");
+  if (!navigator.bluetooth) {
+    setStatus("this browser has no Web Bluetooth; Chrome and Edge have it", true);
+    return;
+  }
+
+  button.disabled = true;
+  detectSteps = [];
+  try {
+    step("opening the chooser");
+    const device = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: [TAG_SERVICE],
+    });
+    step(`granted "${device.name ?? "unnamed"}"`);
+
+    // Read the model first: connecting can stop a tag advertising, and this is
+    // the only place the model is written. A failure here is not fatal — it is
+    // the ordinary case in a Chrome without the flag — so it is reported and
+    // the tag is kept.
+    if (CAN_READ_ADVERTISEMENTS) {
+      try {
+        step("reading the advertisement for the model");
+        const bytes = await readAdvertisement(device);
+        const found = state.api.identify(bytes);
+        if (found.ok) {
+          state.detected = found;
+          if (found.identified) {
+            step(`the tag says it is ${found.panel} — ${found.voltage.toFixed(1)} V`);
+            $("#panel").value = found.key;
+            $("#panel").dispatchEvent(new Event("change"));
+          } else {
+            step(`the tag advertises id ${found.id}, which this build has no entry for`, "bad");
+          }
+        } else {
+          step(found.error, "bad");
+        }
+      } catch (error) {
+        step(`could not read the model: ${error?.message ?? error}`);
+      }
+    } else {
+      step("this Chrome cannot read advertisements, so the panel stays as chosen");
+    }
+
+    // Then prove the tag is the thing it looks like, before Push is offered.
+    // Finding out at the third step that the second one granted a pair of
+    // headphones is a worse place to find out.
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(TAG_SERVICE);
+    await service.getCharacteristic(CONTROL_CHARACTERISTIC);
+    await service.getCharacteristic(DATA_CHARACTERISTIC);
+    device.gatt.disconnect();
+    step("it serves FEF0 with both characteristics — ready to push");
+
+    state.device = device;
+    $("#tag-name").textContent = device.name ?? "unnamed";
+    $("#tag-name").hidden = false;
+    button.textContent = "Change";
+    setStatus(`tag ready: ${device.name ?? "unnamed"}`);
+  } catch (error) {
+    if (error?.name === "NotFoundError") {
+      detectSteps = [];
+      $("#warnings").innerHTML = "";
+      setStatus("no tag chosen");
+    } else {
+      step(`${error?.name ?? "Error"}: ${error?.message ?? error}`, "bad");
+      setStatus(String(error?.message ?? error), true);
+      state.device = null;
+      $("#tag-name").hidden = true;
+    }
+  } finally {
+    button.disabled = false;
+    showDetected();
+    refreshSteps();
+  }
+}
+
+// Which step is asking for attention, which are satisfied, and which cannot be
+// reached yet. Called after anything that changes one of those.
+function refreshSteps() {
+  const haveTag = Boolean(state.device);
+  const drew = Boolean(state.png);
+
+  const set = (id, cls) => {
+    const node = $(id);
+    node.classList.toggle("is-ready", cls === "ready");
+    node.classList.toggle("is-done", cls === "done");
+    node.classList.toggle("is-blocked", cls === "blocked");
+  };
+
+  // A panel is always chosen — the page opens on one — so this step is done
+  // from the start rather than pretending to be a gate.
+  set("#step-panel", state.panel ? "done" : "ready");
+  set("#step-tag", haveTag ? "done" : navigator.bluetooth ? "ready" : "blocked");
+  set("#step-push", !haveTag || !drew ? "blocked" : "ready");
+
+  $("#push").disabled = !haveTag || !drew || !state.panel;
+  $("#push").title = !navigator.bluetooth
+    ? "This browser has no Web Bluetooth. Chrome and Edge have it."
+    : !haveTag
+      ? "Choose a tag first."
+      : !state.panel
+        ? "A custom size is not a tag; choose a panel."
+        : `Write this page to ${state.device?.name ?? "the tag"}.`;
+  $("#connect").disabled = !navigator.bluetooth;
+  if (!navigator.bluetooth) {
+    $("#connect").title = "This browser has no Web Bluetooth. Chrome and Edge have it.";
+  }
+}
+
+// The two characteristics the firmware serves under FEF0: one carries the
+// conversation, the other carries the picture.
+const CONTROL_CHARACTERISTIC = 0xfef1;
+const DATA_CHARACTERISTIC = 0xfef2;
+
+// Step 3. The tag was chosen and checked at step 2, so this asks nothing and
+// decides nothing: it connects, hands the page to the uploader, and reports.
+//
+// Writes are acknowledged. Both the command and the reference upload page do
+// it that way, and the tag's flow control is built on the acknowledgement.
+async function push() {
+  const button = $("#push");
+  if (!state.panel) {
+    setStatus("choose a panel first — a custom size is not a tag", true);
+    return;
+  }
+  if (!state.device) {
+    setStatus("choose a tag first", true);
+    return;
+  }
+
+  button.disabled = true;
+  detectSteps = [];
+  const device = state.device;
+  let session = null;
+  try {
+    step(`connecting to "${device.name ?? "unnamed"}"`);
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(TAG_SERVICE);
+    const control = await service.getCharacteristic(CONTROL_CHARACTERISTIC);
+    const data = await service.getCharacteristic(DATA_CHARACTERISTIC);
+
+    // Notifications start before the first write, because the tag answers the
+    // first command and an answer nobody is listening for is a stall.
+    control.addEventListener("characteristicvaluechanged", (event) => {
+      const value = event.target.value;
+      session?.notify(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+    });
+    await control.startNotifications();
+    step("listening on FEF1");
+
+    session = state.api.upload({
+      markup: editors.markup.value,
+      css: editors.css.value,
+      files: files(),
+      panel: state.panel,
+      transport: {
+        writeControl: (bytes) => control.writeValue(bytes),
+        writeData: (bytes) => data.writeValue(bytes),
+        log: (text) => step(text),
+      },
+    });
+    if (!session.ok) {
+      step(session.error, "bad");
+      setStatus(session.error, true);
+      return;
+    }
+    step(`sending ${session.payloadBytes} bytes for ${session.panel}`);
+
+    await session.done;
+    step("the tag took the page and is refreshing");
+    setStatus(`pushed ${session.payloadBytes} B to ${device.name ?? "the tag"}`);
+  } catch (error) {
+    step(`${error?.name ?? "Error"}: ${error?.message ?? error}`, "bad");
+    setStatus(String(error?.message ?? error), true);
+  } finally {
+    // A tag left connected refuses the next attempt, and the next attempt is
+    // the one where whatever went wrong gets looked at again.
+    try {
+      device?.gatt?.disconnect();
+    } catch {
+      // Already gone.
+    }
+    button.disabled = false;
+    refreshSteps();
+  }
+}
+
+/* ------------------------------------------------------------------ *
  * Wiring
  * ------------------------------------------------------------------ */
 
@@ -653,6 +1028,8 @@ $("#panel").addEventListener("change", () => {
       $("#size-h").value = panel.height;
     }
   }
+  showDetected();
+  refreshSteps();
   render();
 });
 
@@ -668,6 +1045,20 @@ for (const input of [$("#size-w"), $("#size-h")]) {
     schedule();
   });
 }
+
+$("#connect").addEventListener("click", chooseTag);
+$("#push").addEventListener("click", push);
+
+// Step 2 says up front what it will and will not be able to do, because the
+// answer changes what step 1 is for: with advertisements the panel is read
+// off the tag, without them it stays whatever was chosen.
+$("#connect").title = !navigator.bluetooth
+  ? "This browser has no Web Bluetooth. Chrome and Edge have it."
+  : CAN_READ_ADVERTISEMENTS
+    ? "Choose the tag, read which panel it has, and check it answers."
+    : "Choose the tag and check it answers. This Chrome cannot read advertisements, " +
+      "so the panel stays as chosen — turn on " +
+      "chrome://flags/#enable-experimental-web-platform-features to have it read.";
 
 $("#file-input").addEventListener("change", (event) => {
   addFiles(event.target.files);
@@ -703,11 +1094,12 @@ async function loadPanels() {
     for (const panel of panels) {
       const option = document.createElement("option");
       option.value = panel.key;
-      // The catalogue carries entries read off firmware tables as well as
-      // ones confirmed against a tag. Which is which is worth saying.
-      option.textContent =
-        `${panel.width}×${panel.height}  ${panel.name} · ${panel.palette}` +
-        (panel.verified ? "  ✓" : "");
+      // The size and the model, and nothing else. Every model's name already
+      // carries its palette, so repeating that was noise; and whether the
+      // catalogue entry has been checked against hardware is a fact about this
+      // project rather than about the tag — the firmware is the same either
+      // way, so it does not help anyone choosing a panel.
+      option.textContent = `${panel.width}×${panel.height}  ${panel.name}`;
       group.append(option);
     }
     select.append(group);
@@ -889,6 +1281,7 @@ function loadStarters() {
 (async () => {
   loadStarters();
   drawFileList();
+  refreshSteps();
   await Promise.all([loadPanels(), loadVocabulary()]);
   const first = STARTERS["Hello panel"];
   editors.markup.value = first.markup;

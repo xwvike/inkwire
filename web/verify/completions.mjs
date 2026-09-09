@@ -142,7 +142,7 @@ const failures = [];
 
 const run = (property, declaration, label) => {
   const [markup, css] = wrap(property, declaration);
-  const result = globalThis.inkwire.render(markup, css, 120, 60, {});
+  const result = globalThis.inkwire.render({ markup, css, width: 120, height: 60 });
   checks++;
   const warnings = (result.warnings ?? []).filter(
     (w) => w.code === "unsupported-declaration" || w.code === "unsupported-selector",
@@ -186,7 +186,12 @@ for (const element of vocabulary.svgElements) {
           // beside a shape that does.
           `<${element}></${element}>${ANCHOR_SHAPE}`;
 
-  const result = globalThis.inkwire.render(`<svg width="20" height="20">${body}</svg>`, "", 40, 40, {});
+  const result = globalThis.inkwire.render({
+    markup: `<svg width="20" height="20">${body}</svg>`,
+    css: "",
+    width: 40,
+    height: 40,
+  });
   checks++;
   const warnings = (result.warnings ?? []).filter((w) => w.code.startsWith("unsupported"));
   if (!result.ok || warnings.length > 0) {
