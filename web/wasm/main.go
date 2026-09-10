@@ -95,6 +95,20 @@ func compilePage(markupSource, cssSource string, files map[string][]byte) (marku
 	return compiler.Compile(markupSource, cssSource)
 }
 
+// decodedImages is remembered for as long as the module runs. Nothing evicts
+// from it: a page is edited with a handful of pictures, and a browser tab that
+// has been given hundreds of megabytes of them has been told to.
+var decodedImages = map[string]image.Image{}
+
+// preparedImages is the other half, and the larger one. Decoding a picture is
+// the smaller cost: profiling it, mapping its tones and choosing how to dither
+// it all happen at its own resolution, and none of it depends on the page
+// around it. A page is laid out on every keystroke and its pictures are the
+// same pictures, so this is remembered too — safely, because the key holds
+// each source by identity and the decode cache above is what makes that
+// identity stable.
+var preparedImages = map[compose.PreparedKey]compose.PreparedImage{}
+
 // document turns a page into the scene document the layout takes, carrying the
 // front end's warnings out beside the decoder's own.
 func document(markupSource, cssSource string, files map[string][]byte) (compose.Document, []compose.Warning, error) {
@@ -110,11 +124,18 @@ func document(markupSource, cssSource string, files map[string][]byte) (compose.
 	// a picture may come from the map, an HTTP URL or a data URL, and from
 	// nowhere else. There is no filesystem to reach in the first place, and
 	// saying so here means a path that tries reports rather than resolving.
-	decoder := scene.Decoder{Resources: files, ResourcesOnly: true}
+	//
+	// The cache is what makes an editor bearable. A page is decoded on every
+	// keystroke and its pictures are the same pictures each time; a 3840x2160
+	// photograph costs over two seconds to decode, against eight milliseconds
+	// for the rest of the page. It is keyed by content, so replacing a file
+	// under the same name is a different picture rather than a stale one.
+	decoder := scene.Decoder{Resources: files, ResourcesOnly: true, Images: decodedImages}
 	decoded, err := decoder.Decode(bytes.NewReader(page.JSON))
 	if err != nil {
 		return compose.Document{}, warnings, err
 	}
+	decoded.Prepared = preparedImages
 	return decoded, warnings, nil
 }
 

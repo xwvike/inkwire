@@ -12,7 +12,7 @@ import {
   highlightActiveLine, highlightActiveLineGutter, highlightSelectionMatches,
   highlightSpecialChars, history, historyKeymap, html, indentOnInput,
   indentUnit, indentWithTab, keymap, lineNumbers, rectangularSelection,
-  searchKeymap, syntaxHighlighting, tags,
+  searchKeymap, syntaxHighlighting, syntaxTree, tags,
 } from "./vendor/codemirror.js";
 
 const $ = (selector) => document.querySelector(selector);
@@ -310,6 +310,37 @@ function makeEditor(mount, language, isCSS, onChange) {
   };
 }
 
+// Whether an editor's document currently parses.
+//
+// A page is typed into, and on the way to being written it passes through
+// states that are not yet anything: a tag with no closing bracket, a rule with
+// no closing brace, a property with no value. Sending those to the renderer
+// costs a full layout to be told what the editor already knows, and answers
+// with warnings about a page nobody has finished writing.
+//
+// CodeMirror has already parsed the document — that is where the colours come
+// from — so this asks its tree rather than parsing again. An error node is
+// exactly the "not yet" this is looking for.
+function parses(editor) {
+  const state = editor.view.state;
+  // A blank document reports an error node in the HTML grammar, so clearing a
+  // pane would leave the preview waiting for a page that is not coming. There
+  // is nothing half-written about nothing.
+  if (state.doc.length === 0 || !state.doc.toString().trim()) return true;
+  let broken = false;
+  syntaxTree(state).iterate({
+    enter(node) {
+      if (broken) return false;
+      if (node.type.isError) {
+        broken = true;
+        return false;
+      }
+      return undefined;
+    },
+  });
+  return !broken;
+}
+
 /* ------------------------------------------------------------------ *
  * Renderer
  * ------------------------------------------------------------------ */
@@ -401,6 +432,17 @@ let renderCount = 0;
 
 async function render() {
   if (!state.api) return;
+
+  // Half-written source is not a page. The last good picture stays on screen
+  // rather than being replaced by whatever a broken document lays out to, and
+  // the status line says why — a preview that flickers between a page and its
+  // wreckage as a tag is typed is worse than one that waits.
+  const unfinished = ["markup", "css"].filter((which) => !parses(editors[which]));
+  if (unfinished.length > 0) {
+    setStatus(`waiting for the ${unfinished.join(" and ")} to finish`);
+    return;
+  }
+
   const markup = editors.markup.value;
   const css = editors.css.value;
   const { width, height } = state.size;

@@ -11,7 +11,7 @@ export {
 } from "@codemirror/commands";
 export {
   syntaxHighlighting, HighlightStyle, indentUnit, bracketMatching,
-  foldGutter, indentOnInput,
+  foldGutter, indentOnInput, syntaxTree, ensureSyntaxTree,
 } from "@codemirror/language";
 export {
   autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap,

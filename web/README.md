@@ -45,6 +45,7 @@ node web/verify/completions.mjs  # every completion offered actually renders
 node web/verify/starters.mjs     # the pages the editor opens with render clean
 node web/verify/calls.mjs        # the page and the worker parse, ask only for files that exist, call nothing that does not, and agree on their messages
 node web/verify/push.mjs         # a whole upload, into a tag that is not there
+node web/verify/parsing.mjs      # the editor can tell a half-written page from a finished one
 ```
 
 `parity.mjs` needs the CLI beside it: `go build -o web/verify/inkwire ./cmd/inkwire`.
