@@ -27,6 +27,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
@@ -56,6 +57,34 @@ type Decoder struct {
 	// ResourcesOnly prevents image sources from falling back to the local
 	// filesystem. Resource maps, HTTP(S) URLs and data URLs remain available.
 	ResourcesOnly bool
+	// Images remembers pictures already decoded, so that decoding the same
+	// document again does not decode them again.
+	//
+	// It is for a caller that decodes one page repeatedly — an editor redrawing
+	// as it is typed into — where the page changes and its pictures do not. A
+	// 3840x2160 photograph costs over two seconds to decode and the rest of
+	// that page costs eight milliseconds, so without this every keystroke pays
+	// for a picture nobody touched.
+	//
+	// Nil by default, which is what a command wants: it decodes a page once and
+	// would otherwise only be holding the memory. The key covers the content as
+	// well as the name, so replacing a file under the same name is a different
+	// entry rather than a stale one.
+	Images map[string]image.Image
+}
+
+// imageKey names a decoded picture by where it came from and what it was.
+//
+// Hashing the bytes costs about a millisecond a megabyte, against the seconds
+// decoding costs, and it is what makes the cache safe: a page that swaps one
+// photograph for another under the same name gets the new one.
+func imageKey(source string, content []byte) string {
+	if content == nil {
+		return source
+	}
+	sum := fnv.New64a()
+	sum.Write(content)
+	return fmt.Sprintf("%s#%x", source, sum.Sum64())
 }
 
 type documentJSON struct {
@@ -1259,8 +1288,18 @@ func (d Decoder) loadImage(source string) (image.Image, error) {
 	if source == "" {
 		return nil, fmt.Errorf("field is required")
 	}
+	// Only what came from the resource map is remembered. A file on disk or a
+	// URL could have changed underneath, and re-reading it is the point of
+	// naming it that way.
+	resource, fromResources := d.Resources[source]
+	key := imageKey(source, resource)
+	if d.Images != nil && fromResources {
+		if cached, ok := d.Images[key]; ok {
+			return cached, nil
+		}
+	}
 	var reader io.ReadSeeker
-	if resource, ok := d.Resources[source]; ok {
+	if fromResources {
 		reader = bytes.NewReader(resource)
 	} else if strings.HasPrefix(source, "data:") {
 		comma := strings.IndexByte(source, ',')
@@ -1336,6 +1375,9 @@ func (d Decoder) loadImage(source string) (image.Image, error) {
 	}
 	if format != "png" && format != "jpeg" {
 		return nil, fmt.Errorf("unsupported image format %q", format)
+	}
+	if d.Images != nil && fromResources {
+		d.Images[key] = decoded
 	}
 	return decoded, nil
 }

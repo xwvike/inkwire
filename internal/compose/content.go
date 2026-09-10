@@ -181,7 +181,7 @@ func (i Image) paint(ctx *compileContext, list *display.DisplayList, bounds stdi
 		ctx.warn(path, "empty-layout", "image has no drawable area")
 		return nil
 	}
-	prepared, options, decision, err := i.prepare(path)
+	prepared, options, decision, err := i.preparedFor(ctx, path)
 	if err != nil {
 		return err
 	}
@@ -219,6 +219,30 @@ func (i Image) validate(path string) error {
 		}
 	}
 	return nil
+}
+
+// preparedFor is prepare, with the document's memo consulted first.
+//
+// Preparing costs the picture's own resolution — profiling every pixel,
+// mapping tones, enhancing contrast — and depends on nothing about where the
+// picture lands, so laying the same document out again would repeat all of it.
+// A caller that supplies a memo has said its pictures are stable, and the key
+// holds the source by identity so that "stable" means the same decoded image
+// rather than an equal one.
+func (i Image) preparedFor(ctx *compileContext, path string) (stdimage.Image, display.ImageOptions, *ImageDecision, error) {
+	if ctx.prepared == nil {
+		return i.prepare(path)
+	}
+	key := keyFor(i)
+	if hit, ok := ctx.prepared[key]; ok {
+		return hit.Image, hit.Options, hit.Decision, nil
+	}
+	image, options, decision, err := i.prepare(path)
+	if err != nil {
+		return nil, display.ImageOptions{}, nil, err
+	}
+	ctx.prepared[key] = PreparedImage{Image: image, Options: options, Decision: decision}
+	return image, options, decision, nil
 }
 
 func (i Image) prepare(path string) (stdimage.Image, display.ImageOptions, *ImageDecision, error) {

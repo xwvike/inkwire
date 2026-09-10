@@ -21,6 +21,94 @@ type Document struct {
 	Size       image.Point
 	Background *display.Ink
 	Root       Node
+	// Prepared remembers the work an image needs before it can be drawn:
+	// profiling it, mapping its tones, enhancing its contrast, and choosing
+	// how to dither it. All of that happens at the picture's own resolution
+	// and none of it depends on where the picture lands, so laying the same
+	// document out again repeats it exactly.
+	//
+	// It is for a caller that lays one document out over and over — an editor
+	// redrawing as it is typed into. A 3840x2160 photograph costs two seconds
+	// of this and eight milliseconds of everything else, so without it every
+	// keystroke pays for a picture nobody touched.
+	//
+	// Nil by default, which is what a command wants: it draws a page once and
+	// would only be holding the memory. Supplying one is a statement that the
+	// pictures behind it do not change, which is true when they are held by
+	// identity — the same decoded image, not an equal one.
+	Prepared map[PreparedKey]PreparedImage
+}
+
+// PreparedKey identifies one picture and everything that changes what
+// preparing it produces. The image is held by identity rather than by content,
+// because the caller that benefits already keeps its decoded pictures.
+//
+// Every optional field is flattened to a value and a flag. ImageOverrides and
+// Contrast are pointers on the node, and a decoder building the same document
+// twice allocates fresh ones each time — so a key holding those pointers is a
+// key that never matches itself, and a cache that never hits.
+type PreparedKey struct {
+	Source     image.Image
+	Processing ImageProcessing
+	Options    display.ImageOptions
+
+	Fit             display.ImageFit
+	Sampling        display.SamplingMode
+	Dither          display.DitherMode
+	Threshold       int
+	RedThreshold    int
+	RedMaxGreen     int
+	DisableRed      bool
+	HasFit          bool
+	HasSampling     bool
+	HasDither       bool
+	HasThreshold    bool
+	HasRedThreshold bool
+	HasRedMaxGreen  bool
+	HasDisableRed   bool
+
+	Contrast    Contrast
+	HasContrast bool
+}
+
+// keyFor flattens a node's optional settings into a key that compares by what
+// they say rather than by where they are stored.
+func keyFor(i Image) PreparedKey {
+	key := PreparedKey{Source: i.Source, Processing: i.Processing, Options: i.Options}
+	if i.Contrast != nil {
+		key.Contrast, key.HasContrast = *i.Contrast, true
+	}
+	o := i.Overrides
+	if o.Fit != nil {
+		key.Fit, key.HasFit = *o.Fit, true
+	}
+	if o.Sampling != nil {
+		key.Sampling, key.HasSampling = *o.Sampling, true
+	}
+	if o.Dither != nil {
+		key.Dither, key.HasDither = *o.Dither, true
+	}
+	if o.Threshold != nil {
+		key.Threshold, key.HasThreshold = *o.Threshold, true
+	}
+	if o.RedThreshold != nil {
+		key.RedThreshold, key.HasRedThreshold = *o.RedThreshold, true
+	}
+	if o.RedMaxGreen != nil {
+		key.RedMaxGreen, key.HasRedMaxGreen = *o.RedMaxGreen, true
+	}
+	if o.DisableRed != nil {
+		key.DisableRed, key.HasDisableRed = *o.DisableRed, true
+	}
+	return key
+}
+
+// PreparedImage is what preparing produced, which is the picture to draw and
+// the options to draw it with.
+type PreparedImage struct {
+	Image    image.Image
+	Options  display.ImageOptions
+	Decision *ImageDecision
 }
 
 // Value returns an addressable copy for optional fields whose zero value is a
@@ -223,7 +311,7 @@ func (c *Compiler) Compile(document Document) (*CompiledDocument, Report, error)
 		return nil, Report{}, err
 	}
 
-	ctx := &compileContext{compiler: c}
+	ctx := &compileContext{compiler: c, prepared: document.Prepared}
 	pageBounds := page.Bounds()
 	list := &display.DisplayList{}
 	list.ClipRect(pageBounds)
@@ -248,6 +336,10 @@ func (c *Compiler) Compile(document Document) (*CompiledDocument, Report, error)
 type compileContext struct {
 	compiler *Compiler
 	report   Report
+	// prepared is the document's image memo, or nil. Held here because the
+	// picture is prepared while painting, which is a long way from the caller
+	// who decided whether remembering it is safe.
+	prepared map[PreparedKey]PreparedImage
 	seenRune map[rune]bool
 	// measureInline is the containing block's inline size while a flex item
 	// is measured for its intrinsic main size. The main-axis maximum is opened
