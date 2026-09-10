@@ -43,7 +43,7 @@ rather than asserted:
 node web/verify/parity.mjs       # wasm vs CLI, byte for byte, on every example
 node web/verify/completions.mjs  # every completion offered actually renders
 node web/verify/starters.mjs     # the pages the editor opens with render clean
-node web/verify/calls.mjs        # the page and the worker call nothing that does not exist, and agree on their messages
+node web/verify/calls.mjs        # the page and the worker parse, ask only for files that exist, call nothing that does not, and agree on their messages
 node web/verify/push.mjs         # a whole upload, into a tag that is not there
 ```
 

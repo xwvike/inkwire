@@ -17,6 +17,8 @@
 // Usage: node web/verify/calls.mjs
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -133,12 +135,79 @@ function checkTransportWiring() {
 
 let failures = 0;
 
+failures += checkSyntax();
+failures += checkReferences();
 for (const name of FILES) {
   failures += check(name, fs.readFileSync(path.join(root, "web", "static", name), "utf8"));
 }
 failures += checkMessageContract();
 failures += checkTransportWiring();
 process.exit(failures === 0 ? 0 : 1);
+
+// Whether the two files parse at all.
+//
+// Nothing else here would notice if they did not. The scan below reads them as
+// text and the other checks drive the module, which is Go — so a stray brace
+// in app.js passes every one of them and ships a page that does nothing but
+// throw on load. Go cannot break this way, because a build that does not
+// compile produces no module to deploy; JavaScript has no such step, so this
+// is it.
+function checkSyntax() {
+  // node --check on a bare .js says nothing is wrong however broken the file
+  // is: with no extension and no package.json to go on it will not commit to
+  // reading it as either kind of file. Given an extension it does, so each is
+  // copied to one that says what it already is — app.js is a module and
+  // worker.js is a classic script, which is why it can call importScripts.
+  const KIND = { "app.js": ".mjs", "worker.js": ".cjs" };
+  let wrong = 0;
+  for (const name of FILES) {
+    const copy = path.join(os.tmpdir(), `inkwire-syntax-${process.pid}-${name}${KIND[name]}`);
+    fs.copyFileSync(path.join(root, "web", "static", name), copy);
+    try {
+      execFileSync(process.execPath, ["--check", copy], { stdio: ["ignore", "ignore", "pipe"] });
+    } catch (error) {
+      wrong++;
+      const said = String(error.stderr ?? "")
+        .split("\n")
+        .find((line) => /Error/.test(line));
+      console.log(`  FAIL  ${name} does not parse: ${said?.trim() ?? "syntax error"}`);
+    } finally {
+      fs.unlinkSync(copy);
+    }
+  }
+  console.log(`  syntax: ${FILES.length} files parsed, ${wrong} broken`);
+  return wrong;
+}
+
+// Whether everything the page asks the server for is there to be served.
+//
+// The deployed directory is assembled by build.sh from several places, and a
+// file renamed on one side of that is a 404 on the other — which the browser
+// reports to nobody but the person looking at the console.
+function checkReferences() {
+  const dir = path.join(root, "web", "static");
+  const html = fs.readFileSync(path.join(dir, "index.html"), "utf8");
+  const wanted = new Set();
+  for (const [, ref] of html.matchAll(/(?:src|href)="([^"]+)"/g)) wanted.add(ref);
+  // The page loads its worker and its data by name too, and those names are in
+  // the scripts rather than in the markup.
+  for (const name of FILES) {
+    const source = fs.readFileSync(path.join(dir, name), "utf8");
+    for (const [, ref] of source.matchAll(/(?:new Worker|importScripts|fetch)\("([\w./-]+)"\)/g)) {
+      wanted.add(ref);
+    }
+  }
+
+  let missing = 0;
+  for (const ref of wanted) {
+    if (/^(https?:|data:|#|mailto:)/.test(ref)) continue;
+    if (fs.existsSync(path.join(dir, ref))) continue;
+    missing++;
+    console.log(`  FAIL  the page asks for ${ref}, which is not in web/static`);
+  }
+  console.log(`  references: ${wanted.size} named, ${missing} missing`);
+  return missing;
+}
 
 function check(file, source) {
 const code = stripNonCode(source);
