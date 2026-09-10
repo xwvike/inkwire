@@ -1,110 +1,115 @@
 # Inkwire Studio
 
-An editor for e-paper pages that previews them with the renderer itself.
+A browser page for writing an e-paper page, seeing exactly what a tag will
+show, and writing it to one.
 
-The reference projects for these tags all ship a page that takes a line of text
-and a picture and sends the result over Bluetooth. This is that page with the
-renderer behind it: the same Go the CLI runs, compiled to wasm, so the preview
-is the frame the tag would be written with rather than a browser's impression
-of it.
+The preview is not an approximation: the renderer is the same Go the command
+runs, compiled to wasm, held to identical PNG bytes by `verify/parity.mjs`.
 
-## Build and run
+Scratch space, not a workspace. Nothing is saved and a reload starts over.
+
+## Run
 
 ```sh
-./web/build.sh          # writes static/inkwire.wasm, wasm_exec.js, panels.json, completions.json
+./web/build.sh          # static/inkwire.wasm, wasm_exec.js, panels.json, completions.json
 python3 web/serve.py    # http://127.0.0.1:8731/
 ```
 
-Any static file server will do — the page falls back from
-`instantiateStreaming` when one does not send `application/wasm` — but this one
-also sends no-store, and a cached stylesheet against fresh markup does not look
-like a cache. It looks like the layout is broken.
+Deployed at <https://xwvike.github.io/inkwire/>, rebuilt from `main` by
+`.github/workflows/pages.yml`. Web Bluetooth needs a secure context, so pushing
+works over HTTPS and over localhost, nowhere else.
 
-## What it does
+Any static server works. `serve.py` adds `application/wasm` and `no-store`.
 
-| | |
-|---|---|
-| Editor | CodeMirror 6 — highlighting, undo history, search, bracket matching, multiple cursors |
-| Completion | This renderer's 89 properties and their values, generated from `MARKUP.md`, plus the SVG elements it draws |
-| Preview | The rendered frame at 1×–6×, nearest-neighbour, on a paper ground, drawn in a worker so that typing never waits on it — with the panel's own palette, so an ink it cannot show is flattened here exactly as the tag would flatten it |
-| Layout | Every node and the box it ended up in — the `measure` command |
-| Scene | What the CSS compiled to — the `compile` command |
-| Report | Every declaration the renderer could not honour, and every glyph no bundled font could draw |
-| Panels | All 28 catalogued models, grouped by family, sized and labelled by palette |
-| Files | Drop a stylesheet, image or SVG anywhere on the window and the page can link it, under the name the page writes |
-| Push | Writes the page to a Gicisky tag over Web Bluetooth, driven by `internal/gicisky`'s own uploader rather than a second copy of the protocol |
+## Using it
 
-## Verifying it
+The bar is three steps; later ones stay disabled until their turn.
 
-The preview is only worth having if it is exact, so that claim is checked
-rather than asserted:
+**1 · Panel** decides what the page is drawn for — its size, and which inks it
+can show. An ink the panel lacks is flattened to black in the preview exactly
+as the tag would flatten it, and the report names it.
+
+**2 · Tag** opens the browser's chooser, then connects and checks the tag
+serves a protocol this speaks. An EPD-nRF5 tag reports its own model here, so
+step 1 is filled in and locked. `Change` reaches a different tag, `Clear` stops
+pointing at one.
+
+**3 · Push** writes the page, logging each stage with timings: the block size
+the tag asked for, every part, the refresh.
+
+Left pane:
+
+- **HTML** and **CSS** — CodeMirror, completing from this renderer's 89
+  properties and their values rather than the browser's several hundred.
+  Nothing it offers compiles to a warning.
+- **Files** — drop a stylesheet, image or SVG anywhere on the window. A page in
+  a browser has no directory beside it, so a file is reached by the name the
+  page writes: `assets/photo.png` is called `assets/photo.png` here. Each entry
+  says whether the page currently references it.
+
+Right pane:
+
+- **Preview** — the frame at 1×–6×, nearest-neighbour.
+- **Layout** — every node and the box it ended up in. The `measure` command.
+- **Scene** — what the CSS compiled to. The `compile` command.
+
+Below both: every declaration the renderer could not honour, every glyph no
+bundled font could draw, and the push log.
+
+Source that does not parse is not rendered. The last good frame stays up and
+the status line says what it is waiting for.
+
+## Limits
+
+- **Chromium only.** Safari and Firefox have no Web Bluetooth; both buttons say
+  so rather than failing when pressed.
+- **A Gicisky tag's model is only in its advertisement**, and Chrome keeps
+  `watchAdvertisements` behind
+  `chrome://flags/#enable-experimental-web-platform-features`. With the flag,
+  choosing a tag reads the model, selects it, and says so if you then pick
+  another; without it, pick the panel from the list.
+- **A tag lasts as long as the page.** `getDevices` is behind the same flag, so
+  a reload asks again.
+- **Go, not TinyGo.** TinyGo builds 4.28 MB against Go's 16.7 MB and then
+  panics inside `douceur` on the first page. `build.sh tinygo` still tries it.
+
+## Checks
 
 ```sh
-node web/verify/parity.mjs       # wasm vs CLI, byte for byte, on every example
-node web/verify/completions.mjs  # every completion offered actually renders
-node web/verify/starters.mjs     # the pages the editor opens with render clean
-node web/verify/calls.mjs        # the page and the worker parse, ask only for files that exist, call nothing that does not, and agree on their messages
-node web/verify/push.mjs         # a whole upload, into a tag that is not there
-node web/verify/parsing.mjs      # the editor can tell a half-written page from a finished one
+go build -o web/verify/inkwire ./cmd/inkwire   # parity.mjs drives it
+
+node web/verify/parity.mjs        # wasm against the command, byte for byte, 93 renders
+node web/verify/push.mjs          # a whole upload into a stub tag, both families
+node web/verify/completions.mjs   # every completion offered renders without a warning
+node web/verify/starters.mjs      # the pages the editor opens with render clean
+node web/verify/parsing.mjs       # half-written source is told from finished
+node web/verify/calls.mjs         # app.js and worker.js parse, name only files that
+                                  # exist, call nothing undefined, and agree on their
+                                  # messages and on the transport the module reads
 ```
 
-`parity.mjs` needs the CLI beside it: `go build -o web/verify/inkwire ./cmd/inkwire`.
-
-`calls.mjs` is there because a browser is the only thing that runs `app.js` and
-`worker.js`, and a ReferenceError in either is silent to everything else — the
-module keeps working, the preview keeps drawing, and one tab quietly stops
-filling in. It also compares the two sides of the worker's postMessage
-contract, where a renamed op is a call that never answers.
-
-At the time of writing every example page produces identical PNG bytes from
-the module and from the command — 93 renders, each page as a bare viewport and
-again for every catalogued panel of its size — and all 89 properties, 175
-values and 13 SVG elements the editor offers render without a warning.
-
-That second check is the point of generating the vocabulary rather than taking
-a stock CSS list: a browser has some 500 properties and this renderer has 89,
-so a stock completion would spend most of its suggestions proposing
-declarations that compile to a warning — teaching the wrong vocabulary at the
-moment someone is learning it.
-
-## Known limits
-
-- **Gicisky only, and Chromium only.** Pushing speaks the Gicisky protocol;
-  EPD-nRF5 asks the tag what it is after connecting rather than before and has
-  its own session, which is not wired up here. Safari and Firefox have no Web
-  Bluetooth at all, and both buttons say so rather than failing when pressed.
-- **The panel is chosen by hand.** A Gicisky tag puts its model in its
-  advertisement and nowhere else — the GATT handshake reports the tag's message
-  size, not its panel — and Chrome keeps `watchAdvertisements` behind
-  `chrome://flags/#enable-experimental-web-platform-features`. With the flag on,
-  Detect reads the model and selects it, and says so if you then pick another.
-  Without it, Detect is disabled and the panel is picked from the list, which is
-  what every other tool for these tags requires anyway.
-- **A tag is remembered for the page, not beyond it.** Choosing one grants it
-  for as long as the page is open, so pushing repeatedly does not reopen the
-  chooser; Change reopens it to reach a different tag. Nothing survives a
-  reload, because `getDevices` is behind the same flag as advertisement
-  reading.
-- **Go, not TinyGo.** TinyGo produces 4.28 MB against Go's 16.7 MB and then
-  panics inside `douceur`'s declaration parser on the first page. `build.sh
-  tinygo` still builds it, so the next attempt costs one command.
+A browser is the only thing that runs `app.js` and `worker.js`, and `calls.mjs`
+is what stands in for it. The Pages workflow runs all six before deploying.
 
 ## Layout
 
 ```
 web/
-  wasm/main.go           the module: render, compile, measure
-  tools/panels/          generates static/panels.json from the driver catalogues
-  tools/completions/     generates static/completions.json from MARKUP.md
-  static/                the page — index.html, app.js, app.css
+  wasm/main.go           render, compile, measure, payload, upload, identify
+  tools/panels/          static/panels.json, from the driver catalogues
+  tools/completions/     static/completions.json, from MARKUP.md
+  static/                index.html, app.js, app.css, worker.js
   static/vendor/         CodeMirror 6, bundled and committed (MIT)
-  vendor/                how that bundle is rebuilt, and its licence notice
-  verify/                parity, completion and starter checks
+  vendor/                how that bundle is rebuilt, and its licence
+  verify/                the checks above
   build.sh
+  serve.py
 ```
 
-CodeMirror is committed rather than fetched at load time, so the editor works
-offline and no page load reaches a third-party host. Rebuild it with
-`web/vendor/build-codemirror.sh`, which installs npm, the packages and esbuild
-into a temporary directory and throws all of it away again — the repository
-keeps no JavaScript toolchain.
+Rendering runs in `worker.js`, so typing never waits on it. Pushing runs there
+too, with characteristic writes proxied back to the page — that is where a GATT
+characteristic exists.
+
+CodeMirror is committed rather than fetched: the editor works offline and no
+page load reaches a third-party host. `vendor/build-codemirror.sh` rebuilds it
+without leaving a JavaScript toolchain in the repository.
