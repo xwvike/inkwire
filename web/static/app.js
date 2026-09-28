@@ -349,6 +349,7 @@ const state = {
   api: null,
   panels: [],
   panel: null,
+  frame: null,
   // What a tag said about itself, once one has been asked. Null until then,
   // and the whole reason the chosen panel can be checked rather than trusted.
   detected: null,
@@ -477,6 +478,7 @@ async function render() {
     image.src = `data:image/png;base64,${result.png}`;
     image.width = result.width;
     image.height = result.height;
+    state.frame = { width: result.width, height: result.height };
     applyZoom();
     $("#download").disabled = false;
     $("#push").disabled = !state.panel || !navigator.bluetooth;
@@ -562,11 +564,12 @@ async function refreshMeasure(markup, css, width, height) {
 }
 
 function applyZoom() {
-  const zoom = Number($("#zoom").value);
   const image = $("#preview");
-  if (!image.getAttribute("src")) return;
-  image.style.width = `${state.size.width * zoom}px`;
-  image.style.height = `${state.size.height * zoom}px`;
+  const frame = state.frame;
+  if (!frame || !image.getAttribute("src")) return;
+  const scale = Number($("#zoom").value);
+  image.style.width = `${frame.width * scale}px`;
+  image.style.height = `${frame.height * scale}px`;
 }
 
 /* ------------------------------------------------------------------ *
@@ -745,6 +748,7 @@ const ADVERTISEMENT_TIMEOUT = 12000;
 // has already overwritten it. So every step is written into the report panel,
 // which is large, scrolls, and keeps what came before.
 let detectSteps = [];
+let activity = { running: "", failed: "", done: "" };
 
 function step(text, kind) {
   detectSteps.push({ text, kind, at: Math.round(performance.now()) });
@@ -776,7 +780,7 @@ function drawDetectSteps() {
   for (let index = list.childElementCount; index < detectSteps.length; index++) {
     const entry = detectSteps[index];
     const item = document.createElement("li");
-    if (entry.kind === "bad") item.className = "is-bad";
+    if (entry.kind) item.className = `is-${entry.kind}`;
     item.innerHTML =
       `<code>${String(entry.at - first).padStart(5)} ms</code>${escapeHTML(entry.text)}`;
     list.append(item);
@@ -784,8 +788,10 @@ function drawDetectSteps() {
   if (following) list.scrollTop = list.scrollHeight;
   const count = $("#report-count");
   const failed = detectSteps.some((entry) => entry.kind === "bad");
-  count.textContent = failed ? "detection stopped" : "detecting…";
+  const done = !failed && activity.done;
+  count.textContent = failed ? activity.failed : done || activity.running;
   count.classList.toggle("is-bad", failed);
+  count.classList.toggle("is-ok", Boolean(done));
   count.classList.toggle("is-warn", false);
   $("#missing-runes").textContent = "";
 }
@@ -915,6 +921,29 @@ function working(selector, label) {
   button.textContent = label;
 }
 
+// The result of an action, on the button that started it, for a few seconds.
+function flash(selector, label, kind) {
+  const button = $(selector);
+  settle(selector);
+  button.dataset.flashLabel = button.textContent;
+  button.classList.add(kind === "ok" ? "is-sent" : "is-failed");
+  button.textContent = label;
+  const token = String(performance.now());
+  button.dataset.flash = token;
+  setTimeout(() => {
+    if (button.dataset.flash === token) settle(selector);
+  }, 4000);
+}
+
+function settle(selector) {
+  const button = $(selector);
+  if (!button.dataset.flash) return;
+  button.classList.remove("is-sent", "is-failed");
+  button.textContent = button.dataset.flashLabel;
+  delete button.dataset.flash;
+  delete button.dataset.flashLabel;
+}
+
 // Which family a connected tag belongs to, by what it serves. Neither name nor
 // advertisement can answer this in a browser, and getting it wrong means
 // speaking the wrong protocol at a tag that will not answer.
@@ -1024,6 +1053,7 @@ async function chooseTag() {
 
   button.disabled = true;
   detectSteps = [];
+  activity = { running: "connecting…", failed: "the tag could not be used", done: "" };
   // Choosing again is how a second tag is reached, and what the last one said
   // about itself is not true of this one. Clearing first means a chooser that
   // is then cancelled leaves nothing stale behind either.
@@ -1118,6 +1148,7 @@ async function chooseTag() {
     // The label the spinner will fall back to when it clears, rather than the
     // text itself: this is inside the try, and the restore happens after it.
     button.dataset.label = "Change";
+    activity.done = `${device.name ?? "tag"} ready`;
     $("#clear").hidden = false;
     setStatus(`tag ready: ${device.name ?? "unnamed"}`);
   } catch (error) {
@@ -1243,8 +1274,12 @@ async function push() {
     return;
   }
 
+  settle("#push");
   button.disabled = true;
   detectSteps = [];
+  activity = { running: "pushing…", failed: "push failed", done: "" };
+  const began = performance.now();
+  let outcome = "bad";
   // Unlike choosing, every part of this is the page working: there is no
   // dialog in the middle of it.
   working("#push", "Sending");
@@ -1300,7 +1335,10 @@ async function push() {
       setStatus(result.error, true);
       return;
     }
-    step("the tag took the page and is refreshing");
+    const seconds = ((performance.now() - began) / 1000).toFixed(1);
+    activity.done = `pushed to ${device.name ?? "the tag"} in ${seconds} s`;
+    outcome = "ok";
+    step("the tag took the page and is refreshing", "ok");
     setStatus(
       result.payloadBytes
         ? `pushed ${result.payloadBytes} B to ${device.name ?? "the tag"}`
@@ -1323,6 +1361,7 @@ async function push() {
     working("#push", null);
     button.disabled = false;
     refreshSteps();
+    flash("#push", outcome === "ok" ? "Sent" : "Failed", outcome);
   }
 }
 
