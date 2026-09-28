@@ -120,6 +120,13 @@
   </section>
 </main>
 
+<dialog id="result" class="result">
+  <h2 id="result-title"></h2>
+  <p id="result-body"></p>
+  <p class="result-hint">Details are in the log below.</p>
+  <form method="dialog"><button>Close</button></form>
+</dialog>
+
 <!-- The renderer lives in worker.js, which loads wasm_exec.js itself. This
      thread never touches the module, so it does not carry the runtime. -->
 <script type="module" src="app.js"></script>

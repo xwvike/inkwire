@@ -125,15 +125,6 @@ button {
 button:disabled { opacity: 0.45; cursor: default; }
 button:not(:disabled):hover { border-color: var(--ink-faint); }
 
-button.is-sent,
-button.is-failed {
-  color: #fff;
-  transition: background-color 0.2s;
-}
-
-button.is-sent { background: var(--good); border-color: var(--good); }
-button.is-failed { background: var(--bad); border-color: var(--bad); }
-
 /* A button that is waiting on something.
  *
  * Only for waits the page is actually in: while the browser's own chooser is
@@ -678,4 +669,43 @@ body.is-dropping::after {
 .step.is-fixed select {
   opacity: 0.75;
   cursor: not-allowed;
+}
+
+/* ---------- result ---------- */
+
+.result {
+  width: min(360px, calc(100vw - 32px));
+  padding: 18px 20px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 12px 36px rgba(20, 24, 32, 0.18);
+}
+
+.result::backdrop { background: rgba(20, 24, 32, 0.25); }
+
+.result h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.result.is-ok h2 { color: var(--good); }
+.result.is-bad h2 { color: var(--bad); }
+
+.result p {
+  margin: 0 0 8px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.result-hint {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.result form {
+  margin: 12px 0 0;
+  text-align: right;
 }

@@ -921,27 +921,13 @@ function working(selector, label) {
   button.textContent = label;
 }
 
-// The result of an action, on the button that started it, for a few seconds.
-function flash(selector, label, kind) {
-  const button = $(selector);
-  settle(selector);
-  button.dataset.flashLabel = button.textContent;
-  button.classList.add(kind === "ok" ? "is-sent" : "is-failed");
-  button.textContent = label;
-  const token = String(performance.now());
-  button.dataset.flash = token;
-  setTimeout(() => {
-    if (button.dataset.flash === token) settle(selector);
-  }, 4000);
-}
-
-function settle(selector) {
-  const button = $(selector);
-  if (!button.dataset.flash) return;
-  button.classList.remove("is-sent", "is-failed");
-  button.textContent = button.dataset.flashLabel;
-  delete button.dataset.flash;
-  delete button.dataset.flashLabel;
+function announce(kind, title, body) {
+  const dialog = $("#result");
+  dialog.classList.toggle("is-ok", kind === "ok");
+  dialog.classList.toggle("is-bad", kind === "bad");
+  $("#result-title").textContent = title;
+  $("#result-body").textContent = body;
+  if (!dialog.open) dialog.showModal();
 }
 
 // Which family a connected tag belongs to, by what it serves. Neither name nor
@@ -1274,12 +1260,10 @@ async function push() {
     return;
   }
 
-  settle("#push");
   button.disabled = true;
   detectSteps = [];
   activity = { running: "pushing…", failed: "push failed", done: "" };
   const began = performance.now();
-  let outcome = "bad";
   // Unlike choosing, every part of this is the page working: there is no
   // dialog in the middle of it.
   working("#push", "Sending");
@@ -1333,12 +1317,19 @@ async function push() {
     if (!result.ok) {
       step(result.error, "bad");
       setStatus(result.error, true);
+      announce("bad", "Push failed", result.error);
       return;
     }
     const seconds = ((performance.now() - began) / 1000).toFixed(1);
     activity.done = `pushed to ${device.name ?? "the tag"} in ${seconds} s`;
-    outcome = "ok";
     step("the tag took the page and is refreshing", "ok");
+    announce(
+      "ok",
+      "Pushed",
+      `${device.name ?? "The tag"} took the page` +
+        (result.payloadBytes ? ` — ${result.payloadBytes} bytes` : "") +
+        ` in ${seconds} s, and is refreshing now.`,
+    );
     setStatus(
       result.payloadBytes
         ? `pushed ${result.payloadBytes} B to ${device.name ?? "the tag"}`
@@ -1347,6 +1338,7 @@ async function push() {
   } catch (error) {
     step(`${error?.name ?? "Error"}: ${error?.message ?? error}`, "bad");
     setStatus(String(error?.message ?? error), true);
+    announce("bad", "Push failed", String(error?.message ?? error));
   } finally {
     state.api.on("write", null);
     state.api.on("log", null);
@@ -1361,7 +1353,6 @@ async function push() {
     working("#push", null);
     button.disabled = false;
     refreshSteps();
-    flash("#push", outcome === "ok" ? "Sent" : "Failed", outcome);
   }
 }
 
