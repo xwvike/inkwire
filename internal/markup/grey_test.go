@@ -31,6 +31,24 @@ func TestAGreyIsBlackAtTheNearestSixteenth(t *testing.T) {
 		"rgb(0 0 0)":              display.InkBlack,
 		"rgb(300 300 300)":        display.InkWhite, // clamped, as CSS clamps
 		"rgb( 255 , 255 , 255 )":  display.InkWhite,
+		"hsl(0 0% 50%)":           display.Tone(display.InkBlack, 8),
+		"hsla(0, 0%, 50%, 1)":     display.Tone(display.InkBlack, 8),
+		"hsl(0, 100%, 50%)":       display.InkRed,
+		"hsl(60deg 100% 50%)":     display.InkYellow,
+		"hsl(0.5turn 0% 0%)":      display.InkBlack,
+		// Tailwind 4 writes its palette in oklch: neutral-500 is #737373.
+		"oklch(55.6% 0 0)":             display.Tone(display.InkBlack, 9),
+		"oklch(0.556 0 none)":          display.Tone(display.InkBlack, 9),
+		"oklch(100% 0 0)":              display.InkWhite,
+		"oklch(62.8% 0.2577 29.23)":    display.InkRed,    // CSS red
+		"oklch(96.8% 0.211 109.769)":   display.InkYellow, // CSS yellow
+		"oklab(0.5 0 0)":               display.Tone(display.InkBlack, 10),
+		"OKLCH(55.6% 0 0 / 1)":         display.Tone(display.InkBlack, 9),
+		"oklch(55.6% none 0)":          display.Tone(display.InkBlack, 9),
+		"oklab(0.628 0.2249 0.1258)":   display.InkRed, // CSS red, in Oklab
+		"hsl(0.16666667turn 100% 50%)": display.InkYellow,
+		"hsl(66.666667grad 100% 50%)":  display.InkYellow,
+		"hsl(1.0471976rad 100% 50%)":   display.InkYellow,
 	} {
 		var said []string
 		got, ok := parseInk(value, "background", func(message string) { said = append(said, message) })
@@ -39,7 +57,8 @@ func TestAGreyIsBlackAtTheNearestSixteenth(t *testing.T) {
 		}
 	}
 	// A colour that is not a grey is still not approximated.
-	for _, value := range []string{"#d97757", "pink", "rgb(217, 119, 87)", "rgb(1 2)", "rgb(a b c)", "hsl(0 0% 50%)"} {
+	for _, value := range []string{"#d97757", "pink", "rgb(217, 119, 87)", "rgb(1 2)", "rgb(a b c)",
+		"oklch(62.3% 0.214 259.815)", "hsl(200 80% 50%)", "oklch(50% 0 0deg 0)", "lab(50 0 0)", "color-mix(in srgb, black, white)"} {
 		var said []string
 		if got, ok := parseInk(value, "background", func(message string) { said = append(said, message) }); ok || len(said) != 1 {
 			t.Errorf("%s was read as %s (ok %v, said %q)", value, got, ok, said)
@@ -111,6 +130,10 @@ func TestATintedGreyIsDrawnAsAGreyAndSaid(t *testing.T) {
 		"#808081":            display.Tone(display.InkBlack, 8),
 		"rgb(107, 114, 128)": display.Tone(display.InkBlack, 9),
 		"#f8fafc":            display.InkWhite, // slate-50, too light for any black
+		// Tailwind 4: gray-500, and slate-500, the widest spread of its greys.
+		"oklch(55.1% 0.027 264.364)": display.Tone(display.InkBlack, 9),
+		"oklch(55.4% 0.046 257.417)": display.Tone(display.InkBlack, 9),
+		"hsl(220 9% 46%)":            display.Tone(display.InkBlack, 9),
 	} {
 		var said []string
 		got, ok := parseInk(value, "background", func(message string) { said = append(said, message) })
@@ -125,7 +148,8 @@ func TestATintedGreyIsDrawnAsAGreyAndSaid(t *testing.T) {
 
 // What a panel cannot show — a colour seen through — is refused, and says why.
 func TestASeeThroughColourIsRefused(t *testing.T) {
-	for _, value := range []string{"#8888", "#80808080", "rgba(0, 0, 0, 0.5)", "rgb(0 0 0 / 50%)"} {
+	for _, value := range []string{"#8888", "#80808080", "rgba(0, 0, 0, 0.5)", "rgb(0 0 0 / 50%)",
+		"hsla(0, 0%, 50%, 0.5)", "oklch(55.6% 0 0 / 50%)"} {
 		var said []string
 		if _, ok := parseInk(value, "background", func(message string) { said = append(said, message) }); ok ||
 			len(said) != 1 || !strings.Contains(said[0], "see-through") {

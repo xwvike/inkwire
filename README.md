@@ -515,7 +515,7 @@ SVG `viewBox` coordinates are mapped to the element box with the browser
 default `xMidYMid meet`; fractional scaling, non-zero origins and signed
 axis transforms are supported. The SVG viewport clips its contents. Fill and
 stroke colors must be panel inks (`black`, `white`, `red`, `yellow`, or an
-equivalent hexadecimal or `rgb()` form) or greys, which are dithered; other colors are
+equivalent hexadecimal, `rgb()`, `hsl()` or `oklch()` form) or greys, which are dithered; other colors are
 reported and skipped. Open
 lines, polylines and paths support `stroke-linecap: butt|round|square`; path
 joins support `stroke-linejoin: miter|round|bevel`.

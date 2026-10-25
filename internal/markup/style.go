@@ -2370,7 +2370,7 @@ func readInk(value, property string, report func(string)) (ink display.Ink, tint
 	if level, named := greyNames[strings.ToLower(value)]; named {
 		return greyInk(level), false, true
 	}
-	red, green, blue, opaque, read := parseRGB(value)
+	red, green, blue, opaque, read := parseColour(value)
 	if read && !opaque {
 		report(fmt.Sprintf("%s: %s is see-through, and a panel has no transparency; write the colour it should be", property, value))
 		return 0, false, false
@@ -2408,8 +2408,9 @@ func readInk(value, property string, report func(string)) (ink display.Ink, tint
 
 // tintedGreySpread is how far apart the red, green and blue of a colour may be
 // for it to be read as a grey with a tint rather than as a colour. The cool
-// greys design systems ship sit inside it — Tailwind's slate reaches 39, at
-// #64748b — while a muted colour such as #d97757 is well outside.
+// greys design systems ship sit inside it — Tailwind's slate reaches 44, at
+// slate-500 in version 4, oklch(55.4% 0.046 257.417) — while a muted colour
+// such as #d97757 is well outside.
 const tintedGreySpread = 48
 
 // greyNames are CSS's named greys, by the level of their red, green and blue.
@@ -2433,95 +2434,6 @@ var greyNames = map[string]int{
 func greyInk(level int) display.Ink {
 	coverage := ((255-level)*display.ToneSteps + 127) / 255
 	return display.Tone(display.InkBlack, coverage)
-}
-
-// parseRGB reads a colour written in hexadecimal — three, four, six or eight
-// digits — or as rgb() or rgba(), with its channels as numbers or
-// percentages, separated by commas or by spaces with the alpha after a slash.
-// read says whether it was a colour written in one of those ways; opaque
-// whether it had no transparency.
-func parseRGB(value string) (red, green, blue int, opaque, read bool) {
-	value = strings.TrimSpace(value)
-	if digits, hex := strings.CutPrefix(value, "#"); hex {
-		if len(digits) == 3 || len(digits) == 4 {
-			doubled := make([]byte, 0, 8)
-			for index := range len(digits) {
-				doubled = append(doubled, digits[index], digits[index])
-			}
-			digits = string(doubled)
-		}
-		if len(digits) == 6 {
-			digits += "ff"
-		}
-		if len(digits) != 8 {
-			return 0, 0, 0, false, false
-		}
-		parsed, err := strconv.ParseUint(digits, 16, 32)
-		if err != nil {
-			return 0, 0, 0, false, false
-		}
-		return int(parsed >> 24), int(parsed >> 16 & 0xff), int(parsed >> 8 & 0xff), parsed&0xff == 0xff, true
-	}
-
-	lower := strings.ToLower(value)
-	open := strings.IndexByte(lower, '(')
-	if open < 0 || !strings.HasSuffix(lower, ")") {
-		return 0, 0, 0, false, false
-	}
-	if name := strings.TrimSpace(lower[:open]); name != "rgb" && name != "rgba" {
-		return 0, 0, 0, false, false
-	}
-	inside := lower[open+1 : len(lower)-1]
-	var channels, alpha []string
-	if strings.Contains(inside, ",") {
-		channels = strings.Split(inside, ",")
-		if len(channels) == 4 {
-			channels, alpha = channels[:3], channels[3:]
-		}
-	} else {
-		colour, after, slashed := strings.Cut(inside, "/")
-		channels = strings.Fields(colour)
-		if slashed {
-			alpha = []string{after}
-		}
-	}
-	if len(channels) != 3 {
-		return 0, 0, 0, false, false
-	}
-	var levels [3]int
-	for index, channel := range channels {
-		number, percent, ok := colourNumber(channel)
-		if !ok {
-			return 0, 0, 0, false, false
-		}
-		if percent {
-			number = number * 255 / 100
-		}
-		levels[index] = int(math.Round(math.Min(math.Max(number, 0), 255)))
-	}
-	opaque = true
-	if len(alpha) == 1 {
-		number, percent, ok := colourNumber(alpha[0])
-		if !ok {
-			return 0, 0, 0, false, false
-		}
-		if percent {
-			number /= 100
-		}
-		opaque = number >= 1
-	}
-	return levels[0], levels[1], levels[2], opaque, true
-}
-
-// colourNumber reads one channel of rgb(): a number, or a percentage.
-func colourNumber(text string) (number float64, percent, ok bool) {
-	text = strings.TrimSpace(text)
-	text, percent = strings.CutSuffix(text, "%")
-	number, err := strconv.ParseFloat(text, 64)
-	if err != nil || math.IsNaN(number) || math.IsInf(number, 0) {
-		return 0, false, false
-	}
-	return number, percent, true
 }
 
 // parseBorderShorthand reads "1px dashed black" in any order, which is how the

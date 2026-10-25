@@ -29,8 +29,8 @@ HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面�
 | 定位 | `position` | `static`、`relative`、`absolute` | 不实现 `fixed` 和 `sticky` |
 | 定位 | `top`、`right`、`bottom`、`left`、`inset` | `px`、`%`、`calc()`、`auto` | 百分比按定位包含块解析 |
 | 定位 | `z-index` | 数字 | 仅改变已定位元素的绘制层级 |
-| 颜色 | `color` | `black`、`white`、`red`、`yellow`，可写名称、十六进制，或 `rgb()`、`rgba()` | 灰色或带色偏的灰会画成黑色并给出警告；不支持透明度、其他颜色函数和其他命名色 |
-| 颜色 | `background`、`background-color`、`border-color`、`border-top-color`、`border-right-color`、`border-bottom-color`、`border-left-color` | `black`、`white`、`red`、`yellow`、灰色 `gray`、`grey`、`silver`、`lightgray`、`lightgrey`、`darkgray`、`darkgrey`、`dimgray`、`dimgrey`、`gainsboro`、`whitesmoke`，及这些颜色或任意灰色的十六进制、`rgb()`、`rgba()` 写法 | 灰色由黑白抖动而成。带色偏的灰（红绿蓝相差不超过 48，如 `#6b7280`）按其亮度画成灰色并给出警告。不支持透明度、其他颜色函数和其他命名色；其他颜色不会近似 |
+| 颜色 | `color` | `black`、`white`、`red`、`yellow`，可写名称、十六进制，或 `rgb()`、`rgba()`、`hsl()`、`hsla()`、`oklab()`、`oklch()` | 灰色或带色偏的灰会画成黑色并给出警告；不支持透明度、其他颜色函数和其他命名色 |
+| 颜色 | `background`、`background-color`、`border-color`、`border-top-color`、`border-right-color`、`border-bottom-color`、`border-left-color` | `black`、`white`、`red`、`yellow`、灰色 `gray`、`grey`、`silver`、`lightgray`、`lightgrey`、`darkgray`、`darkgrey`、`dimgray`、`dimgrey`、`gainsboro`、`whitesmoke`，及这些颜色或任意灰色的十六进制、`rgb()`、`rgba()`、`hsl()`、`hsla()`、`oklab()`、`oklch()` 写法 | 灰色由黑白抖动而成。带色偏的灰（红绿蓝相差不超过 48，如 `#6b7280` 或 Tailwind 4 的 `oklch(55.1% 0.027 264.364)`）按其亮度画成灰色并给出警告。不支持透明度、其他颜色函数和其他命名色；其他颜色不会近似 |
 | 颜色 | `background`、`background-image` | `none`，或 `linear-gradient()`，方向为 `to top`、`to right`、`to bottom`、`to left`，或 `0deg`、`90deg`、`180deg`、`270deg` 及以 `turn`、`rad`、`grad` 表示的同样角度；两个及以上色标，取白色和同一种墨色或其灰色，每个色标可带一个 `%` 位置 | 背景图画在 `background-color` 之上。对角方向、其他角度、一个渐变里两种墨色、颜色提示、双位置色标、长度位置、`radial-gradient()`、`conic-gradient()`、`repeating-*-gradient()` 和 `url()` 会给出警告并丢弃该声明 |
 | 边框 | `border`、`border-top`、`border-right`、`border-bottom`、`border-left` | 一个宽度、线型和颜色，顺序任意 | 线型省略时为 `none`，不会绘制 |
 | 边框 | `border-width`、`border-top-width`、`border-right-width`、`border-bottom-width`、`border-left-width` | 非负 `px` 或仅含像素的 `calc()` | 布局时取整；不接受百分比或多值边框宽度 |
@@ -82,7 +82,7 @@ HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面�
 - 文本：`font-weight`、`font-style`、`font-variant`、`text-decoration`、`text-indent`、
   `letter-spacing`、`word-spacing`、`text-transform`、`text-overflow`、`hyphens`。
 - 图片：`object-position`。
-- 颜色与变换取值：`hsl()`、`hwb()`、`lab()`、`oklch()` 等 `rgb()`、`rgba()` 以外的颜色函数，`radial-gradient()`、`conic-gradient()`、重复渐变、透明度；`transform` 中除 `scale()` 和
+- 颜色与变换取值：`hwb()`、`lab()`、`lch()`、`color()`、`color-mix()` 等上面未列出的颜色函数，`radial-gradient()`、`conic-gradient()`、重复渐变、透明度；`transform` 中除 `scale()` 和
   `rotate()` 以外的函数；CSS `scale` 的小数、负数或不等比双值；`border-style` 的 `double`、
   `groove`、`ridge`、`inset`、`outset`；`overflow: auto` 和 `overflow: scroll`。
 
