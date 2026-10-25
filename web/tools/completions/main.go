@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -91,7 +92,7 @@ func main() {
 // names a category, the properties that share a rule, what they accept, and
 // what is worth knowing about them; all four are worth having at the cursor.
 func properties(source string) []property {
-	seen := map[string]bool{}
+	seen := map[string]int{}
 	var found []property
 	for _, line := range strings.Split(source, "\n") {
 		if !strings.HasPrefix(line, "| ") {
@@ -113,10 +114,27 @@ func properties(source string) []property {
 		}
 		values := valuesIn(syntax)
 		for _, name := range names {
-			if seen[name[1]] || !keyword.MatchString(name[1]) {
+			if !keyword.MatchString(name[1]) {
 				continue
 			}
-			seen[name[1]] = true
+			// A property may be on more than one row — background takes a
+			// colour on one and a gradient on another — and the hint at the
+			// cursor should say everything it takes, not only the first.
+			if at, ok := seen[name[1]]; ok {
+				earlier := &found[at]
+				earlier.Syntax += "; or " + plain(syntax)
+				if earlier.Notes != "" && notes != "" && !strings.HasSuffix(earlier.Notes, ".") {
+					earlier.Notes += "."
+				}
+				earlier.Notes = strings.TrimSpace(earlier.Notes + " " + plain(notes))
+				for _, value := range values {
+					if !slices.Contains(earlier.Values, value) {
+						earlier.Values = append(slices.Clone(earlier.Values), value)
+					}
+				}
+				continue
+			}
+			seen[name[1]] = len(found)
 			found = append(found, property{
 				Name:     name[1],
 				Category: category,
@@ -130,10 +148,11 @@ func properties(source string) []property {
 
 	// The paint properties say "Supported inks" rather than listing them, so
 	// the names are only written once. They are a closed set, and the colour
-	// row is where it is written down.
+	// row is where it is written down — the row for fills rather than the one
+	// for text, since a fill can be grey and a letter cannot.
 	var inks []string
 	for _, candidate := range found {
-		if candidate.Name == "color" {
+		if candidate.Name == "background" {
 			inks = candidate.Values
 			break
 		}

@@ -13,6 +13,8 @@ SVG. Pages use only the CSS and SVG properties listed in `MARKUP.md`.
 | `resources.html` | relative raster assets, external SVG and `object-fit` |
 | `cascade.html` | source order, specificity, `!important` and inheritance |
 | `potrace.html` | external SVG with a non-zero transform and viewBox mapping |
+| `grey.html` | dithered greys on backgrounds, borders and SVG fills, and text over them |
+| `gradient.html` | `linear-gradient()` directions, stops, rounded bars and text over a gradient |
 
 Regenerate the PNGs with:
 

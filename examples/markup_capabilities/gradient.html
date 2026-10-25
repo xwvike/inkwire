@@ -1,0 +1,54 @@
+<!-- Gradient: linear-gradient() between white and one ink, drawn in up to seventeen dithered bands. -->
+<style>
+* { box-sizing: border-box; }
+.page { display: flex; flex-direction: column; width: 400px; height: 300px; padding: 8px;
+        gap: 6px; background: white; color: black; font-family: ui; font-size: 12px; }
+.head { flex: 0 0 24px; display: flex; align-items: center; padding: 0 8px; color: white;
+        background: linear-gradient(to right, black 40%, white); }
+.head .ink { margin-left: auto; color: red; }
+.ramp { flex: 0 0 26px; border: 1px solid black; background: linear-gradient(90deg, white, black); }
+.grid { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 1fr 1fr;
+        grid-template-rows: 1fr 1fr; gap: 6px; }
+.cell { position: relative; min-width: 0; min-height: 0; padding: 6px; border: 1px solid black;
+        border-radius: 5px; }
+.cell h2 { height: 14px; margin: 0; font-size: 12px; color: red; }
+.ways { display: flex; gap: 4px; margin-top: 6px; height: 64px; }
+.ways div { flex: 1 1 0; border: 1px solid black; }
+.ways .bottom { background: linear-gradient(white, black); }
+.ways .top { background: linear-gradient(to top, white, black); }
+.ways .left { background: linear-gradient(270deg, white, black); }
+.ways .ink { background: linear-gradient(0.25turn, white, red); }
+.stops div { height: 18px; margin-top: 6px; border: 1px solid black; }
+.stops .hard { background: linear-gradient(to right, black 30%, white 30%, white 70%, gray 70%); }
+.stops .three { background: linear-gradient(to right, white, gray, black); }
+.stops .beyond { background: linear-gradient(to right, white -60%, black 160%); }
+.bars .track { height: 14px; margin-top: 8px; border: 1px solid black; border-radius: 7px; }
+.bars .fill { width: 72%; height: 100%; border-radius: 6px;
+              background: linear-gradient(to right, lightgray, black); }
+.bars .soft { width: 45%; background-color: white;
+              background-image: linear-gradient(to right, white, red); }
+.over { color: white; background: linear-gradient(to bottom, #555, black); }
+.over p { margin: 6px 0 0; line-height: 16px; }
+.over .tag { padding: 1px 6px; color: black; background: linear-gradient(to right, white, silver); }
+</style>
+
+<div class="page">
+  <div class="head">GRADIENT <span class="ink">ONE INK OVER WHITE</span></div>
+  <div class="ramp"></div>
+  <div class="grid">
+    <section class="cell"><h2>DIRECTIONS</h2>
+      <div class="ways"><div class="bottom"></div><div class="top"></div><div class="left"></div><div class="ink"></div></div>
+    </section>
+    <section class="cell stops"><h2>STOPS</h2>
+      <div class="hard"></div><div class="three"></div><div class="beyond"></div>
+    </section>
+    <section class="cell bars"><h2>ROUNDED BARS</h2>
+      <div class="track"><div class="fill"></div></div>
+      <div class="track"><div class="fill soft"></div></div>
+    </section>
+    <section class="cell over"><h2>TEXT OVER IT</h2>
+      <p>white text on a dark ramp</p>
+      <p>an <span class="tag">inline tag</span> with its own</p>
+    </section>
+  </div>
+</div>

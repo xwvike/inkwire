@@ -484,7 +484,7 @@ HTML 使用 `img src` 引用图片。`src` 可以是 HTTP/HTTPS 链接，也可�
 <img src="https://example.com/portrait.png" class="remote">
 ```
 
-SVG 的 `viewBox` 按浏览器默认的 `xMidYMid meet` 映射到元素盒；支持小数缩放、非零原点和带符号的轴向变换。SVG 视口会裁剪其内容。填充和描边颜色必须是面板墨色（`black`、`white`、`red`、`yellow` 及等价十六进制写法）；其他颜色会报告并跳过。开放线段、折线和路径支持 `stroke-linecap: butt|round|square`；路径连接支持 `stroke-linejoin: miter|round|bevel`。`<use href="#id">` 和 `xlink:href` 可引用同一 SVG 中带 `id` 的已支持元素或分组。
+SVG 的 `viewBox` 按浏览器默认的 `xMidYMid meet` 映射到元素盒；支持小数缩放、非零原点和带符号的轴向变换。SVG 视口会裁剪其内容。填充和描边颜色必须是面板墨色（`black`、`white`、`red`、`yellow` 及等价十六进制或 `rgb()` 写法）或灰色（以抖动绘制）；其他颜色会报告并跳过。开放线段、折线和路径支持 `stroke-linecap: butt|round|square`；路径连接支持 `stroke-linejoin: miter|round|bevel`。`<use href="#id">` 和 `xlink:href` 可引用同一 SVG 中带 `id` 的已支持元素或分组。
 
 CLI 使用 `-asset SRC=FILE` 注入相对路径资源，可重复指定：
 
@@ -533,6 +533,8 @@ curl -F 'page=@page.html;type=text/html' \
 | [resources](examples/markup_capabilities/resources.html) | 400x300 | 本地图片、外部 SVG、object-fit |
 | [cascade](examples/markup_capabilities/cascade.html) | 400x300 | 来源顺序、优先级、important、继承 |
 | [potrace](examples/markup_capabilities/potrace.html) | 500x500 | 带 viewBox 和带符号变换的外部 SVG |
+| [grey](examples/markup_capabilities/grey.html) | 400x300 | 抖动灰色、灰底上的文字、灰色边框和 SVG 填充 |
+| [gradient](examples/markup_capabilities/gradient.html) | 400x300 | `linear-gradient()` 的方向、色标、圆角进度条、渐变上的文字 |
 
 ### 场景与工具
 

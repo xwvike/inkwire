@@ -380,6 +380,18 @@ func (l *TextLayout) Draw(canvas *Canvas) {
 		return
 	}
 	clipped := canvas.Clip(l.box.Bounds)
+	// Every halo goes down before any letter does, so that one glyph's ring
+	// cannot clear a stroke of the glyph beside it.
+	if canvas.frame.toned != nil {
+		l.eachGlyph(func(at image.Rectangle, placement glyphPlacement) {
+			if placement.missing {
+				return
+			}
+			clipped.haloWhere(at, func(x, y int) bool {
+				return placement.glyph.On(x-at.Min.X, y-at.Min.Y)
+			}, placement.ink)
+		})
+	}
 	l.eachGlyph(func(at image.Rectangle, placement glyphPlacement) {
 		if placement.missing {
 			drawMissingGlyph(clipped, at, placement.ink)

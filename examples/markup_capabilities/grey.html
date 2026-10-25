@@ -1,0 +1,58 @@
+<!-- Grey: the CSS greys, dithered from black and white in a 4x4 ordered pattern. -->
+<style>
+* { box-sizing: border-box; }
+.page { display: flex; flex-direction: column; width: 400px; height: 300px; padding: 8px;
+        gap: 6px; background: white; color: black; font-family: ui; font-size: 12px; }
+.head { flex: 0 0 24px; display: flex; align-items: center; padding: 0 8px; background: black; color: white; }
+.head .ink { margin-left: auto; color: yellow; }
+.ramp { flex: 0 0 34px; display: flex; gap: 2px; }
+.ramp div { flex: 1 1 0; border: 1px solid black; }
+.grid { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 1fr 1fr;
+        grid-template-rows: 1fr 1fr; gap: 6px; }
+.cell { position: relative; min-width: 0; min-height: 0; padding: 6px; border-radius: 5px; }
+.cell h2 { height: 14px; margin: 0; font-size: 12px; color: red; }
+.text { border: 1px solid black; }
+.text p { margin: 3px 0 0; padding: 2px 6px; line-height: 14px; }
+.light { background: lightgray; }
+.mid { background: gray; }
+.dark { background: #333; color: white; }
+.boxes { border: 1px solid black; }
+.boxes .pill { height: 22px; margin-top: 6px; border-radius: 11px; background: darkgray;
+               text-align: center; line-height: 22px; }
+.boxes .seam { display: flex; margin-top: 6px; }
+.boxes .seam div { flex: 1 1 0; height: 18px; background: silver; }
+.edge { border: 3px solid #888; }
+.edge span { display: block; margin-top: 8px; }
+.drawn { border: 1px solid black; }
+.drawn svg { position: absolute; left: 6px; bottom: 6px; }
+</style>
+
+<div class="page">
+  <div class="head">GREY <span class="ink">BLACK OVER WHITE, IN SIXTEENTHS</span></div>
+  <div class="ramp">
+    <div style="background:#eee"></div><div style="background:#ddd"></div><div style="background:gainsboro"></div>
+    <div style="background:lightgray"></div><div style="background:silver"></div><div style="background:darkgray"></div>
+    <div style="background:#999"></div><div style="background:gray"></div><div style="background:#777"></div>
+    <div style="background:dimgray"></div><div style="background:#555"></div><div style="background:#444"></div>
+    <div style="background:#333"></div><div style="background:#222"></div><div style="background:#111"></div>
+  </div>
+  <div class="grid">
+    <section class="cell text"><h2>TEXT ON GREY</h2>
+      <p class="light">a white ring keeps it</p>
+      <p class="mid">legible at 12px</p>
+      <p class="dark">white text on dark grey</p>
+    </section>
+    <section class="cell boxes"><h2>ROUNDED + SEAMLESS</h2>
+      <div class="pill">border-radius</div>
+      <div class="seam"><div></div><div></div><div></div></div>
+    </section>
+    <section class="cell edge"><h2>3PX GREY BORDER</h2><span>wide enough to read as grey</span></section>
+    <section class="cell drawn"><h2>SVG FILL</h2>
+      <svg width="170" height="44" viewBox="0 0 170 44">
+        <circle cx="22" cy="22" r="20" fill="#aaa" stroke="black"/>
+        <rect x="52" y="4" width="50" height="36" rx="6" fill="dimgray"/>
+        <path d="M112 42 L138 4 L166 42 Z" fill="lightgray" stroke="black"/>
+      </svg>
+    </section>
+  </div>
+</div>

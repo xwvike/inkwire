@@ -38,9 +38,12 @@ func (p Pixel) paint(_ *compileContext, list *display.DisplayList, bounds image.
 
 // Rectangle paints its allocated bounds. Radius zero selects a plain rectangle.
 type Rectangle struct {
-	Size         image.Point
-	Radius       int
-	Fill         *display.Ink
+	Size   image.Point
+	Radius int
+	Fill   *display.Ink
+	// Gradient is painted over Fill, as a CSS background image is over its
+	// colour.
+	Gradient     *display.Gradient
 	Stroke       *display.StrokeStyle
 	StrokeTop    *display.StrokeStyle
 	StrokeRight  *display.StrokeStyle
@@ -61,6 +64,11 @@ func (r Rectangle) measure(_ *compileContext, maximum image.Point, path string) 
 			return image.Point{}, err
 		}
 	}
+	if r.Gradient != nil {
+		if err := r.Gradient.Validate(); err != nil {
+			return image.Point{}, fmt.Errorf("%s.gradient: %w", path, err)
+		}
+	}
 	for name, stroke := range map[string]*display.StrokeStyle{"strokeTop": r.StrokeTop, "strokeRight": r.StrokeRight, "strokeBottom": r.StrokeBottom, "strokeLeft": r.StrokeLeft} {
 		if stroke != nil {
 			if err := validateStroke(path+"."+name, *stroke); err != nil {
@@ -77,6 +85,9 @@ func (r Rectangle) paint(_ *compileContext, list *display.DisplayList, bounds im
 		} else {
 			list.FillRect(bounds, *r.Fill)
 		}
+	}
+	if r.Gradient != nil {
+		list.FillGradient(bounds, r.Radius, r.Gradient)
 	}
 	if r.Stroke != nil {
 		if r.Radius > 0 {
@@ -473,7 +484,7 @@ func validatePaint(path string, fill *display.Ink, stroke *display.StrokeStyle) 
 }
 
 func validateInk(path string, ink display.Ink) error {
-	if ink > display.InkYellow {
+	if !ink.Valid() {
 		return fmt.Errorf("%s: invalid ink %d", path, ink)
 	}
 	return nil

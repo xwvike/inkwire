@@ -34,6 +34,7 @@ type InlineItem struct {
 	MarginLengths  [4]Length
 
 	Background                                       *display.Ink
+	Gradient                                         *display.Gradient
 	Border                                           *display.StrokeStyle
 	BorderTop, BorderRight, BorderBottom, BorderLeft *display.StrokeStyle
 	Radius                                           int
@@ -205,6 +206,9 @@ func (i Inline) paint(ctx *compileContext, list *display.DisplayList, bounds ima
 			content := inlineContentBox(box, fragment.item)
 			if fragment.item.Background != nil {
 				list.FillRoundRect(box, fragment.item.Radius, *fragment.item.Background)
+			}
+			if fragment.item.Gradient != nil {
+				list.FillGradient(box, fragment.item.Radius, fragment.item.Gradient)
 			}
 			if fragment.item.Border != nil {
 				if fragment.item.Radius > 0 {

@@ -55,6 +55,7 @@ const (
 	commandDrawTextLayout
 	commandDrawImage
 	commandDrawFrame
+	commandFillGradient
 )
 
 type displayCommand struct {
@@ -73,6 +74,7 @@ type displayCommand struct {
 	path      Path
 	layout    *TextLayout
 	pattern   *Pattern
+	gradient  *Gradient
 	source    *image.NRGBA
 	options   ImageOptions
 	frame     *Frame
@@ -538,6 +540,8 @@ func (c displayCommand) replay(canvas *Canvas) error {
 		canvas.StrokeEllipse(Oval{Bounds: c.rect, Rotation: c.rotation}, c.stroke)
 	case commandFillRoundRect:
 		canvas.FillRoundRect(c.rect, c.radius, c.ink)
+	case commandFillGradient:
+		canvas.FillGradient(c.rect, c.radius, c.gradient)
 	case commandStrokeRoundRect:
 		canvas.StrokeRoundRect(c.rect, c.radius, c.stroke)
 	case commandDrawArc:

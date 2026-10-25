@@ -30,7 +30,9 @@ syntax only for the subproperties listed here.
 | Position | `position` | `static`, `relative`, `absolute` | `fixed` and `sticky` are not implemented |
 | Position | `top`, `right`, `bottom`, `left`, `inset` | `px`, `%`, `calc()`, `auto` | Percentages resolve against the positioned containing block |
 | Position | `z-index` | Number | Changes paint order only for positioned elements |
-| Colour | `background`, `background-color`, `color`, `border-color`, `border-top-color`, `border-right-color`, `border-bottom-color`, `border-left-color` | `black`, `white`, `red`, `yellow`, and their three- or six-digit hexadecimal forms | No alpha, colour functions, or other named colours; unsupported colours are not approximated |
+| Colour | `color` | `black`, `white`, `red`, `yellow`, written by name, in hexadecimal, or as `rgb()` or `rgba()` | A grey or tinted grey is drawn black with a warning; transparency, other colour functions, and other named colours are not supported |
+| Colour | `background`, `background-color`, `border-color`, `border-top-color`, `border-right-color`, `border-bottom-color`, `border-left-color` | `black`, `white`, `red`, `yellow`, the greys `gray`, `grey`, `silver`, `lightgray`, `lightgrey`, `darkgray`, `darkgrey`, `dimgray`, `dimgrey`, `gainsboro`, `whitesmoke`, and any of these or any grey written in hexadecimal or as `rgb()` or `rgba()` | A grey is dithered from black and white. A tinted grey, whose red, green and blue differ by at most 48, such as `#6b7280`, is drawn as the grey of its lightness with a warning. Transparency, other colour functions, and other named colours are not supported; other colours are not approximated |
+| Colour | `background`, `background-image` | `none`, or `linear-gradient()` towards `to top`, `to right`, `to bottom`, `to left`, or `0deg`, `90deg`, `180deg`, `270deg` and the same angles in `turn`, `rad`, `grad`; two or more stops in white and one ink or its greys, each with an optional `%` position | The image is painted over `background-color`. Corner directions, other angles, two inks in one gradient, colour hints, two-position stops, length positions, `radial-gradient()`, `conic-gradient()`, `repeating-*-gradient()`, and `url()` warn and drop the declaration |
 | Border | `border`, `border-top`, `border-right`, `border-bottom`, `border-left` | One width, line style, and colour in any order | An omitted line style is `none` and draws nothing |
 | Border | `border-width`, `border-top-width`, `border-right-width`, `border-bottom-width`, `border-left-width` | Non-negative `px` or a pixel-only `calc()` | Rounded to whole pixels at layout; percentages and multi-value border widths are not implemented |
 | Border | `border-style`, `border-top-style`, `border-right-style`, `border-bottom-style`, `border-left-style` | `solid`, `dashed`, `dotted`, `none`, `hidden` | A dotted mark and its gap each equal the line width |
@@ -42,7 +44,7 @@ syntax only for the subproperties listed here.
 | Transform | `rotate` | `deg`, `grad`, `rad`, `turn`, or a unitless angle | — |
 | Transform | `transform-origin` | One or two keywords, `px`, `%`, or `calc()` | Keywords are `left`, `center`, `right`, `top`, and `bottom` |
 | Transform | `scale` | One or two equal integers, each at least 1 | No resampling; fractions and non-uniform pairs are not implemented |
-| SVG paint | `fill`, `stroke` | Supported inks, `none`, `transparent` | These properties inherit; CSS overrides an SVG presentation attribute on inline SVG |
+| SVG paint | `fill`, `stroke` | Supported inks and greys, `none`, `transparent` | These properties inherit; CSS overrides an SVG presentation attribute on inline SVG |
 | SVG paint | `stroke-width` | Non-negative `px`, a pixel-only `calc()`, or an SVG unitless number | Rounded to whole pixels at layout; values below one pixel draw at one pixel and warn |
 | SVG paint | `stroke-dasharray`, `stroke-dashoffset` | Space- or comma-separated integer pixels | — |
 | SVG paint | `stroke-linecap` | `butt`, `round`, `square` | Applies to open SVG lines, polylines and paths; SVG defaults to `butt` |
@@ -79,11 +81,11 @@ Common unsupported items include:
   `grid-auto-columns`, `grid-auto-rows`, `grid-auto-flow`, `place-content`, `place-items`,
   `place-self`, `table-layout`.
 - Position and effects: `position: fixed`, `position: sticky`, `opacity`, `filter`, `box-shadow`,
-  `text-shadow`, `mix-blend-mode`, `background-image`, `background-repeat`, `background-size`.
+  `text-shadow`, `mix-blend-mode`, `background-repeat`, `background-size`.
 - Text: `font-weight`, `font-style`, `font-variant`, `text-decoration`, `text-indent`,
   `letter-spacing`, `word-spacing`, `text-transform`, `text-overflow`, `hyphens`.
 - Images: `object-position`.
-- Colour and transform values: `rgb()`, `rgba()`, `hsl()`, gradients, alpha; transform functions
+- Colour and transform values: `hsl()`, `hwb()`, `lab()`, `oklch()` and other colour functions besides `rgb()` and `rgba()`, `radial-gradient()`, `conic-gradient()`, repeating gradients, alpha; transform functions
   other than `scale()` and `rotate()`; fractional, negative, or non-uniform CSS `scale`; `border-style`
   values `double`, `groove`, `ridge`, `inset`, `outset`; `overflow: auto` and `overflow: scroll`.
 
@@ -111,6 +113,23 @@ Common unsupported items include:
   a family stack falls back per glyph; an unavailable size falls back to the nearest strike. The
   bundled faces have no weight variants, so `font-weight` and the default bold styling of `<b>` and
   `<strong>` do not change the rendered glyphs.
+- A grey is black dithered over white in a 4x4 ordered pattern, at the nearest of sixteen coverages:
+  `#808080` is 8/16, and a grey that rounds to none or all of them is white or black. The pattern is
+  keyed to frame coordinates, so neighbouring grey areas meet without a seam and a page draws the
+  same pixels every time. Text drawn over a grey clears a 1px ring of the grey around its glyphs.
+  Text itself cannot be grey: a dithered 1px stroke loses half its pixels. A 1px grey border or
+  stroke has the same problem and reads as a dotted line. `compile` writes a grey as `black 8/16`.
+  A tinted grey takes the lightness its red, green and blue give it (0.2126, 0.7152, 0.0722), and
+  loses its tint. A colour with any transparency — `#0008`, `rgb(0 0 0 / 50%)` — is refused,
+  because what shows through it is not known when it is drawn; write the colour it should be.
+- A `linear-gradient()` is drawn with the same dither: each pixel takes the coverage the stops give
+  its place along the box, rounded to the nearest of seventeen, so a gradient is at most seventeen
+  bands and the two end bands are half as wide as the rest. Stops are placed as CSS places them,
+  and may sit outside 0%–100%. A gradient runs from white to one ink — black through the greys, or
+  red or yellow through their tints — because a pixel cannot be part one ink and part another; a
+  rounded box clips its gradient to the same corners as a fill. A gradient the panel cannot draw is
+  refused with a warning and the declaration dropped, as a browser drops one it cannot read, so an
+  earlier `background` written as a fallback still applies.
 - Compilation continues after unsupported declarations, selectors, at-rules, colours, fonts, or
   resources. Warnings are not proof of a complete render; inspect the resulting frame for the warning
   category involved.

@@ -70,6 +70,9 @@ type style struct {
 	height       length
 
 	background *display.Ink
+	// gradient is a background image, painted over background as CSS paints
+	// an image over its colour.
+	gradient   *display.Gradient
 	color      display.Ink
 	border     *border
 	borderSide [4]*borderSide
@@ -839,12 +842,56 @@ func (s *style) apply(property, value string, parent style, report func(string))
 		s.width = parseLength(value, property, report)
 	case "height":
 		s.height = parseLength(value, property, report)
-	case "background", "background-color":
+	case "background":
+		// The shorthand sets the colour and the image together, so a
+		// gradient written here takes the place of a colour set before it,
+		// and a colour takes the place of a gradient.
+		if isGradient(value) {
+			if gradient, ok := parseLinearGradient(value, property, report); ok {
+				s.gradient, s.background = gradient, nil
+			}
+			return
+		}
+		if keyword == "none" || keyword == "transparent" {
+			s.gradient = nil
+		}
+		if ink, ok := parseInk(value, property, report); ok {
+			s.background, s.gradient = &ink, nil
+		}
+	case "background-color":
 		if ink, ok := parseInk(value, property, report); ok {
 			s.background = &ink
 		}
+	case "background-image":
+		switch {
+		case keyword == "none":
+			s.gradient = nil
+		case isGradient(value):
+			if gradient, ok := parseLinearGradient(value, property, report); ok {
+				s.gradient = gradient
+			}
+		default:
+			report(fmt.Sprintf("background-image: %s is not supported; a background image is a linear-gradient(), and a picture is an <img>", value))
+		}
 	case "color":
-		if ink, ok := parseInk(value, property, report); ok {
+		if ink, tinted, ok := readInk(value, property, report); ok {
+			// A grey letter is a letter with half its strokes missing: a 1px
+			// stroke dithered keeps the pixels the dither keeps, and at the
+			// sizes these panels set text the result is not a lighter word
+			// but a broken one. Drawn black, and said — once, for a tinted
+			// grey as for a plain one. A tinted grey light or dark enough to
+			// be white or black is drawn as that, and only the tint is said.
+			if _, _, toned := ink.Toned(); toned {
+				kind := "a grey"
+				if tinted {
+					kind = "a tinted grey"
+				}
+				report(fmt.Sprintf(
+					"color: %s is %s, which text cannot be drawn in; drawn black. A grey can fill a background, border or shape", value, kind))
+				ink = display.InkBlack
+			} else if tinted {
+				reportTinted(value, property, ink, report)
+			}
 			s.color = ink
 		}
 	case "border":
@@ -1397,8 +1444,12 @@ func (s *style) inheritOne(property string, parent style, report func(string)) {
 		s.inset, s.insetFromShorthand = parent.inset, parent.insetFromShorthand
 	case "z-index":
 		s.layer = parent.layer
-	case "background", "background-color":
+	case "background":
+		s.background, s.gradient = parent.background, parent.gradient
+	case "background-color":
 		s.background = parent.background
+	case "background-image":
+		s.gradient = parent.gradient
 	case "color":
 		s.color = parent.color
 	case "border":
@@ -1613,8 +1664,12 @@ func (s *style) reset(property string, report func(string)) {
 		s.inset, s.insetFromShorthand = fresh.inset, [4]bool{}
 	case "z-index":
 		s.layer = 0
-	case "background", "background-color":
+	case "background":
+		s.background, s.gradient = nil, nil
+	case "background-color":
 		s.background = nil
+	case "background-image":
+		s.gradient = nil
 	case "color":
 		s.color = display.InkBlack
 	case "border":
@@ -2282,26 +2337,191 @@ func parseInsetLengths(value, property string, report func(string)) [4]length {
 }
 
 func parseInk(value, property string, report func(string)) (display.Ink, bool) {
+	ink, tinted, ok := readInk(value, property, report)
+	if ok && tinted {
+		reportTinted(value, property, ink, report)
+	}
+	return ink, ok
+}
+
+func reportTinted(value, property string, ink display.Ink, report func(string)) {
+	report(fmt.Sprintf("%s: %s is a tinted grey, not a grey; drawn as the grey of its lightness, %s",
+		property, value, inkName(ink)))
+}
+
+// readInk is parseInk without the warning about a tinted grey, for a caller
+// that has something more to say about the colour and would rather say it once.
+func readInk(value, property string, report func(string)) (ink display.Ink, tinted, ok bool) {
 	switch strings.ToLower(value) {
-	case "black", "#000", "#000000":
-		return display.InkBlack, true
-	case "white", "#fff", "#ffffff":
-		return display.InkWhite, true
-	case "red", "#f00", "#ff0000":
-		return display.InkRed, true
-	case "yellow", "#ff0", "#ffff00":
+	case "black":
+		return display.InkBlack, false, true
+	case "white":
+		return display.InkWhite, false, true
+	case "red":
+		return display.InkRed, false, true
+	case "yellow":
 		// The fourth ink. Three of the panels this drives are BWRY parts, and
 		// leaving yellow out of the stylesheet meant the only way to reach a
 		// colour the hardware has was to write the scene document by hand.
-		return display.InkYellow, true
+		return display.InkYellow, false, true
 	case "transparent", "none":
-		return 0, false
+		return 0, false, false
+	}
+	if level, named := greyNames[strings.ToLower(value)]; named {
+		return greyInk(level), false, true
+	}
+	red, green, blue, opaque, read := parseRGB(value)
+	if read && !opaque {
+		report(fmt.Sprintf("%s: %s is see-through, and a panel has no transparency; write the colour it should be", property, value))
+		return 0, false, false
+	}
+	if read {
+		for _, named := range []struct {
+			ink              display.Ink
+			red, green, blue int
+		}{
+			{display.InkBlack, 0, 0, 0}, {display.InkWhite, 255, 255, 255},
+			{display.InkRed, 255, 0, 0}, {display.InkYellow, 255, 255, 0},
+		} {
+			if red == named.red && green == named.green && blue == named.blue {
+				return named.ink, false, true
+			}
+		}
+		if red == green && green == blue {
+			return greyInk(red), false, true
+		}
+		if max(red, green, blue)-min(red, green, blue) <= tintedGreySpread {
+			// A grey with a little colour in it — the cool greys a design
+			// system ships, #6b7280 and its like — is a grey to anyone reading
+			// the page, and is drawn as one. It is said, because the tint is
+			// lost and that is a change to what was written.
+			lightness := (2126*red + 7152*green + 722*blue + 5000) / 10000
+			return greyInk(lightness), true, true
+		}
 	}
 	// Anything else would have to be approximated, and approximating a colour
 	// on a panel with four of them is how a design silently stops matching.
 	report(fmt.Sprintf(
-		"%s: %s is not one of the panel's inks (black, white, red, yellow)", property, value))
-	return 0, false
+		"%s: %s is not one of the panel's inks (black, white, red, yellow) or a grey", property, value))
+	return 0, false, false
+}
+
+// tintedGreySpread is how far apart the red, green and blue of a colour may be
+// for it to be read as a grey with a tint rather than as a colour. The cool
+// greys design systems ship sit inside it — Tailwind's slate reaches 39, at
+// #64748b — while a muted colour such as #d97757 is well outside.
+const tintedGreySpread = 48
+
+// greyNames are CSS's named greys, by the level of their red, green and blue.
+var greyNames = map[string]int{
+	"gray": 0x80, "grey": 0x80,
+	"darkgray": 0xa9, "darkgrey": 0xa9,
+	"dimgray": 0x69, "dimgrey": 0x69,
+	"lightgray": 0xd3, "lightgrey": 0xd3,
+	"silver":     0xc0,
+	"gainsboro":  0xdc,
+	"whitesmoke": 0xf5,
+}
+
+// greyInk draws a grey as black laid over white at the nearest sixteenth.
+//
+// A grey is the one colour that is not approximated. Black and white at a
+// fixed coverage are what a grey is, so drawing #808080 as half its pixels
+// black says what was written; drawing #d97757 as the nearest of four inks
+// would say something else, and is still refused. A grey that rounds to none
+// or all of the sixteenths is white or black, which is what it was nearest.
+func greyInk(level int) display.Ink {
+	coverage := ((255-level)*display.ToneSteps + 127) / 255
+	return display.Tone(display.InkBlack, coverage)
+}
+
+// parseRGB reads a colour written in hexadecimal — three, four, six or eight
+// digits — or as rgb() or rgba(), with its channels as numbers or
+// percentages, separated by commas or by spaces with the alpha after a slash.
+// read says whether it was a colour written in one of those ways; opaque
+// whether it had no transparency.
+func parseRGB(value string) (red, green, blue int, opaque, read bool) {
+	value = strings.TrimSpace(value)
+	if digits, hex := strings.CutPrefix(value, "#"); hex {
+		if len(digits) == 3 || len(digits) == 4 {
+			doubled := make([]byte, 0, 8)
+			for index := range len(digits) {
+				doubled = append(doubled, digits[index], digits[index])
+			}
+			digits = string(doubled)
+		}
+		if len(digits) == 6 {
+			digits += "ff"
+		}
+		if len(digits) != 8 {
+			return 0, 0, 0, false, false
+		}
+		parsed, err := strconv.ParseUint(digits, 16, 32)
+		if err != nil {
+			return 0, 0, 0, false, false
+		}
+		return int(parsed >> 24), int(parsed >> 16 & 0xff), int(parsed >> 8 & 0xff), parsed&0xff == 0xff, true
+	}
+
+	lower := strings.ToLower(value)
+	open := strings.IndexByte(lower, '(')
+	if open < 0 || !strings.HasSuffix(lower, ")") {
+		return 0, 0, 0, false, false
+	}
+	if name := strings.TrimSpace(lower[:open]); name != "rgb" && name != "rgba" {
+		return 0, 0, 0, false, false
+	}
+	inside := lower[open+1 : len(lower)-1]
+	var channels, alpha []string
+	if strings.Contains(inside, ",") {
+		channels = strings.Split(inside, ",")
+		if len(channels) == 4 {
+			channels, alpha = channels[:3], channels[3:]
+		}
+	} else {
+		colour, after, slashed := strings.Cut(inside, "/")
+		channels = strings.Fields(colour)
+		if slashed {
+			alpha = []string{after}
+		}
+	}
+	if len(channels) != 3 {
+		return 0, 0, 0, false, false
+	}
+	var levels [3]int
+	for index, channel := range channels {
+		number, percent, ok := colourNumber(channel)
+		if !ok {
+			return 0, 0, 0, false, false
+		}
+		if percent {
+			number = number * 255 / 100
+		}
+		levels[index] = int(math.Round(math.Min(math.Max(number, 0), 255)))
+	}
+	opaque = true
+	if len(alpha) == 1 {
+		number, percent, ok := colourNumber(alpha[0])
+		if !ok {
+			return 0, 0, 0, false, false
+		}
+		if percent {
+			number /= 100
+		}
+		opaque = number >= 1
+	}
+	return levels[0], levels[1], levels[2], opaque, true
+}
+
+// colourNumber reads one channel of rgb(): a number, or a percentage.
+func colourNumber(text string) (number float64, percent, ok bool) {
+	text = strings.TrimSpace(text)
+	text, percent = strings.CutSuffix(text, "%")
+	number, err := strconv.ParseFloat(text, 64)
+	if err != nil || math.IsNaN(number) || math.IsInf(number, 0) {
+		return 0, false, false
+	}
+	return number, percent, true
 }
 
 // parseBorderShorthand reads "1px dashed black" in any order, which is how the
@@ -2334,7 +2554,9 @@ func (s *style) parseBorderSideShorthand(index int, value string, report func(st
 }
 
 func parseBorderValue(value, property string, previous *border, report func(string)) (*border, borderLine, []int, int, bool) {
-	fields := strings.Fields(value)
+	// Split at the spaces outside brackets, so that rgb(0, 0, 0) stays one
+	// colour.
+	fields := splitSides(value)
 	if len(fields) == 0 {
 		return nil, borderNone, nil, 0, false
 	}

@@ -511,10 +511,10 @@ func (c *compiler) element(node *html.Node, parent style, path string, containin
 	// The element's own paint goes even though its children are still walked,
 	// because one of them may say visible.
 	if current.hidden {
-		current.background, current.border = nil, nil
+		current.background, current.gradient, current.border = nil, nil, nil
 	}
 	inner, insetAlready := c.children(node, current, path, containing)
-	if inner == nil && (current.background == nil && !hasBorder(current) || current.hasBoxEdges()) {
+	if inner == nil && (current.background == nil && current.gradient == nil && !hasBorder(current) || current.hasBoxEdges()) {
 		// An element with nothing to paint still has a box. Dropping it
 		// shifted everything after it along, which in a grid meant a spacer
 		// element vanished and the cell it was holding was taken by the next
@@ -533,9 +533,12 @@ func (c *compiler) element(node *html.Node, parent style, path string, containin
 	// A background and a border are layers under the content, which is what a
 	// stack is for. An element with neither is just its content.
 	var layers []*emitted
-	if current.background != nil {
-		layers = append(layers, &emitted{Type: "rectangle",
-			Fill: inkName(*current.background), Radius: radiusOf(current)})
+	if current.background != nil || current.gradient != nil {
+		layer := &emitted{Type: "rectangle", Gradient: gradientOf(current.gradient), Radius: radiusOf(current)}
+		if current.background != nil {
+			layer.Fill = inkName(*current.background)
+		}
+		layers = append(layers, layer)
 	}
 	// A border with no style is not drawn, which is what CSS's initial
 	// border-style of none means and what a style this cannot draw falls back
@@ -1499,6 +1502,9 @@ func mergeInlineBox(outer, inner style) style {
 	if inner.background != nil {
 		merged.background = inner.background
 	}
+	if inner.gradient != nil {
+		merged.gradient = inner.gradient
+	}
 	if inner.lineCap != "" {
 		merged.lineCap = inner.lineCap
 	}
@@ -1538,6 +1544,7 @@ func (c *compiler) inlineBoxItem(current style) inlineItem {
 	if current.background != nil {
 		item.Background = inkName(*current.background)
 	}
+	item.Gradient = gradientOf(current.gradient)
 	if edge, sides := borderStrokes(current); edge != nil {
 		item.Border = edge
 	} else {
@@ -1562,7 +1569,7 @@ func (c *compiler) inlineNodeItem(node *emitted, current style) inlineItem {
 func inlineBoxStyle(s style) bool {
 	return s.padding != (compose.Insets{}) || s.margin != (compose.Insets{}) ||
 		styleLengthsSet(s.paddingLength) || styleLengthsSet(s.marginLength) ||
-		s.background != nil || hasBorder(s) ||
+		s.background != nil || s.gradient != nil || hasBorder(s) ||
 		s.positioned ||
 		s.inlineVAlign != compose.InlineBaseline
 }

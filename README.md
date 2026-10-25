@@ -515,7 +515,8 @@ SVG `viewBox` coordinates are mapped to the element box with the browser
 default `xMidYMid meet`; fractional scaling, non-zero origins and signed
 axis transforms are supported. The SVG viewport clips its contents. Fill and
 stroke colors must be panel inks (`black`, `white`, `red`, `yellow`, or an
-equivalent hexadecimal form); other colors are reported and skipped. Open
+equivalent hexadecimal or `rgb()` form) or greys, which are dithered; other colors are
+reported and skipped. Open
 lines, polylines and paths support `stroke-linecap: butt|round|square`; path
 joins support `stroke-linejoin: miter|round|bevel`.
 `<use href="#id">` and `xlink:href` reuse a named supported element or group from the same SVG.
@@ -569,6 +570,8 @@ curl -F 'page=@page.html;type=text/html' \
 | [resources](examples/markup_capabilities/resources.html) | 400x300 | local images, external SVG, object-fit |
 | [cascade](examples/markup_capabilities/cascade.html) | 400x300 | source order, specificity, importance, inheritance |
 | [potrace](examples/markup_capabilities/potrace.html) | 500x500 | imported SVG with viewBox and signed transforms |
+| [grey](examples/markup_capabilities/grey.html) | 400x300 | dithered greys, text over grey, grey borders and SVG fills |
+| [gradient](examples/markup_capabilities/gradient.html) | 400x300 | `linear-gradient()` directions, stops, rounded bars, text over a gradient |
 
 ### Scenarios and tools
 

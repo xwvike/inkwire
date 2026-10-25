@@ -359,7 +359,11 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 		if err != nil {
 			return nil, err
 		}
-		return compose.Rectangle{Size: value.Size.point(), Radius: value.Radius, Fill: fill, Stroke: stroke,
+		gradient, err := parseGradient(value.Gradient, path+".gradient")
+		if err != nil {
+			return nil, err
+		}
+		return compose.Rectangle{Size: value.Size.point(), Radius: value.Radius, Fill: fill, Gradient: gradient, Stroke: stroke,
 			StrokeTop: top, StrokeRight: right, StrokeBottom: bottom, StrokeLeft: left}, nil
 	case "line":
 		var value lineJSON
@@ -1096,6 +1100,7 @@ type inlineItemJSON struct {
 	PaddingLength *lengthInsetsJSON `json:"paddingLength,omitempty"`
 	MarginLength  *lengthInsetsJSON `json:"marginLength,omitempty"`
 	Background    *string           `json:"background,omitempty"`
+	Gradient      *gradientJSON     `json:"gradient,omitempty"`
 	Border        *strokeJSON       `json:"border,omitempty"`
 	BorderTop     *strokeJSON       `json:"borderTop,omitempty"`
 	BorderRight   *strokeJSON       `json:"borderRight,omitempty"`
@@ -1148,6 +1153,10 @@ func (d Decoder) decodeInline(value inlineJSON, path string) (compose.Node, erro
 			}
 			background = compose.Ink(ink)
 		}
+		gradient, err := parseGradient(source.Gradient, itemPath+".gradient")
+		if err != nil {
+			return nil, err
+		}
 		var border *display.StrokeStyle
 		if source.Border != nil {
 			value, err := source.Border.style(itemPath + ".border")
@@ -1181,7 +1190,7 @@ func (d Decoder) decodeInline(value inlineJSON, path string) (compose.Node, erro
 			Padding:        compose.Insets{Top: source.Padding.Top, Right: source.Padding.Right, Bottom: source.Padding.Bottom, Left: source.Padding.Left},
 			Margin:         compose.Insets{Top: source.Margin.Top, Right: source.Margin.Right, Bottom: source.Margin.Bottom, Left: source.Margin.Left},
 			PaddingLengths: paddingLengths, MarginLengths: marginLengths,
-			Background: background, Border: border,
+			Background: background, Gradient: gradient, Border: border,
 			BorderTop: top, BorderRight: right, BorderBottom: bottom, BorderLeft: left,
 			Radius:     source.Radius,
 			LineHeight: source.LineHeight, VerticalAlign: vertical, Wrap: itemWrap,
@@ -1436,15 +1445,16 @@ type pixelJSON struct {
 	Ink  string    `json:"ink"`
 }
 type rectangleJSON struct {
-	Type         string      `json:"type"`
-	Size         sizeJSON    `json:"size,omitempty"`
-	Radius       int         `json:"radius,omitempty"`
-	Fill         *string     `json:"fill,omitempty"`
-	Stroke       *strokeJSON `json:"stroke,omitempty"`
-	StrokeTop    *strokeJSON `json:"strokeTop,omitempty"`
-	StrokeRight  *strokeJSON `json:"strokeRight,omitempty"`
-	StrokeBottom *strokeJSON `json:"strokeBottom,omitempty"`
-	StrokeLeft   *strokeJSON `json:"strokeLeft,omitempty"`
+	Type         string        `json:"type"`
+	Size         sizeJSON      `json:"size,omitempty"`
+	Radius       int           `json:"radius,omitempty"`
+	Fill         *string       `json:"fill,omitempty"`
+	Gradient     *gradientJSON `json:"gradient,omitempty"`
+	Stroke       *strokeJSON   `json:"stroke,omitempty"`
+	StrokeTop    *strokeJSON   `json:"strokeTop,omitempty"`
+	StrokeRight  *strokeJSON   `json:"strokeRight,omitempty"`
+	StrokeBottom *strokeJSON   `json:"strokeBottom,omitempty"`
+	StrokeLeft   *strokeJSON   `json:"strokeLeft,omitempty"`
 }
 type lineJSON struct {
 	Type   string     `json:"type"`
@@ -1695,7 +1705,94 @@ func parseInk(value string) (display.Ink, error) {
 	case "yellow":
 		return display.InkYellow, nil
 	default:
-		return 0, enumError(value, "black", "white", "red", "yellow")
+		if ink, ok := parseTone(value); ok {
+			return ink, nil
+		}
+		return 0, enumError(value, "black", "white", "red", "yellow", "<ink> <n>/16")
+	}
+}
+
+// parseTone reads an ink laid over white at sixteenths of full coverage,
+// written as the ink and the fraction: "black 8/16" is a mid grey. Sixteenths
+// because that is every coverage the dither drawing it has, so the number
+// written is the number drawn rather than something rounded on the way.
+func parseTone(value string) (display.Ink, bool) {
+	name, fraction, found := strings.Cut(value, " ")
+	if !found {
+		return 0, false
+	}
+	numerator, denominator, found := strings.Cut(fraction, "/")
+	if !found || denominator != strconv.Itoa(display.ToneSteps) {
+		return 0, false
+	}
+	sixteenths, err := strconv.Atoi(numerator)
+	if err != nil || sixteenths < 0 || sixteenths > display.ToneSteps {
+		return 0, false
+	}
+	var ink display.Ink
+	switch name {
+	case "black":
+		ink = display.InkBlack
+	case "red":
+		ink = display.InkRed
+	case "yellow":
+		ink = display.InkYellow
+	default:
+		return 0, false
+	}
+	return display.Tone(ink, sixteenths), true
+}
+
+// gradientJSON is a fill that runs from one edge of its box to the other:
+//
+//	{"to": "right", "stops": [{"ink": "white", "at": 0}, {"ink": "black", "at": 1}]}
+//
+// "at" runs from 0 at the starting edge to 1 at the edge named by "to", which
+// is "bottom" when left out, as it is in CSS.
+type gradientJSON struct {
+	To    string             `json:"to,omitempty"`
+	Stops []gradientStopJSON `json:"stops"`
+}
+
+type gradientStopJSON struct {
+	Ink string  `json:"ink"`
+	At  float64 `json:"at"`
+}
+
+func parseGradient(source *gradientJSON, path string) (*display.Gradient, error) {
+	if source == nil {
+		return nil, nil
+	}
+	direction, err := parseGradientDirection(source.To)
+	if err != nil {
+		return nil, fmt.Errorf("%s.to: %w", path, err)
+	}
+	gradient := &display.Gradient{Direction: direction}
+	for index, stop := range source.Stops {
+		ink, err := parseInk(stop.Ink)
+		if err != nil {
+			return nil, fmt.Errorf("%s.stops[%d].ink: %w", path, index, err)
+		}
+		gradient.Stops = append(gradient.Stops, display.GradientStop{Ink: ink, At: stop.At})
+	}
+	if err := gradient.Validate(); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return gradient, nil
+}
+
+func parseGradientDirection(value string) (display.GradientDirection, error) {
+	switch value {
+	case "", "bottom":
+		return display.GradientToBottom, nil
+	case "top":
+		return display.GradientToTop, nil
+	case "right":
+		return display.GradientToRight, nil
+	case "left":
+		return display.GradientToLeft, nil
+	default:
+		return 0, enumError(value, "bottom", "top", "right", "left")
 	}
 }
 

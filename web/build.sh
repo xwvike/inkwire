@@ -21,7 +21,7 @@ go run "$root/web/tools/panels" -o "$out/panels.json"
 
 # The completion vocabulary is read out of MARKUP.md for the same reason:
 # a stock CSS list would propose most of a browser's properties, and this
-# renderer implements 89 of them. web/verify/completions.mjs puts every
+# renderer implements 90 of them. web/verify/completions.mjs puts every
 # entry it emits through the renderer.
 go run "$root/web/tools/completions" -o "$out/completions.json"
 

@@ -29,7 +29,9 @@ HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面�
 | 定位 | `position` | `static`、`relative`、`absolute` | 不实现 `fixed` 和 `sticky` |
 | 定位 | `top`、`right`、`bottom`、`left`、`inset` | `px`、`%`、`calc()`、`auto` | 百分比按定位包含块解析 |
 | 定位 | `z-index` | 数字 | 仅改变已定位元素的绘制层级 |
-| 颜色 | `background`、`background-color`、`color`、`border-color`、`border-top-color`、`border-right-color`、`border-bottom-color`、`border-left-color` | `black`、`white`、`red`、`yellow`，及对应三位或六位十六进制 | 不支持透明度、函数颜色和其他命名色；未支持颜色不会近似 |
+| 颜色 | `color` | `black`、`white`、`red`、`yellow`，可写名称、十六进制，或 `rgb()`、`rgba()` | 灰色或带色偏的灰会画成黑色并给出警告；不支持透明度、其他颜色函数和其他命名色 |
+| 颜色 | `background`、`background-color`、`border-color`、`border-top-color`、`border-right-color`、`border-bottom-color`、`border-left-color` | `black`、`white`、`red`、`yellow`、灰色 `gray`、`grey`、`silver`、`lightgray`、`lightgrey`、`darkgray`、`darkgrey`、`dimgray`、`dimgrey`、`gainsboro`、`whitesmoke`，及这些颜色或任意灰色的十六进制、`rgb()`、`rgba()` 写法 | 灰色由黑白抖动而成。带色偏的灰（红绿蓝相差不超过 48，如 `#6b7280`）按其亮度画成灰色并给出警告。不支持透明度、其他颜色函数和其他命名色；其他颜色不会近似 |
+| 颜色 | `background`、`background-image` | `none`，或 `linear-gradient()`，方向为 `to top`、`to right`、`to bottom`、`to left`，或 `0deg`、`90deg`、`180deg`、`270deg` 及以 `turn`、`rad`、`grad` 表示的同样角度；两个及以上色标，取白色和同一种墨色或其灰色，每个色标可带一个 `%` 位置 | 背景图画在 `background-color` 之上。对角方向、其他角度、一个渐变里两种墨色、颜色提示、双位置色标、长度位置、`radial-gradient()`、`conic-gradient()`、`repeating-*-gradient()` 和 `url()` 会给出警告并丢弃该声明 |
 | 边框 | `border`、`border-top`、`border-right`、`border-bottom`、`border-left` | 一个宽度、线型和颜色，顺序任意 | 线型省略时为 `none`，不会绘制 |
 | 边框 | `border-width`、`border-top-width`、`border-right-width`、`border-bottom-width`、`border-left-width` | 非负 `px` 或仅含像素的 `calc()` | 布局时取整；不接受百分比或多值边框宽度 |
 | 边框 | `border-style`、`border-top-style`、`border-right-style`、`border-bottom-style`、`border-left-style` | `solid`、`dashed`、`dotted`、`none`、`hidden` | `dotted` 的点和间距等于线宽 |
@@ -41,7 +43,7 @@ HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面�
 | 变换 | `rotate` | `deg`、`grad`、`rad`、`turn` 或无单位角度 | — |
 | 变换 | `transform-origin` | 一个或两个关键词、`px`、`%`、`calc()` | 关键词为 `left`、`center`、`right`、`top`、`bottom` |
 | 变换 | `scale` | 一个或两个相同的整数，且不小于 1 | 不做重采样；不支持小数或非等比缩放 |
-| SVG 绘制 | `fill`、`stroke` | 支持的墨色、`none`、`transparent` | 这些属性可继承；内联 SVG 中的 CSS 声明覆盖 SVG 呈现属性 |
+| SVG 绘制 | `fill`、`stroke` | 支持的墨色和灰色、`none`、`transparent` | 这些属性可继承；内联 SVG 中的 CSS 声明覆盖 SVG 呈现属性 |
 | SVG 绘制 | `stroke-width` | 非负 `px`、仅含像素的 `calc()` 或 SVG 无单位数值 | 布局时取整；小于 1 像素时按 1 像素绘制并产生警告 |
 | SVG 绘制 | `stroke-dasharray`、`stroke-dashoffset` | 空格或逗号分隔的整数像素 | — |
 | SVG 绘制 | `stroke-linecap` | `butt`、`round`、`square` | 作用于 SVG 开放线段、折线和路径；SVG 默认值为 `butt` |
@@ -76,11 +78,11 @@ HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面�
   `grid-auto-columns`、`grid-auto-rows`、`grid-auto-flow`、`place-content`、`place-items`、
   `place-self`、`table-layout`。
 - 定位和效果：`position: fixed`、`position: sticky`、`opacity`、`filter`、`box-shadow`、
-  `text-shadow`、`mix-blend-mode`、`background-image`、`background-repeat`、`background-size`。
+  `text-shadow`、`mix-blend-mode`、`background-repeat`、`background-size`。
 - 文本：`font-weight`、`font-style`、`font-variant`、`text-decoration`、`text-indent`、
   `letter-spacing`、`word-spacing`、`text-transform`、`text-overflow`、`hyphens`。
 - 图片：`object-position`。
-- 颜色与变换取值：`rgb()`、`rgba()`、`hsl()`、渐变、透明度；`transform` 中除 `scale()` 和
+- 颜色与变换取值：`hsl()`、`hwb()`、`lab()`、`oklch()` 等 `rgb()`、`rgba()` 以外的颜色函数，`radial-gradient()`、`conic-gradient()`、重复渐变、透明度；`transform` 中除 `scale()` 和
   `rotate()` 以外的函数；CSS `scale` 的小数、负数或不等比双值；`border-style` 的 `double`、
   `groove`、`ridge`、`inset`、`outset`；`overflow: auto` 和 `overflow: scroll`。
 
@@ -103,6 +105,18 @@ HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面�
   只支持 `px`、`%` 的加减。
 - 字体来自构建时内置位图字库。未找到字体族使用默认字体；字体栈按字形逐级回退；未找到对应字号使用最近字号。
   内置字库没有粗体字形，`font-weight` 以及 `<b>`、`<strong>` 的默认粗体样式不会改变渲染字形。
+- 灰色是黑色按 4x4 有序抖动铺在白底上，取最接近的十六分之几覆盖率：`#808080` 是 8/16，四舍五入到
+  0 或 16 的灰色就是白色或黑色。抖动图案按画面坐标对齐，相邻的灰色区域无缝衔接，同一页面每次渲染
+  像素一致。画在灰色上的文字会在字形周围清出 1px 的白边。文字本身不能是灰色：抖动后的 1px 笔画会
+  丢掉一半像素。1px 的灰色边框或描边同理，看起来是一条点线。`compile` 把灰色写成 `black 8/16`。
+  带色偏的灰按红绿蓝加权（0.2126、0.7152、0.0722）得到亮度，色偏丢弃。带任何透明度的颜色——
+  `#0008`、`rgb(0 0 0 / 50%)`——都会被拒绝，因为绘制时不知道透过去的是什么；请直接写出应有的颜色。
+- `linear-gradient()` 用同一套抖动绘制：每个像素按它在盒子里的位置，从色标算出覆盖率，取最接近的
+  十七级之一，所以一个渐变最多十七条色带，两端的色带只有中间的一半宽。色标位置按 CSS 规则推算，
+  可以落在 0%–100% 之外。渐变只能从白色过渡到一种墨色——黑色经过各级灰，或红色、黄色经过各自的
+  浅色——因为一个像素不能一半是这种墨色一半是那种。圆角盒子按与填充相同的圆角裁剪渐变。面板画不了
+  的渐变会给出警告并丢弃该声明，和浏览器丢弃读不懂的声明一样，所以写在前面作为回退的 `background`
+  仍然生效。
 - 页面会继续编译，但不支持的声明、选择器、at-rule、颜色、字体和资源都会产生警告。警告
   不是渲染失败标志，需根据类型检查最终画面。
 

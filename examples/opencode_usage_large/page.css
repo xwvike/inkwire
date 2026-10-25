@@ -43,14 +43,18 @@
 
 /* ── 顶栏 36px：wordmark + 登录 key 状态 ────────────────
    logo.svg 的 viewBox 234x42 = 39x7 像素格，缩到 117x21 每格正好 3px（小屏是 2px）。
-   右边：剩余寿命条（框 60x12，内框 58x10，满格 = 48 小时；右边实心 = 还剩，
-   左边棋盘格 = 已过去）+ 文字 14 号 8px/字符右对齐，最长 19 字 152px
-   （KEY 47H 10/27 12:05）。 */
+   右边：剩余寿命条（框 60x12，内框 58x10，满格 = 48 小时；右边实心白 = 还剩，
+   左边灰 = 已过去）+ 文字 14 号 8px/字符右对齐，最长 19 字 152px
+   （KEY 47H 10/27 12:05）。
+
+   已过去的那段用 gray：8/16 的抖动正好是黑白相间的棋盘格，和实心白分得开。
+   宽度 = 58 x 已过去小时数 / 48，取整。 */
 .head { position: absolute; left: 0; top: 0; width: 376px; height: 36px;
         background: black; color: white; }
 .logo { position: absolute; left: 10px; top: 8px; width: 117px; height: 21px; }
 .kbar { position: absolute; left: 146px; top: 12px; box-sizing: border-box; width: 60px; height: 12px;
-        border: 1px solid white; }
+        border: 1px solid white; background: white; }
+.kpast { height: 10px; background: gray; }
 .ktext { position: absolute; left: 214px; top: 0; width: 152px; height: 36px;
          font-size: 14px; line-height: 36px; text-align: right; }
 

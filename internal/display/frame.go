@@ -22,8 +22,12 @@ const (
 )
 
 func (i Ink) valid() bool {
-	return i <= InkYellow
+	return i <= InkYellow || i.validTone()
 }
+
+// Valid reports whether this is an ink a frame can be asked to draw: one of
+// the four, or a tone of one of them.
+func (i Ink) Valid() bool { return i.valid() }
 
 // String names the ink. Anything that has to tell somebody an ink could not be
 // shown has to be able to say which one, and every caller that needed that was
@@ -39,10 +43,22 @@ func (i Ink) String() string {
 	case InkYellow:
 		return "yellow"
 	}
+	if i.validTone() {
+		return i.toneString()
+	}
 	return fmt.Sprintf("Ink(%d)", uint8(i))
 }
 
 func (i Ink) RGBA() color.NRGBA {
+	// A tone has no colour of its own on the panel, but something showing one
+	// beside the four inks wants the shade it reads as from a distance.
+	if ink, sixteenths, toned := i.Toned(); toned && i.validTone() {
+		mix := func(from, to uint8) uint8 {
+			return uint8((int(from)*(ToneSteps-sixteenths) + int(to)*sixteenths) / ToneSteps)
+		}
+		over := ink.RGBA()
+		return color.NRGBA{R: mix(0xff, over.R), G: mix(0xff, over.G), B: mix(0xff, over.B), A: 0xff}
+	}
 	switch i {
 	case InkBlack:
 		return color.NRGBA{A: 0xff}
@@ -62,6 +78,10 @@ type Frame struct {
 	width  int
 	height int
 	pixels []Ink
+	// toned marks the pixels a tone put there, which is what lets text clear
+	// a halo out of a tone without touching anything solid. It stays nil until
+	// a tone is drawn, so a page with none costs nothing.
+	toned []bool
 }
 
 func NewFrame(width, height int, background Ink) (*Frame, error) {
@@ -115,20 +135,48 @@ func (f *Frame) InkAt(x, y int) (Ink, bool) {
 	return f.pixels[y*f.width+x], true
 }
 
+// Set writes an ink at a pixel. A tone is resolved here, against the frame's
+// own coordinates, to the ink or white — which is what makes every primitive
+// able to draw one, and keeps every pixel the frame holds an ink a panel has.
 func (f *Frame) Set(x, y int, ink Ink) {
 	if !ink.valid() || x < 0 || y < 0 || x >= f.width || y >= f.height {
 		return
 	}
-	f.pixels[y*f.width+x] = ink
+	index := y*f.width + x
+	_, _, toned := ink.Toned()
+	if toned && f.toned == nil {
+		f.toned = make([]bool, len(f.pixels))
+	}
+	if f.toned != nil {
+		f.toned[index] = toned
+	}
+	f.pixels[index] = ink.Physical(x, y)
 }
 
 func (f *Frame) Clear(ink Ink) {
 	if !ink.valid() {
 		return
 	}
+	f.toned = nil
+	if _, _, toned := ink.Toned(); toned {
+		for y := 0; y < f.height; y++ {
+			for x := 0; x < f.width; x++ {
+				f.Set(x, y, ink)
+			}
+		}
+		return
+	}
 	for i := range f.pixels {
 		f.pixels[i] = ink
 	}
+}
+
+// tonedAt reports whether the pixel there was put there by a tone.
+func (f *Frame) tonedAt(x, y int) bool {
+	if f.toned == nil || x < 0 || y < 0 || x >= f.width || y >= f.height {
+		return false
+	}
+	return f.toned[y*f.width+x]
 }
 
 // Canvas draws integer-aligned primitives into a Frame.
@@ -318,12 +366,18 @@ func (c *Canvas) logicalClip() image.Rectangle {
 // is asked about exactly once. That is why an image is turned this way round
 // everywhere it is turned at all.
 func (c *Canvas) fillWhere(bounds image.Rectangle, paint func(x, y int) (Ink, bool)) {
+	c.paintWhere(bounds, paint, c.setDevice)
+}
+
+// paintWhere is fillWhere with the write left to the caller, for the one
+// fill — a halo — that writes only over some of what is already there.
+func (c *Canvas) paintWhere(bounds image.Rectangle, paint func(x, y int) (Ink, bool), write func(image.Point, Ink)) {
 	if offset, whole := c.state.matrix.Offset(); whole {
 		bounds = bounds.Intersect(c.logicalClip())
 		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 			for x := bounds.Min.X; x < bounds.Max.X; x++ {
 				if ink, painted := paint(x, y); painted {
-					c.setDevice(image.Pt(x+offset.X, y+offset.Y), ink)
+					write(image.Pt(x+offset.X, y+offset.Y), ink)
 				}
 			}
 		}
@@ -341,7 +395,7 @@ func (c *Canvas) fillWhere(bounds image.Rectangle, paint func(x, y int) (Ink, bo
 				continue
 			}
 			if ink, painted := paint(from.X, from.Y); painted {
-				c.setDevice(image.Pt(x, y), ink)
+				write(image.Pt(x, y), ink)
 			}
 		}
 	}

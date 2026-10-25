@@ -1,9 +1,6 @@
 <!-- 400x300 的 opencode 用量看板，opencode_usage_small 的大屏版：同一份数据，
      版式按大屏重排，并多用了小屏放不下的数据。数据是合成的；实机上这些数字由
-     本地 agent 日志填进来。
-
-     key 寿命条里的棋盘格是一个 2x2 的 SVG pattern：对角放两个白点，在 1-bit 上
-     正好是亮暗交替，和实心白的「还剩」部分分得开。 -->
+     本地 agent 日志填进来。 -->
 
 <main class="page">
   <div class="rail"><span>REF 2026.10.24 18:20</span></div>
@@ -13,7 +10,7 @@
 
     <div class="head">
       <img class="logo" src="logo.svg" />
-      <div class="kbar"><svg width="58" height="10" viewBox="0 0 58 10"><defs><pattern id="dither" width="2" height="2" patternUnits="userSpaceOnUse"><rect width="1" height="1" fill="white"/><rect x="1" y="1" width="1" height="1" fill="white"/></pattern></defs><rect x="0" y="0" width="21" height="10" fill="url(#dither)"/><rect x="21" y="0" width="37" height="10" fill="white"/></svg></div>
+      <div class="kbar"><div class="kpast" style="width:21px"></div></div>
       <div class="ktext">KEY 31H 10/26 1:20</div>
     </div>
 

@@ -53,13 +53,14 @@ type emitted struct {
 	Insets       *insets       `json:"insets,omitempty"`
 	LengthInsets *lengthInsets `json:"lengthInsets,omitempty"`
 
-	Radius       int     `json:"radius,omitempty"`
-	Fill         string  `json:"fill,omitempty"`
-	Stroke       *stroke `json:"stroke,omitempty"`
-	StrokeTop    *stroke `json:"strokeTop,omitempty"`
-	StrokeRight  *stroke `json:"strokeRight,omitempty"`
-	StrokeBottom *stroke `json:"strokeBottom,omitempty"`
-	StrokeLeft   *stroke `json:"strokeLeft,omitempty"`
+	Radius       int           `json:"radius,omitempty"`
+	Fill         string        `json:"fill,omitempty"`
+	Gradient     *gradientJSON `json:"gradient,omitempty"`
+	Stroke       *stroke       `json:"stroke,omitempty"`
+	StrokeTop    *stroke       `json:"strokeTop,omitempty"`
+	StrokeRight  *stroke       `json:"strokeRight,omitempty"`
+	StrokeBottom *stroke       `json:"strokeBottom,omitempty"`
+	StrokeLeft   *stroke       `json:"strokeLeft,omitempty"`
 
 	Shape *shape `json:"shape,omitempty"`
 
@@ -192,6 +193,7 @@ type inlineItem struct {
 	PaddingLength *lengthInsets `json:"paddingLength,omitempty"`
 	MarginLength  *lengthInsets `json:"marginLength,omitempty"`
 	Background    string        `json:"background,omitempty"`
+	Gradient      *gradientJSON `json:"gradient,omitempty"`
 	Border        *stroke       `json:"border,omitempty"`
 	BorderTop     *stroke       `json:"borderTop,omitempty"`
 	BorderRight   *stroke       `json:"borderRight,omitempty"`
@@ -447,6 +449,9 @@ func inkName(ink display.Ink) string {
 		return "red"
 	case display.InkYellow:
 		return "yellow"
+	}
+	if _, _, toned := ink.Toned(); toned {
+		return ink.String()
 	}
 	return "black"
 }
