@@ -1525,14 +1525,15 @@ func (c *compiler) inlineBoxItem(current style) inlineItem {
 	item := inlineItem{LineHeight: current.lineHeight,
 		VerticalAlign: inlineVerticalAlignName(current.inlineVAlign), Wrap: wrapName(current.wrap)}
 	item.Padding = insetsOf(current.padding)
-	if styleLengthsSet(current.paddingLength) {
+	item.PaddingLength = deferredLengthInsetsOf(styleLengths(current.paddingLength, current.padding))
+	if item.PaddingLength != nil {
 		// The dynamic representation includes any fixed calc adjustment and is
 		// resolved by compose; do not validate its unresolved pixel part as a
-		// standalone (possibly negative) inset.
+		// standalone (possibly negative) inset. A padding with no percentage
+		// in it has nothing left to resolve, and stays as it was written.
 		item.Padding = nil
 	}
 	item.Margin = insetsOf(current.margin)
-	item.PaddingLength = deferredLengthInsetsOf(styleLengths(current.paddingLength, current.padding))
 	item.MarginLength = deferredLengthInsetsOf(styleLengths(current.marginLength, current.margin))
 	if current.background != nil {
 		item.Background = inkName(*current.background)

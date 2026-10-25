@@ -916,6 +916,14 @@ func TestSpacingPercentagesResolveAtLayoutTime(t *testing.T) {
 	got = boxes(t, `<span class="a">x</span>`, `.page { display: block; } .a { padding: 10%; background: red; }`)
 	expect(t, got, display.InkRed, image.Rect(0, 0, 26, 34), "inline padding percentage uses the containing width")
 
+	// A padding in pixels alone has nothing for compose to resolve, and must
+	// not be lost on the way there.
+	bare := boxes(t, `<span class="a">x</span>`, `.page { display: block; } .a { background: red; }`)[display.InkRed]
+	padded := boxes(t, `<span class="a">x</span>`, `.page { display: block; } .a { padding: 3px 8px; background: red; }`)[display.InkRed]
+	if padded.Dx() != bare.Dx()+16 || padded.Dy() != bare.Dy()+6 {
+		t.Errorf("inline padding in pixels: %v unpadded, %v padded by 3px 8px", bare, padded)
+	}
+
 	document, err := Compile(`<div class="page"><i class="a"><b>x</b></i></div>`,
 		`.page { display: flex; width: 100px; height: 40px; }
 		 .a { flex-grow: 1; padding: calc(10px + 2px); }`)
