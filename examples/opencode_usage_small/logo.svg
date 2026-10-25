@@ -1,0 +1,14 @@
+<!-- opencode 的 wordmark。原图三档色：base（open）、strong（code）、weak（字腔）。
+     墨水屏上 base 白、strong 红，weak 删掉，露出顶栏的黑底。坐标全是 6 的倍数
+     （39x7 的像素格），按 2 或 3 的整数倍缩放时每格都落在整数像素上。
+     fill 必须是面板墨色，不是墨色的颜色一笔都不画。 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 234 42"><title>opencode</title>
+  <path d="M18 12H6V30H18V12ZM24 36H0V6H24V36Z" fill="white"/>
+  <path d="M36 30H48V12H36V30ZM54 36H36V42H30V6H54V36Z" fill="white"/>
+  <path d="M84 24H66V30H84V36H60V6H84V24ZM66 18H78V12H66V18Z" fill="white"/>
+  <path d="M108 12H96V36H90V6H108V12ZM114 36H108V12H114V36Z" fill="white"/>
+  <path d="M144 12H126V30H144V36H120V6H144V12Z" fill="red"/>
+  <path d="M168 12H156V30H168V12ZM174 36H150V6H174V36Z" fill="red"/>
+  <path d="M198 12H186V30H198V12ZM204 36H180V6H198V0H204V36Z" fill="red"/>
+  <path d="M216 12V18H228V12H216ZM234 24H216V30H234V36H210V6H234V24Z" fill="red"/>
+</svg>

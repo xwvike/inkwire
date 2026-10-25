@@ -1,0 +1,101 @@
+/* Gicisky EPD 2.9" BWR，296x128，型号 0x0033。1-bit 无抗锯齿，差 1px 肉眼可见，
+   所有尺寸都是实测对齐过的整数。外框、刷新戳、七日条与 claude_usage_small 同一套。
+
+   主角是今日 token 总量：API 按量计费，没有配额也没有重置日；金额各家口径不一、
+   自建渠道恒为 0，不出。
+
+   monaco 实测字宽：10-6  12-7  14-8  16-10  20-12  24-14  28-16  32-20  42-24 */
+
+.page {
+  position: relative;
+  width: 296px;
+  height: 128px;
+  background: white;
+  color: black;
+  /* 栈里的回退是逐字形的：monaco 只有 ASCII，遇到中文自动落到 hzk。
+     必须写成栈——单写 monaco 是无处可退的，会报 missing-runes。 */
+  font-family: monaco, hzk;
+}
+
+/* ── 边框外的竖排刷新戳 ──────────────────────────────────
+   这块屏低刷新，不标出画面是什么时候写的就没法判断数据新不新——功能不是装饰。
+   monaco 是唯一有 10 号的字体且只有 ASCII，实测 6px/字符，20 字符 120px 正好。
+   rotate(-90deg) 后从下往上读；旋转把局部点 (a,b) 映到 (b,-a)，所以支点放在
+   span 盒的左上角、盒本身下沉 120px，转完落回 0..120。 */
+.rail { position: absolute; left: 3px; top: 4px; width: 12px; height: 120px; }
+.rail span {
+  position: absolute;
+  left: 0; top: 120px;
+  width: 120px; height: 12px;
+  font-size: 10px; line-height: 12px;
+  transform-origin: 0 0;
+  transform: rotate(-90deg);
+}
+
+/* ── 外框 ────────────────────────────────────────────
+   不设内边距：黑带要左右上三边都顶满内沿，有内边距它就跑不出去。所有子元素
+   直接写绝对坐标，左右各留 9px、底部留 10px，等价于内边距。
+   内容区 272x122 = 274-2(描边) x 124-2。
+
+   overflow: hidden 是给黑带用的：它四角是方的，不裁的话会戳进外框的圆角里、
+   把描边压掉一截。四值 border-radius（8px 8px 0 0）inkwire 不支持，会直接忽略
+   并报 must be given in px or %，所以只能靠外框去裁。 */
+.frame {
+  position: absolute;
+  left: 20px; top: 2px;
+  box-sizing: border-box;
+  width: 274px; height: 124px;
+  border: 1px solid black;
+  border-radius: 9px;
+  overflow: hidden;
+}
+.inner { position: relative; width: 272px; height: 122px; }
+
+/* ── 顶栏：黑底白字的一条带 ──────────────────────────
+   左边 opencode 的 wordmark，右边「时长 轮次 文件数」右对齐。日期不放，左侧竖排刷新戳里有。
+   行高等于带高：单行文本靠这个居中，比手算半行距稳。 */
+.head { position: absolute; left: 0; top: 0; width: 272px; height: 24px;
+        background: black; color: white; }
+/* logo.svg 的 viewBox 234x42 = 39x7 像素格。缩到 78x14，每格正好 2px，
+   边全落在整数像素上；上下各留 5px 居中。 */
+.logo { position: absolute; left: 9px; top: 5px; width: 78px; height: 14px; }
+/* 96..263 共 167px，12 号装 23 个字符。右缘收到 263：
+   带子右边在 272，贴着排字会顶在边上 */
+.meta { position: absolute; left: 96px; top: 0; width: 167px; height: 24px;
+        font-size: 12px; line-height: 24px; text-align: right; }
+
+/* ── 左栏：今日 token 与按模型拆分 ────────────────────
+   栏宽 106px（9..115）。28 号 monaco 16px/字符，最长五个字符 80px。 */
+.tokens { position: absolute; left: 9px; top: 26px; width: 106px; height: 30px;
+          font-size: 28px; line-height: 30px; }
+/* 10 号 6px/字符，"TOKENS 100% CACHED" 18 字 108px 会溢出 2px，实际缓存率到不了
+   100%（总量里还有输入输出），按 17 字算 */
+.unit { position: absolute; left: 9px; top: 57px; width: 106px; height: 12px;
+        font-size: 10px; line-height: 12px; }
+/* 三行模型，每行 14px，71..113。末行与七日条最后一行（100..112）同一中线 106，
+   左右两栏底边看齐。行首 3px 方块标记。
+   名字从 6px 起 11 字符到 72，数字右对齐最长 5 字符从 76 起。 */
+.models { position: absolute; left: 9px; top: 71px; width: 106px; height: 42px; }
+.model  { position: relative; height: 14px; font-size: 10px; line-height: 14px; }
+.mdot   { position: absolute; left: 0; top: 5px; width: 3px; height: 3px; background: black; }
+.mname  { position: absolute; left: 6px; top: 0; width: 66px; height: 14px; }
+.mval   { position: absolute; left: 72px; top: 0; width: 34px; height: 14px; text-align: right; }
+
+/* 左右分栏的竖线：没有它左右两半会糊成一片 */
+.vline { position: absolute; left: 121px; top: 30px; width: 1px; height: 82px;
+         background: black; }
+
+/* ── 右栏：横向七日条，量每天 token 总量 ──────────────
+   每行 12px：星期标签 18px（monaco 10 三个字符）+ 4px 间隔 + 112px 轨道，
+   129..263。条高 8px、在行内垂直居中。 */
+.chart { position: absolute; left: 129px; top: 28px; width: 134px; height: 84px; }
+.row   { position: relative; height: 12px; }
+.day   { position: absolute; left: 0; top: 1px; width: 18px; height: 10px;
+         font-size: 10px; line-height: 10px; }
+.track { position: absolute; left: 22px; top: 2px; width: 112px; height: 8px; }
+.fill  { height: 8px; border-radius: 4px; background: black; }
+/* 窄于一个直径才不倒角，再窄圆角就吃掉整条 */
+.fill.tick { border-radius: 0; }
+/* 今天涂红，星期标签也跟着红 */
+.row.today .fill { background: red; }
+.row.today .day  { color: red; }

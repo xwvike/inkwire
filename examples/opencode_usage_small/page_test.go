@@ -1,5 +1,5 @@
-// Package claude_usage is a 296x128 operational usage snapshot.
-package claude_usage
+// Package opencode_usage_small is a 296x128 opencode usage board for a Gicisky 2.9" BWR tag.
+package opencode_usage_small
 
 import (
 	"image"
@@ -21,7 +21,7 @@ func TestPageMatchesReference(t *testing.T) {
 		t.Errorf("missing runes: %q", string(result.Report.MissingRunes))
 	}
 	testscene.AssertEncodesFor(t, 0x0033, result.Frame, result.Orientation)
-	testscene.AssertMatchesPNG(t, "claude_usage.png", result.Frame)
+	testscene.AssertMatchesPNG(t, "opencode_usage_small.png", result.Frame)
 }
 
 func TestPageUsesThePanelInks(t *testing.T) {

@@ -207,7 +207,7 @@ func inkOfIn(t *testing.T, dir string, document Document) int {
 // line names a family, every run has to — and the run that does not is the
 // ordinary one, the words either side of a <span>.
 //
-// examples/fridge is where this showed: "<span class=at>07:30 </span>晨起遛狗"
+// An example page, since removed, is where this showed: "<span class=at>07:30 </span>晨起遛狗"
 // set the Chinese in the monospace face the time was in, and every glyph of it
 // came back missing.
 func TestARunAfterAStyledOneKeepsItsOwnFamily(t *testing.T) {

@@ -1,0 +1,71 @@
+<!-- 400x300 的 opencode 用量看板，opencode_usage_small 的大屏版：同一份数据，
+     版式按大屏重排，并多用了小屏放不下的数据。数据是合成的；实机上这些数字由
+     本地 agent 日志填进来。
+
+     key 寿命条里的棋盘格是一个 2x2 的 SVG pattern：对角放两个白点，在 1-bit 上
+     正好是亮暗交替，和实心白的「还剩」部分分得开。 -->
+
+<main class="page">
+  <div class="rail"><span>REF 2026.10.24 18:20</span></div>
+  <div class="rail rail-b"><span>POWERED BY INKWIRE</span></div>
+
+  <section class="frame"><div class="inner">
+
+    <div class="head">
+      <img class="logo" src="logo.svg" />
+      <div class="kbar"><svg width="58" height="10" viewBox="0 0 58 10"><defs><pattern id="dither" width="2" height="2" patternUnits="userSpaceOnUse"><rect width="1" height="1" fill="white"/><rect x="1" y="1" width="1" height="1" fill="white"/></pattern></defs><rect x="0" y="0" width="21" height="10" fill="url(#dither)"/><rect x="21" y="0" width="37" height="10" fill="white"/></svg></div>
+      <div class="ktext">KEY 31H 10/26 1:20</div>
+    </div>
+
+    <div class="tokens">2.3M</div>
+    <div class="unit">TOKENS 91% CACHED</div>
+    <div class="models">
+      <div class="model"><span class="mdot"></span><span class="mname">KIMI-K3</span><span class="mval">1.5M</span></div>
+      <div class="model"><span class="mdot"></span><span class="mname">DEEPSEEK-V4</span><span class="mval">520K</span></div>
+      <div class="model"><span class="mdot"></span><span class="mname">GLM-5.3</span><span class="mval">190K</span></div>
+      <div class="model"><span class="mdot"></span><span class="mname">QWEN-4</span><span class="mval">50.0K</span></div>
+    </div>
+    <div class="hline"></div>
+    <div class="stat s1"><span class="k">TURNS</span><span class="v">27</span></div>
+    <div class="stat s2"><span class="k">ACTIVE</span><span class="v">2h15m</span></div>
+    <div class="stat s3"><span class="k">FILES</span><span class="v">17</span></div>
+    <div class="stat s4"><span class="k">SESSIONS</span><span class="v">4</span></div>
+
+    <div class="vline"></div>
+
+    <div class="hourly">
+      <div class="htitle">TODAY BY HOUR</div>
+      <div class="hg" style="top:20px"></div>
+      <div class="hg" style="top:50px"></div>
+      <span class="ay" style="top:14px">1h</span>
+      <span class="ay" style="top:44px">30m</span>
+      <div class="hours">
+        <div class="hb" style="left:60px;top:30px;height:30px"></div>
+        <div class="hb" style="left:66px;top:20px;height:40px"></div>
+        <div class="hb" style="left:90px;top:35px;height:25px"></div>
+        <div class="hb" style="left:96px;top:40px;height:20px"></div>
+        <div class="hb" style="left:102px;top:45px;height:15px"></div>
+        <div class="hb now" style="left:108px;top:55px;height:5px"></div>
+      </div>
+      <div class="hbase"></div>
+      <div class="hticks">
+        <span class="ht" style="left:28px">0</span><span class="ht" style="left:64px">6</span><span class="ht" style="left:100px">12</span><span class="ht" style="left:136px">18</span>
+      </div>
+    </div>
+
+    <div class="whline"></div>
+    <div class="week">
+      <div class="whead"><span class="hp">TOKEN</span><span class="hq">TURN</span><span class="hr">ACTIVE</span></div>
+      <div class="wrows">
+        <div class="row"><span class="day">SUN</span><div class="track"><div class="fill tick" style="width:0px"></div></div><span class="p"></span><span class="q"></span><span class="r"></span></div>
+        <div class="row"><span class="day">MON</span><div class="track"><div class="fill" style="width:10px"></div></div><span class="p">1.2M</span><span class="q">18</span><span class="r">1h20m</span></div>
+        <div class="row"><span class="day">TUE</span><div class="track"><div class="fill" style="width:28px"></div></div><span class="p">3.4M</span><span class="q">40</span><span class="r">3h05m</span></div>
+        <div class="row"><span class="day">WED</span><div class="track"><div class="fill tick" style="width:7px"></div></div><span class="p">800K</span><span class="q">9</span><span class="r">40m</span></div>
+        <div class="row"><span class="day">THU</span><div class="track"><div class="fill" style="width:42px"></div></div><span class="p">5.1M</span><span class="q">52</span><span class="r">4h30m</span></div>
+        <div class="row"><span class="day">FRI</span><div class="track"><div class="fill" style="width:22px"></div></div><span class="p">2.7M</span><span class="q">31</span><span class="r">2h10m</span></div>
+        <div class="row today"><span class="day">SAT</span><div class="track"><div class="fill" style="width:19px"></div></div><span class="p">2.3M</span><span class="q">27</span><span class="r">2h15m</span></div>
+      </div>
+    </div>
+
+  </div></section>
+</main>

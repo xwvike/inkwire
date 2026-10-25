@@ -1,0 +1,129 @@
+/* EPD-nRF5 UC8176_420_BWR，400x300。1-bit 无抗锯齿，尺寸都是整数。
+   与 opencode_usage_large 同一个骨架：顶栏 36px；左栏英雄数字 + 指标；
+   右上今日小时条；右下多列七日表。
+
+   monaco 实测字宽：10-6  12-7  14-8  16-10  20-12  24-14  28-16  32-20  42-24 */
+
+.page {
+  position: relative;
+  width: 400px;
+  height: 300px;
+  background: white;
+  color: black;
+  font-family: monaco, hzk;
+}
+
+/* 边框外的竖排刷新戳：支点放 span 左上角、盒下沉 120px，旋转后落回 0..120 */
+.rail { position: absolute; left: 3px; top: 4px; width: 12px; height: 120px; }
+.rail span {
+  position: absolute;
+  left: 0; top: 120px;
+  width: 120px; height: 12px;
+  font-size: 10px; line-height: 12px;
+  transform-origin: 0 0;
+  transform: rotate(-90deg);
+}
+
+/* 署名：同一条竖排，贴在 REF 下面、靠底。18 字 108px，盒 120 高，从下往上读，
+   所以顶边取 300 - 4 - 120 = 176，文字落在 188..296。 */
+.rail-b { top: 176px; }
+
+/* 外框 378x296，内容区 376x294。overflow:hidden 给黑带裁圆角：四值 border-radius
+   inkwire 不支持，只能靠外框去裁。 */
+.frame {
+  position: absolute;
+  left: 20px; top: 2px;
+  box-sizing: border-box;
+  width: 378px; height: 296px;
+  border: 1px solid black;
+  border-radius: 9px;
+  overflow: hidden;
+}
+.inner { position: relative; width: 376px; height: 294px; }
+
+/* ── 顶栏 36px：spark + 两个额度窗口 ──────────────────
+   14 号 monaco 8px/字符：
+     "5H 100% 23:59"        13 字 104px   46..150
+     "7D 100% 12/31 23:59"  19 字 152px  168..320 */
+.head { position: absolute; left: 0; top: 0; width: 376px; height: 36px;
+        background: black; color: white; }
+.logo { position: absolute; left: 10px; top: 6px; width: 24px; height: 24px; }
+.quota { position: absolute; top: 0; height: 36px; font-size: 14px; line-height: 36px; }
+.q5 { left: 46px; width: 104px; }
+.qsep { position: absolute; left: 158px; top: 10px; width: 1px; height: 16px; background: white; }
+.q7 { left: 168px; width: 152px; }
+
+/* ── 左栏：今日改动量 ────────────────────────────────
+   42 号 24px/字符，160px 的栏装 6 字 */
+.plus  { position: absolute; left: 10px; top: 42px; width: 160px; height: 46px;
+         font-size: 42px; line-height: 46px; }
+.minus { position: absolute; left: 10px; top: 88px; width: 160px; height: 46px;
+         font-size: 42px; line-height: 46px; color: red; }
+/* 次要指标：小标签 10 号 + 值 20 号（12px/字符），每格 76x38 */
+.stat { position: absolute; width: 76px; height: 38px; }
+.stat .k { position: absolute; left: 0; top: 0;  width: 76px; height: 12px;
+           font-size: 10px; line-height: 12px; }
+.stat .v { position: absolute; left: 0; top: 14px; width: 76px; height: 24px;
+           font-size: 20px; line-height: 24px; }
+.hline { position: absolute; left: 10px; top: 140px; width: 160px; height: 1px; background: black; }
+.s1 { left: 10px; top: 146px; }
+.s2 { left: 94px; top: 146px; }
+.s3 { left: 10px; top: 188px; }
+.s4 { left: 94px; top: 188px; }
+.s5 { left: 10px; top: 230px; }
+.s6 { left: 94px; top: 230px; }
+/* 最底一行：七日里改动最多的那天 */
+.foot { position: absolute; left: 10px; top: 272px; width: 160px; height: 14px;
+        font-size: 12px; line-height: 14px; }
+
+.vline { position: absolute; left: 178px; top: 44px; width: 1px; height: 242px; background: black; }
+
+/* ── 右上：今日小时条 ────────────────────────────────
+   左边 28px 留给纵轴，24 个钟点各占 6px（条宽 4）共 144px，满格 60px =
+   一个钟点都在干活，1px = 1 分钟。每根条的 top 是 60 减去高度，底边都落在
+   hbase 那条线上。
+
+   纵轴只标两个刻度：30m（距基线 30px）和 1h（距基线 60px），各拉一根点线，
+   一直拉到区块右边缘（与基线同宽）。点线是 CSS dotted 边框——亮一格暗一格；
+   SVG 的 stroke-dasharray 在 1-bit 渲染里会消失，别换。点线先于条写进页面，
+   条压在它上面。刻度标签右对齐在 0..22，竖向与点线居中。 */
+.hourly { position: absolute; left: 188px; top: 42px; width: 178px; height: 96px; }
+.htitle { position: absolute; left: 0; top: 0; width: 178px; height: 12px;
+          font-size: 10px; line-height: 12px; }
+.hours { position: absolute; left: 28px; top: 20px; width: 150px; height: 60px; }
+.hb { position: absolute; width: 4px; background: black; }
+.hb.now { background: red; }
+.hbase { position: absolute; left: 24px; top: 80px; width: 154px; height: 1px; background: black; }
+.hg { position: absolute; left: 24px; width: 154px; height: 1px;
+      border-top: 1px dotted black; }
+.ay { position: absolute; left: 0; width: 22px; height: 12px;
+      font-size: 10px; line-height: 12px; text-align: right; }
+.hticks { position: absolute; left: 0; top: 83px; width: 178px; height: 12px; }
+.ht { position: absolute; top: 0; height: 12px; font-size: 10px; line-height: 12px; }
+
+/* ── 右下：七日表 ────────────────────────────────────
+   列头 10 号，行 12 号（7px/字符），每行 18px：星期 | 条（42px）| 三列右对齐文字。 */
+.whline { position: absolute; left: 188px; top: 142px; width: 178px; height: 1px; background: black; }
+.week { position: absolute; left: 188px; top: 146px; width: 178px; height: 140px; }
+.whead { position: relative; height: 12px; }
+.hp, .hq, .hr { position: absolute; top: 0; height: 12px; font-size: 10px; line-height: 12px;
+                text-align: right; }
+.hp { left: 68px; width: 34px; }
+.hq { left: 104px; width: 30px; }
+.hr { left: 138px; width: 40px; }
+.wrows { position: absolute; left: 0; top: 14px; width: 178px; height: 126px; }
+.row { position: relative; height: 18px; }
+.day { position: absolute; left: 0; top: 3px; width: 24px; height: 12px;
+       font-size: 12px; line-height: 12px; }
+.track { position: absolute; left: 24px; top: 4px; width: 42px; height: 10px; }
+.fill { height: 10px; border-radius: 5px; background: black; }
+/* 窄于一个直径才不倒角，再窄圆角就吃掉整条 */
+.fill.tick { border-radius: 0; }
+/* 行高 14：$ 号比数字高，12 的行高会裁掉它一行墨 */
+.p, .q, .r { position: absolute; top: 2px; height: 14px; font-size: 12px; line-height: 14px;
+             text-align: right; }
+.p { left: 68px; width: 34px; }
+.q { left: 104px; width: 30px; }
+.r { left: 138px; width: 40px; }
+.row.today .fill { background: red; }
+.row.today .day, .row.today .p, .row.today .q, .row.today .r { color: red; }

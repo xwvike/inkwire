@@ -1,0 +1,108 @@
+/* Gicisky EPD 2.9" BWR，296x128，型号 0x0033。1-bit 无抗锯齿，差 1px 肉眼可见，
+   所有尺寸都是实测对齐过的整数。
+
+   主角是**代码改动量**，不是 token。token、轮次、时长三个互相高度相关，
+   本质上都在回答「你今天用了多久」；改动量回答的是「它到底干成了多少」，
+   两件事经常不一致。而且只有它有动态范围——一周里从几行到几千行都有。
+
+   七日条横放而不是竖放：竖条只有二十几像素高，几百倍的范围全压没了；
+   横放有一百多像素，分辨率高一个量级，还腾出了写星期标签的地方。
+
+   monaco 实测字宽：10-6  12-7  14-8  16-10  20-12  24-14  28-16  32-20  42-24 */
+
+.page {
+  position: relative;
+  width: 296px;
+  height: 128px;
+  background: white;
+  color: black;
+  /* 栈里的回退是逐字形的：monaco 只有 ASCII，遇到中文自动落到 hzk。
+     必须写成栈——单写 monaco 是无处可退的，会报 missing-runes。 */
+  font-family: monaco, hzk;
+}
+
+/* ── 边框外的竖排刷新戳 ──────────────────────────────────
+   这块屏低刷新，不标出画面是什么时候写的就没法判断数据新不新——功能不是装饰。
+   monaco 是唯一有 10 号的字体且只有 ASCII，实测 6px/字符，20 字符 120px 正好。
+   rotate(-90deg) 后从下往上读；旋转把局部点 (a,b) 映到 (b,-a)，所以支点放在
+   span 盒的左上角、盒本身下沉 120px，转完落回 0..120。 */
+.rail { position: absolute; left: 3px; top: 4px; width: 12px; height: 120px; }
+.rail span {
+  position: absolute;
+  left: 0; top: 120px;
+  width: 120px; height: 12px;
+  font-size: 10px; line-height: 12px;
+  transform-origin: 0 0;
+  transform: rotate(-90deg);
+}
+
+/* ── 外框 ────────────────────────────────────────────
+   不设内边距：黑带要左右上三边都顶满内沿，有内边距它就跑不出去。所有子元素
+   直接写绝对坐标，左右各留 9px、底部留 10px，等价于内边距。
+   内容区 272x122 = 274-2(描边) x 124-2。
+
+   overflow: hidden 是给黑带用的：它四角是方的，不裁的话会戳进外框的圆角里、
+   把描边压掉一截。四值 border-radius（8px 8px 0 0）inkwire 不支持，会直接忽略
+   并报 must be given in px or %，所以只能靠外框去裁。 */
+.frame {
+  position: absolute;
+  left: 20px; top: 2px;
+  box-sizing: border-box;
+  width: 274px; height: 124px;
+  border: 1px solid black;
+  border-radius: 9px;
+  overflow: hidden;
+}
+.inner { position: relative; width: 272px; height: 122px; }
+
+/* ── 顶栏：spark + 两个额度窗口 ─────────────────────────
+   黑底本身就是分隔。左端的红色 spark 认出这是 Claude 屏，不再写名字；日期也不放，
+   左侧竖排刷新戳里有。每个窗口写「已用百分比 + 重置时刻」，两段都靠左、
+   中间一根白竖线隔开。12 号 monaco 7px/字符：
+     "5H 100% 23:59"        13 字  91px   30..121
+     "7D 100% 12/31 23:59"  19 字 133px  131..264
+
+   行高等于带高：单行文本靠这个居中，比手算半行距稳。 */
+.head { position: absolute; left: 0; top: 0; width: 272px; height: 24px;
+        background: black; color: white; }
+/* logo.svg 的 viewBox 是 100x100，缩放交给 inkwire */
+.logo { position: absolute; left: 8px; top: 4px; width: 16px; height: 16px; }
+.quota { position: absolute; top: 0; height: 24px; font-size: 12px; line-height: 24px; }
+.q5 { left: 30px; width: 91px; }
+/* 竖线位置固定、不跟着 5H 的字数走：两段的起点每次都在同一处，扫一眼就能对上 */
+.qsep { position: absolute; left: 122px; top: 6px; width: 1px; height: 12px; background: white; }
+.q7 { left: 131px; width: 133px; }
+
+/* ── 左栏：今日改动量 ────────────────────────────────
+   24 号是上限：monaco 24 实测 14px/字符，"+99999" 六个字 84px，刚好进 92px 的栏。
+   再大一档（28 号 16px/字符）六个字就是 96px，溢出。 */
+.plus  { position: absolute; left: 9px; top: 30px; width: 92px; height: 28px;
+         font-size: 24px; line-height: 28px; }
+.minus { position: absolute; left: 9px; top: 58px; width: 92px; height: 28px;
+         font-size: 24px; line-height: 28px; color: red; }
+/* 文件数和「时长 轮次 花费」各占一行，压到最下面和七日条的末两行对齐。
+   10 号 monaco 是 6px/字符，92px 的栏装得下 15 个字符。 */
+.files { position: absolute; left: 9px; top: 88px; width: 92px; height: 12px;
+         font-size: 10px; line-height: 12px; }
+.meta  { position: absolute; left: 9px; top: 100px; width: 92px; height: 12px;
+         font-size: 10px; line-height: 12px; }
+
+/* 左右分栏的竖线：这块屏上唯一的结构性装饰，没有它左右两半会糊成一片 */
+.vline { position: absolute; left: 107px; top: 30px; width: 1px; height: 82px;
+         background: black; }
+
+/* ── 右栏：横向七日条 ────────────────────────────────
+   每行 12px：星期标签 18px（monaco 10 三个字符）+ 4px 间隔 + 122px 轨道。
+   条高 8px、在行内垂直居中，上下各留 2px 呼吸。 */
+.chart { position: absolute; left: 119px; top: 28px; width: 144px; height: 84px; }
+.row   { position: relative; height: 12px; }
+.day   { position: absolute; left: 0; top: 1px; width: 18px; height: 10px;
+         font-size: 10px; line-height: 10px; }
+.track { position: absolute; left: 22px; top: 2px; width: 122px; height: 8px; }
+.fill  { height: 8px; border-radius: 4px; background: black; }
+/* 窄于一个直径才不倒角：再窄圆角就吃掉整条、压成畸形的点。
+   等于直径时是个正圆，那是胶囊的最短形态，不算畸形。 */
+.fill.tick { border-radius: 0; }
+/* 今天涂红，星期标签也跟着红——一眼能定位「最下面那根是今天」 */
+.row.today .fill { background: red; }
+.row.today .day  { color: red; }

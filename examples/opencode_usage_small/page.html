@@ -1,0 +1,38 @@
+<!-- 296x128 的 opencode 用量看板。数据是合成的；实机上这些数字由本地 agent
+     日志填进来。尺寸和位置全在 page.css 里，这里只管结构。
+
+     模型三行、七日七行都是刻意摊开写的，展开比抽个循环出去更好读。 -->
+
+<main class="page">
+  <div class="rail"><span>REF 2026.10.24 18:20</span></div>
+
+  <section class="frame"><div class="inner">
+
+    <div class="head">
+      <img class="logo" src="logo.svg" />
+      <div class="meta">2h15m  27T  17 FILES</div>
+    </div>
+
+    <div class="tokens">2.3M</div>
+    <div class="unit">TOKENS 91% CACHED</div>
+
+    <div class="models">
+      <div class="model"><span class="mdot"></span><span class="mname">KIMI-K3</span><span class="mval">1.5M</span></div>
+      <div class="model"><span class="mdot"></span><span class="mname">DEEPSEEK-V4</span><span class="mval">520K</span></div>
+      <div class="model"><span class="mdot"></span><span class="mname">GLM-5.3</span><span class="mval">190K</span></div>
+    </div>
+
+    <div class="vline"></div>
+
+    <div class="chart">
+      <div class="row"><span class="day">SUN</span><div class="track"><div class="fill tick" style="width:0px"></div></div></div>
+      <div class="row"><span class="day">MON</span><div class="track"><div class="fill" style="width:26px"></div></div></div>
+      <div class="row"><span class="day">TUE</span><div class="track"><div class="fill" style="width:75px"></div></div></div>
+      <div class="row"><span class="day">WED</span><div class="track"><div class="fill" style="width:18px"></div></div></div>
+      <div class="row"><span class="day">THU</span><div class="track"><div class="fill" style="width:112px"></div></div></div>
+      <div class="row"><span class="day">FRI</span><div class="track"><div class="fill" style="width:59px"></div></div></div>
+      <div class="row today"><span class="day">SAT</span><div class="track"><div class="fill" style="width:51px"></div></div></div>
+    </div>
+
+  </div></section>
+</main>
