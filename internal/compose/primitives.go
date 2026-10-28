@@ -40,7 +40,10 @@ func (p Pixel) paint(_ *compileContext, list *display.DisplayList, bounds image.
 type Rectangle struct {
 	Size   image.Point
 	Radius int
-	Fill   *display.Ink
+	// RadiusLength replaces Radius when set: a share of the box, as a CSS
+	// percentage radius is, of the width across and of the height down.
+	RadiusLength Length
+	Fill         *display.Ink
 	// Gradient is painted over Fill, as a CSS background image is over its
 	// colour.
 	Gradient     *display.Gradient
@@ -78,21 +81,33 @@ func (r Rectangle) measure(_ *compileContext, maximum image.Point, path string) 
 	}
 	return preferredSize(r.Size, r.Size, maximum)
 }
-func (r Rectangle) paint(_ *compileContext, list *display.DisplayList, bounds image.Rectangle, _ string) error {
+func (r Rectangle) paint(ctx *compileContext, list *display.DisplayList, bounds image.Rectangle, path string) error {
+	radius, ellipse := cornerOf(ctx, r.Radius, r.RadiusLength, bounds.Size(), path)
 	if r.Fill != nil {
-		if r.Radius > 0 {
-			list.FillRoundRect(bounds, r.Radius, *r.Fill)
-		} else {
+		switch {
+		case ellipse:
+			list.FillEllipse(display.Upright(bounds), *r.Fill)
+		case radius > 0:
+			list.FillRoundRect(bounds, radius, *r.Fill)
+		default:
 			list.FillRect(bounds, *r.Fill)
 		}
 	}
 	if r.Gradient != nil {
-		list.FillGradient(bounds, r.Radius, r.Gradient)
+		if ellipse && bounds.Dx() != bounds.Dy() {
+			ctx.warn(path, "approximate-corner", fmt.Sprintf(
+				"a gradient is drawn in a box with round corners, not in an ellipse; this %dx%d box has its ends rounded instead",
+				bounds.Dx(), bounds.Dy()))
+		}
+		list.FillGradient(bounds, radius, r.Gradient)
 	}
 	if r.Stroke != nil {
-		if r.Radius > 0 {
-			list.StrokeRoundRect(bounds, r.Radius, *r.Stroke)
-		} else {
+		switch {
+		case ellipse:
+			list.StrokeEllipse(display.Upright(bounds), *r.Stroke)
+		case radius > 0:
+			list.StrokeRoundRect(bounds, radius, *r.Stroke)
+		default:
 			list.StrokeRect(bounds, *r.Stroke)
 		}
 	}
@@ -109,6 +124,37 @@ func (r Rectangle) paint(_ *compileContext, list *display.DisplayList, bounds im
 		strokeSide(list, bounds, 3, *r.StrokeLeft)
 	}
 	return nil
+}
+
+// cornerOf is the radius a box's corners are drawn with, and whether they meet
+// all the way round, which makes the box an ellipse.
+//
+// A radius stated as a share is CSS's percentage radius: of the width across
+// and of the height down. At half of both or more the corners meet. Below
+// that, a box that is not square has corners that are wider than they are
+// tall, and those are drawn round at the smaller of the two, which is said.
+func cornerOf(ctx *compileContext, radius int, length Length, size image.Point, path string) (int, bool) {
+	if !length.IsSet() {
+		return radius, false
+	}
+	across, _ := length.Resolve(size.X)
+	down, _ := length.Resolve(size.Y)
+	if reachesHalf(length, size.X) && reachesHalf(length, size.Y) {
+		return min(size.X, size.Y) / 2, true
+	}
+	if across != down {
+		ctx.warn(path, "approximate-corner", fmt.Sprintf(
+			"a radius of %s makes the corners of this %dx%d box %dpx across and %dpx down; they are drawn round at %dpx",
+			length, size.X, size.Y, across, down, min(across, down)))
+	}
+	return min(across, down), false
+}
+
+// reachesHalf says whether the length is at least half of the size it is a
+// share of, worked out without rounding: 50% of 21 pixels is half of them.
+func reachesHalf(length Length, size int) bool {
+	tenths, pixels := length.Parts()
+	return 2*(tenths*size+1000*pixels) >= 1000*size
 }
 
 // strokeSide paints one border edge inside the rectangle. Solid edges are
@@ -456,16 +502,6 @@ func (c ClipRect) paint(ctx *compileContext, list *display.DisplayList, bounds i
 	err := ctx.paintWithContaining(c.Child, list, bounds, bounds, path+".child")
 	list.Restore()
 	return err
-}
-
-func validateBoxPaint(path string, size image.Point, radius int, fill *display.Ink, stroke *display.StrokeStyle) error {
-	if !validSize(size) {
-		return fmt.Errorf("%s: size must not be negative, got %v", path, size)
-	}
-	if radius < 0 {
-		return fmt.Errorf("%s: radius must not be negative", path)
-	}
-	return validatePaint(path, fill, stroke)
 }
 
 func validatePaint(path string, fill *display.Ink, stroke *display.StrokeStyle) error {

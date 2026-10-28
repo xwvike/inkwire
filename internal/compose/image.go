@@ -88,7 +88,7 @@ func ProfileImage(src image.Image) (ImageProfile, error) {
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			r, g, b := channelsOverWhite(src.At(x, y))
-			histogram[int(0.2126*r+0.7152*g+0.0722*b)]++
+			histogram[int(float64(0.2126*r)+float64(0.7152*g)+float64(0.0722*b))]++
 			if r > float64(defaults.RedThreshold) && g < float64(defaults.RedMaxGreen) {
 				separations[int(max(0, min(255, r-g)))]++
 				redCandidates++
@@ -118,7 +118,7 @@ func ProfileImage(src image.Image) (ImageProfile, error) {
 			if paperDistance(r, g, b) <= paperMargin {
 				continue // this really is paper
 			}
-			if 0.2126*r+0.7152*g+0.0722*b > float64(profile.Threshold) {
+			if float64(0.2126*r)+float64(0.7152*g)+float64(0.0722*b) > float64(profile.Threshold) {
 				lost++
 			}
 		}
@@ -173,9 +173,9 @@ func (p ImageProfile) SuggestOptions() display.ImageOptions {
 func channelsOverWhite(c color.Color) (r, g, b float64) {
 	n := color.NRGBAModel.Convert(c).(color.NRGBA)
 	alpha := float64(n.A) / 255
-	return float64(n.R)*alpha + 255*(1-alpha),
-		float64(n.G)*alpha + 255*(1-alpha),
-		float64(n.B)*alpha + 255*(1-alpha)
+	return float64(float64(n.R)*alpha) + float64(255*(1-alpha)),
+		float64(float64(n.G)*alpha) + float64(255*(1-alpha)),
+		float64(float64(n.B)*alpha) + float64(255*(1-alpha))
 }
 
 // EnhanceContrast returns src + amount*(src - blur(src)) in grayscale, which
@@ -211,14 +211,14 @@ func EnhanceContrast(src image.Image, radius int, amount float64) (image.Image, 
 	for y := range height {
 		for x := range width {
 			r, g, b := channelsOverWhite(src.At(bounds.Min.X+x, bounds.Min.Y+y))
-			gray[y*width+x] = 0.2126*r + 0.7152*g + 0.0722*b
+			gray[y*width+x] = float64(0.2126*r) + float64(0.7152*g) + float64(0.0722*b)
 		}
 	}
 	blurred := blurAxis(blurAxis(gray, width, height, radius, true), width, height, radius, false)
 
 	out := image.NewNRGBA(image.Rect(0, 0, width, height))
 	for index, value := range gray {
-		level := uint8(min(255, max(0, int(value+amount*(value-blurred[index])))))
+		level := uint8(min(255, max(0, int(value+float64(amount*(value-blurred[index]))))))
 		out.SetNRGBA(index%width, index/width, color.NRGBA{R: level, G: level, B: level, A: 0xff})
 	}
 	return out, nil
@@ -260,7 +260,7 @@ func otsuThreshold(histogram []int, total int) int {
 	}
 	sum := 0.0
 	for level, count := range histogram {
-		sum += float64(level) * float64(count)
+		sum += float64(float64(level) * float64(count))
 	}
 	below, sumBelow := 0, 0.0
 	best, bestVariance := 128, -1.0
@@ -273,11 +273,11 @@ func otsuThreshold(histogram []int, total int) int {
 		if above == 0 {
 			break
 		}
-		sumBelow += float64(level) * float64(histogram[level])
+		sumBelow += float64(float64(level) * float64(histogram[level]))
 		meanBelow := sumBelow / float64(below)
 		meanAbove := (sum - sumBelow) / float64(above)
 		difference := meanBelow - meanAbove
-		variance := float64(below) * float64(above) * difference * difference
+		variance := float64(float64(below) * float64(above) * difference * difference)
 		if variance > bestVariance {
 			bestVariance, best = variance, level
 		}
@@ -339,7 +339,7 @@ func ToneByColourDistance(src image.Image) (image.Image, error) {
 // as a channel so it can stand in for tone.
 func paperDistance(r, g, b float64) float64 {
 	dr, dg, db := 255-r, 255-g, 255-b
-	return math.Sqrt((dr*dr + dg*dg + db*db) / 3)
+	return math.Sqrt((float64(dr*dr) + float64(dg*dg) + float64(db*db)) / 3)
 }
 
 // SuggestOptionsFor is SuggestOptions for an image that has been rewritten

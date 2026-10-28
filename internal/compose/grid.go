@@ -46,6 +46,11 @@ type GridChild struct {
 	// AlignSelf and JustifySelf place the node inside its cell, across and
 	// along the row respectively. Absent, the grid's own settings apply.
 	AlignSelf, JustifySelf *CrossAlignment
+	// AutoMargin marks the sides, top, right, bottom and left, whose margin
+	// is auto. They place the node in its cell as CSS has them do, over any
+	// alignment: auto either side centres it, on one side pushes it to the
+	// other.
+	AutoMargin [4]bool
 }
 
 func (c GridChild) columnSpan() int { return max(1, c.ColumnSpan) }
@@ -64,7 +69,11 @@ type Grid struct {
 	ColumnGapLength, RowGapLength Length
 	// AlignItems places children across their row, JustifyItems along it.
 	AlignItems, JustifyItems CrossAlignment
-	Children                 []GridChild
+	// JustifyContent and AlignContent place the columns and the rows in the
+	// grid when they do not fill it. Absent, they stretch the tracks sized
+	// by their content to fill it instead, which is CSS's normal.
+	JustifyContent, AlignContent *MainAlignment
+	Children                     []GridChild
 }
 
 func (Grid) composeNode() {}
@@ -103,10 +112,10 @@ func (g Grid) paint(ctx *compileContext, list *display.DisplayList, bounds image
 	}
 	columnGap := resolvedGap(g.ColumnGap, g.ColumnGapLength, bounds.Dx())
 	rowGap := resolvedGap(g.RowGap, g.RowGapLength, bounds.Dy())
-	columnSizes := g.tracksFor(columns, placement.columnContent, bounds.Dx(), columnGap, true)
-	rowSizes := g.tracksFor(rows, placement.rowContent, bounds.Dy(), rowGap, false)
-	columnOffsets := offsets(columnSizes, columnGap)
-	rowOffsets := offsets(rowSizes, rowGap)
+	columnSizes := g.tracksFor(columns, placement.columnContent, bounds.Dx(), columnGap, g.JustifyContent == nil)
+	rowSizes := g.tracksFor(rows, placement.rowContent, bounds.Dy(), rowGap, g.AlignContent == nil)
+	columnOffsets := offsets(columnSizes, columnGap, bounds.Dx(), g.JustifyContent)
+	rowOffsets := offsets(rowSizes, rowGap, bounds.Dy(), g.AlignContent)
 
 	if used := sum(columnSizes) + columnGap*(len(columnSizes)-1); used > bounds.Dx() {
 		ctx.warn(path, "layout-overflow", fmt.Sprintf(
@@ -123,8 +132,8 @@ func (g Grid) paint(ctx *compileContext, list *display.DisplayList, bounds image
 		cell := image.Rect(
 			bounds.Min.X+columnOffsets[at.column],
 			bounds.Min.Y+rowOffsets[at.row],
-			bounds.Min.X+columnOffsets[at.column]+span(columnSizes, at.column, at.columnSpan, columnGap),
-			bounds.Min.Y+rowOffsets[at.row]+span(rowSizes, at.row, at.rowSpan, rowGap),
+			bounds.Min.X+trackEnd(columnOffsets, columnSizes, at.column+at.columnSpan-1),
+			bounds.Min.Y+trackEnd(rowOffsets, rowSizes, at.row+at.rowSpan-1),
 		)
 		placedBounds, err := g.placeInCell(ctx, child, cell, nodePath)
 		if err != nil {
@@ -150,6 +159,8 @@ func (g Grid) placeInCell(ctx *compileContext, child GridChild, cell image.Recta
 	if child.JustifySelf != nil {
 		along = *child.JustifySelf
 	}
+	across = autoPlaced(across, child.AutoMargin[0], child.AutoMargin[2])
+	along = autoPlaced(along, child.AutoMargin[3], child.AutoMargin[1])
 	margin := child.resolvedMargin(cell.Dx())
 	content := image.Rectangle{
 		Min: cell.Min.Add(image.Pt(margin.Left, margin.Top)),
@@ -169,6 +180,20 @@ func (g Grid) placeInCell(ctx *compileContext, child GridChild, cell image.Recta
 	x, width := place(along, content.Min.X, content.Dx(), measured.X)
 	y, height := place(across, content.Min.Y, content.Dy(), measured.Y)
 	return image.Rect(x, y, x+width, y+height), nil
+}
+
+// autoPlaced is where auto margins on the two sides of an axis put a child,
+// or the alignment it had if neither is auto.
+func autoPlaced(alignment CrossAlignment, start, end bool) CrossAlignment {
+	switch {
+	case start && end:
+		return CrossCenter
+	case start:
+		return CrossEnd
+	case end:
+		return CrossStart
+	}
+	return alignment
 }
 
 func (c GridChild) resolvedMargin(availableWidth int) Insets {
@@ -352,7 +377,7 @@ func occupy(taken map[[2]int]bool, at cell) {
 // tracksFor turns the track list into pixel sizes: stated lengths first, then
 // automatic tracks from what they hold, and whatever survives that is divided
 // among the fractional ones.
-func (g Grid) tracksFor(tracks []Track, content []int, available, gap int, horizontal bool) []int {
+func (g Grid) tracksFor(tracks []Track, content []int, available, gap int, stretch bool) []int {
 	sizes := make([]int, len(tracks))
 	remaining := available - gap*(len(tracks)-1)
 	fractions := 0
@@ -374,6 +399,10 @@ func (g Grid) tracksFor(tracks []Track, content []int, available, gap int, horiz
 		return sizes
 	}
 	if fractions == 0 {
+		if !stretch {
+			// The content alignment places the tracks in what is left.
+			return sizes
+		}
 		// Nothing claimed the leftover in fractions, so the automatic tracks
 		// take it. This is what a grid does by default: align-content behaves
 		// as stretch, and stretch only reaches tracks nobody sized. Without
@@ -483,23 +512,29 @@ func (g Grid) validate(path string) error {
 	return nil
 }
 
-func offsets(sizes []int, gap int) []int {
+// offsets is where each track starts, with what the tracks leave of the
+// grid's size shared out by its content alignment, if it has one.
+func offsets(sizes []int, gap, available int, align *MainAlignment) []int {
 	result := make([]int, len(sizes)+1)
 	for index, size := range sizes {
 		result[index+1] = result[index] + size + gap
 	}
+	if align != nil && len(sizes) > 0 {
+		free := available - (result[len(sizes)] - gap)
+		for index, lead := range distribute(free, len(sizes), *align) {
+			result[index] += lead
+		}
+		result[len(sizes)] = result[len(sizes)-1] + sizes[len(sizes)-1] + gap
+	}
 	return result
 }
 
-func span(sizes []int, from, count, gap int) int {
-	total := 0
-	for index := from; index < from+count && index < len(sizes); index++ {
-		total += sizes[index]
-		if index > from {
-			total += gap
-		}
-	}
-	return total
+// trackEnd is where the given track ends. A cell spanning several ends where
+// its last track does, which takes in whatever space was shared out between
+// them.
+func trackEnd(offsets, sizes []int, last int) int {
+	last = min(last, len(sizes)-1)
+	return offsets[last] + sizes[last]
 }
 
 func sum(values []int) int {

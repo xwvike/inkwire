@@ -453,6 +453,7 @@ Non-fatal.
 | `unsupported-selector` | Selector cannot be parsed; rule skipped |
 | `unreadable-rule` | Rule has a syntax error; skipped |
 | `substituted-font-size` | Font or size unavailable; nearest value used |
+| `approximate-corner` | Corners the box would draw elliptical are drawn round |
 
 ### Errors
 

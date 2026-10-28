@@ -59,8 +59,8 @@ func (v SVGViewport) paint(ctx *compileContext, list *display.DisplayList, bound
 	if !v.Stretch {
 		scale := math.Min(scaleX, scaleY)
 		scaleX, scaleY = scale, scale
-		offsetX = (float64(bounds.Dx()) - float64(v.Source.X)*scale) / 2
-		offsetY = (float64(bounds.Dy()) - float64(v.Source.Y)*scale) / 2
+		offsetX = (float64(bounds.Dx()) - float64(float64(v.Source.X)*scale)) / 2
+		offsetY = (float64(bounds.Dy()) - float64(float64(v.Source.Y)*scale)) / 2
 	}
 	matrix := display.Scale(scaleX, scaleY, 0, 0).Then(display.Translate(image.Pt(bounds.Min.X, bounds.Min.Y)))
 	matrix.E += offsetX
@@ -88,5 +88,5 @@ func ratioWidth(height int, ratio float64) int {
 	if height <= 0 || ratio <= 0 {
 		return 0
 	}
-	return max(1, int(math.Round(float64(height)*ratio)))
+	return max(1, int(math.Round(float64(float64(height)*ratio))))
 }

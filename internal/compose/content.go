@@ -18,6 +18,9 @@ type Text struct {
 	VerticalAlign display.VerticalAlign
 	Wrap          display.WrapMode
 	LineHeight    int
+	// Ellipsis ends a line too long for the box with "…", as
+	// text-overflow: ellipsis does.
+	Ellipsis bool
 }
 
 func (Text) composeNode() {}
@@ -108,7 +111,7 @@ func (t Text) validate(path string) error {
 	if !validSize(t.Size) {
 		return fmt.Errorf("%s: text size must not be negative, got %v", path, t.Size)
 	}
-	if t.Align > display.AlignEnd || t.VerticalAlign > display.AlignBottom || t.Wrap > display.WrapRunes {
+	if t.Align > display.AlignEnd || t.VerticalAlign > display.AlignBottom || t.Wrap > display.WrapWords {
 		return fmt.Errorf("%s: invalid text alignment or wrap mode", path)
 	}
 	if t.LineHeight < 0 {
@@ -125,6 +128,7 @@ func (t Text) box(bounds stdimage.Rectangle) display.TextBox {
 		VerticalAlign: t.VerticalAlign,
 		Wrap:          t.Wrap,
 		LineHeight:    t.LineHeight,
+		Ellipsis:      t.Ellipsis,
 	}
 }
 

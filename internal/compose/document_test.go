@@ -355,6 +355,18 @@ func TestExcessivePaddingDoesNotFlipIntoDrawableBounds(t *testing.T) {
 	}
 }
 
+// A box that is only its border is padding round nothing: a rule drawn with
+// border-top and no height. Nothing was inside it to lose, so nothing is said.
+func TestPaddingRoundNothingIsNotReportedEmpty(t *testing.T) {
+	_, report := compileAndRender(t, Document{Root: Padding{
+		Insets: Insets{Top: 100, Right: 200, Bottom: 100, Left: 200},
+		Child:  Spacer{},
+	}})
+	if len(report.Warnings) != 0 {
+		t.Fatalf("warnings = %#v", report.Warnings)
+	}
+}
+
 func TestExplicitZeroAnchoredSizeIsNotReportedEmpty(t *testing.T) {
 	_, report := compileAndRender(t, Document{Root: Anchored{Children: []Anchor{{
 		Width:  Pixels(0),

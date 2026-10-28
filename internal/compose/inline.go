@@ -3,6 +3,7 @@ package compose
 import (
 	"fmt"
 	"image"
+	"slices"
 
 	"github.com/xwvike/inkwire/internal/display"
 )
@@ -38,6 +39,10 @@ type InlineItem struct {
 	Border                                           *display.StrokeStyle
 	BorderTop, BorderRight, BorderBottom, BorderLeft *display.StrokeStyle
 	Radius                                           int
+	// RadiusLength replaces Radius when set, as it does on a Rectangle. An
+	// inline box is drawn with round corners even where a percentage would
+	// make it an ellipse.
+	RadiusLength Length
 
 	LineHeight               int
 	VerticalAlign            InlineVerticalAlign
@@ -68,6 +73,11 @@ type inlineFragment struct {
 	descent  int
 	contentW int
 	contentH int
+	// first and last say whether this fragment starts and ends its item. An
+	// item cut across lines has its left padding, border and margin on its
+	// first fragment only and its right ones on its last, as CSS slices an
+	// inline box that wraps.
+	first, last bool
 }
 
 type inlineLine struct {
@@ -82,7 +92,7 @@ func (i Inline) validate(path string) error {
 	if !validSize(i.Size) {
 		return fmt.Errorf("%s: inline size must not be negative, got %v", path, i.Size)
 	}
-	if i.Align > display.AlignEnd || i.Wrap > display.WrapRunes || i.LineHeight < 0 {
+	if i.Align > display.AlignEnd || i.Wrap > display.WrapWords || i.LineHeight < 0 {
 		return fmt.Errorf("%s: invalid inline alignment, wrap or line height", path)
 	}
 	for index, item := range i.Items {
@@ -102,7 +112,7 @@ func (i Inline) validate(path string) error {
 		if !item.Padding.valid() || !lengthsValid(item.PaddingLengths) {
 			return fmt.Errorf("%s: padding and margin must not be negative", itemPath)
 		}
-		if item.LineHeight < 0 || item.VerticalAlign > InlineBottom || item.Wrap > display.WrapRunes || item.Radius < 0 {
+		if item.LineHeight < 0 || item.VerticalAlign > InlineBottom || item.Wrap > display.WrapWords || item.Radius < 0 {
 			return fmt.Errorf("%s: invalid inline item style", itemPath)
 		}
 		if item.Border != nil {
@@ -187,7 +197,6 @@ func (i Inline) paint(ctx *compileContext, list *display.DisplayList, bounds ima
 		cursor := bounds.Min.X + start
 		for fragmentIndex, fragment := range line.fragments {
 			fragmentPath := childPath(linePath, "items", fragmentIndex)
-			cursor += fragment.item.Margin.Left
 			boxTop := lineY + line.height - fragment.height + fragment.item.Margin.Top
 			switch fragment.item.VerticalAlign {
 			case InlineBaseline:
@@ -199,20 +208,26 @@ func (i Inline) paint(ctx *compileContext, list *display.DisplayList, bounds ima
 			case InlineBottom:
 				boxTop = lineY + line.height - fragment.height + fragment.item.Margin.Top
 			}
-			box := image.Rect(cursor, boxTop, cursor+fragment.width, boxTop+fragment.height)
+			// The fragment's advance and height take in its margins; its box
+			// is what is inside them.
+			margin := fragment.item.Margin
+			box := image.Rect(cursor+margin.Left, boxTop,
+				cursor+fragment.width-margin.Right, boxTop+fragment.height-margin.Top-margin.Bottom)
+			advance := fragment.width
 			dx := relativeShift(fragment.item.Left, fragment.item.Right, bounds.Dx())
 			dy := relativeShift(fragment.item.Top, fragment.item.Bottom, bounds.Dy())
 			box = box.Add(image.Pt(dx, dy))
 			content := inlineContentBox(box, fragment.item)
+			radius, _ := cornerOf(ctx, fragment.item.Radius, fragment.item.RadiusLength, box.Size(), path)
 			if fragment.item.Background != nil {
-				list.FillRoundRect(box, fragment.item.Radius, *fragment.item.Background)
+				list.FillRoundRect(box, radius, *fragment.item.Background)
 			}
 			if fragment.item.Gradient != nil {
-				list.FillGradient(box, fragment.item.Radius, fragment.item.Gradient)
+				list.FillGradient(box, radius, fragment.item.Gradient)
 			}
 			if fragment.item.Border != nil {
-				if fragment.item.Radius > 0 {
-					list.StrokeRoundRect(box, fragment.item.Radius, *fragment.item.Border)
+				if radius > 0 {
+					list.StrokeRoundRect(box, radius, *fragment.item.Border)
 				} else {
 					list.StrokeRect(box, *fragment.item.Border)
 				}
@@ -231,7 +246,7 @@ func (i Inline) paint(ctx *compileContext, list *display.DisplayList, bounds ima
 			}
 			if content.Empty() {
 				ctx.warn(fragmentPath, "empty-layout", "inline item border leaves no content area")
-				cursor += fragment.width + fragment.item.Margin.Right
+				cursor += advance
 				continue
 			}
 			content = image.Rectangle{
@@ -258,7 +273,7 @@ func (i Inline) paint(ctx *compileContext, list *display.DisplayList, bounds ima
 					}
 				}
 			}
-			cursor += fragment.width + fragment.item.Margin.Right
+			cursor += advance
 		}
 		y += line.height
 	}
@@ -299,51 +314,78 @@ func inlineContentBox(box image.Rectangle, item InlineItem) image.Rectangle {
 }
 
 func (i Inline) layout(ctx *compileContext, width, percentWidth int, path string) ([]inlineLine, int, int, error) {
-	lines := []inlineLine{{}}
 	maxWidth := max(1, width)
-	for index, item := range i.Items {
-		itemPath := childPath(path, "items", index)
-		if item.Break {
-			if len(lines[len(lines)-1].fragments) != 0 || len(lines) == 1 {
-				finishInlineLine(&lines[len(lines)-1], i.LineHeight)
-				lines = append(lines, inlineLine{})
-			}
+	pieces, err := i.pieces(ctx, maxWidth, percentWidth, path)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	var lines [][]inlinePiece
+	var current []inlinePiece
+	used := 0
+	end := func() {
+		lines = append(lines, trimHangingSpaces(current))
+		current, used = nil, 0
+	}
+	for index := 0; index < len(pieces); {
+		if pieces[index].forced {
+			end()
+			index++
 			continue
 		}
-		fragments, err := i.fragments(ctx, item, maxWidth, percentWidth, itemPath)
+		// A group is what has to stay on one line: the pieces up to the next
+		// place a line may end. Spaces at its end hang, so they are not
+		// counted when asking whether it fits.
+		next := index + 1
+		for next < len(pieces) && !pieces[next-1].breakAfter && !pieces[next].forced {
+			next++
+		}
+		group := pieces[index:next]
+		total, fits := groupWidth(group)
+		switch {
+		case used+fits <= maxWidth || len(current) == 0 && fits <= maxWidth:
+			current = append(current, group...)
+			used += total
+			index = next
+		case len(current) != 0:
+			end()
+		default:
+			// One word wider than the whole line: it is broken where it
+			// stops fitting, rather than let out of its box.
+			split, err := i.splitRunes(ctx, group, path)
+			if err != nil {
+				return nil, 0, 0, err
+			}
+			for _, piece := range split {
+				if used+piece.width > maxWidth && len(current) != 0 && !piece.space &&
+					!(piece.keep && current[len(current)-1].keep) {
+					end()
+				}
+				current = append(current, piece)
+				used += piece.width
+			}
+			index = next
+		}
+	}
+	if len(current) != 0 || len(lines) == 0 {
+		end()
+	}
+
+	result := make([]inlineLine, len(lines))
+	naturalWidth, naturalHeight := 0, 0
+	for index, pieces := range lines {
+		line, err := i.assemble(ctx, pieces, path)
 		if err != nil {
 			return nil, 0, 0, err
 		}
-		for _, fragment := range fragments {
-			line := &lines[len(lines)-1]
-			if i.Wrap == display.WrapRunes && item.Wrap != display.NoWrap && len(line.fragments) != 0 && line.width+fragment.width > maxWidth {
-				finishInlineLine(line, i.LineHeight)
-				lines = append(lines, inlineLine{})
-				line = &lines[len(lines)-1]
-			}
-			line.fragments = append(line.fragments, fragment)
-			line.width += fragment.width
-			line.ascent = max(line.ascent, fragment.ascent)
-			line.descent = max(line.descent, fragment.descent)
-			line.height = max(line.height, fragment.height)
-		}
-	}
-	if len(lines) > 0 && len(lines[len(lines)-1].fragments) == 0 && len(lines) > 1 {
-		lines = lines[:len(lines)-1]
-	}
-	for index := range lines {
-		finishInlineLine(&lines[index], i.LineHeight)
-	}
-	naturalWidth := 0
-	naturalHeight := 0
-	for _, line := range lines {
+		finishInlineLine(&line, i.LineHeight)
+		result[index] = line
 		naturalWidth = max(naturalWidth, line.width)
 		naturalHeight += line.height
 	}
 	// A parent may deliberately give an inline box a shorter cross-axis size
 	// (for example, a flex item). Painting clips to that allocation just like a
 	// browser viewport; measuring it is not itself a failed layout.
-	return lines, naturalWidth, naturalHeight, nil
+	return result, naturalWidth, naturalHeight, nil
 }
 
 func finishInlineLine(line *inlineLine, lineHeight int) {
@@ -353,68 +395,320 @@ func finishInlineLine(line *inlineLine, lineHeight int) {
 	}
 }
 
-func (i Inline) fragments(ctx *compileContext, item InlineItem, maxWidth, percentWidth int, path string) ([]inlineFragment, error) {
-	item = item.resolved(percentWidth)
-	if item.Node != nil {
-		size, err := item.Node.measure(ctx, image.Pt(maxWidth, 1<<30), path+".node")
-		if err != nil {
-			return nil, err
+// inlinePiece is the least that is laid out on a line: an atomic box, or a
+// stretch of one item's text that a line may not end inside.
+type inlinePiece struct {
+	item   int
+	runs   []display.TextRun
+	node   Node
+	size   image.Point
+	forced bool
+	// space is a stretch of spaces, which hangs at the end of a line.
+	space bool
+	// keep is text that must not wrap, which runs past the end of a line
+	// rather than be broken.
+	keep bool
+	// breakAfter says a line may end after this piece.
+	breakAfter bool
+	// first and last say the piece starts or ends its item, which is where
+	// the item's padding, border and margin go.
+	first, last bool
+	// width is the piece's advance along the line, with whatever of its
+	// item's edges it carries.
+	width int
+	// resolved is the item with its percentages worked out.
+	resolved InlineItem
+}
+
+// pieces cuts the items into the pieces lines are filled with, and marks
+// where a line may end between them.
+func (i Inline) pieces(ctx *compileContext, maxWidth, percentWidth int, path string) ([]inlinePiece, error) {
+	var pieces []inlinePiece
+	// The character before the next one, across items: a word written in
+	// two styles is still one word.
+	previous, beforePrevious := rune(0), rune(0)
+	previousMode := display.NoWrap
+	for index, item := range i.Items {
+		itemPath := childPath(path, "items", index)
+		mode := item.Wrap
+		if i.Wrap == display.NoWrap {
+			mode = display.NoWrap
+		} else if i.Wrap == display.WrapRunes && mode != display.NoWrap {
+			mode = display.WrapRunes
 		}
-		return []inlineFragment{makeInlineFragment(item, nil, item.Node, size, nil)}, nil
+		if item.Break {
+			pieces = append(pieces, inlinePiece{item: index, forced: true})
+			previous, beforePrevious = 0, 0
+			continue
+		}
+		resolved := item.resolved(percentWidth)
+		if item.Node != nil {
+			size, err := item.Node.measure(ctx, image.Pt(maxWidth, 1<<30), itemPath+".node")
+			if err != nil {
+				return nil, err
+			}
+			if previous != 0 && breakable(beforePrevious, previous, atomic, i.joinedMode(previousMode, mode)) {
+				pieces[len(pieces)-1].breakAfter = true
+			}
+			pieces = append(pieces, inlinePiece{item: index, node: item.Node, size: size,
+				first: true, last: true, resolved: resolved})
+			previous, beforePrevious, previousMode = atomic, 0, mode
+			continue
+		}
+		start := len(pieces)
+		var runs []display.TextRun
+		var text []rune
+		flush := func(breakAfter bool) {
+			if len(runs) == 0 {
+				return
+			}
+			pieces = append(pieces, inlinePiece{item: index, runs: runs, space: allSpaces(text),
+				keep: mode == display.NoWrap, breakAfter: breakAfter, resolved: resolved})
+			runs, text = nil, nil
+		}
+		for _, run := range item.Runs {
+			for _, r := range run.Text {
+				if previous != 0 {
+					opening := breakable(beforePrevious, previous, r, i.joinedMode(previousMode, mode))
+					switch {
+					case len(runs) == 0:
+						// The first character of this item: the opening, if
+						// any, is between the last piece and this one.
+						if len(pieces) != 0 && opening {
+							pieces[len(pieces)-1].breakAfter = true
+						}
+					case opening || isSpaceRune(previous) != isSpaceRune(r):
+						flush(opening)
+					}
+				}
+				if len(runs) != 0 && sameTextStyle(runs[len(runs)-1].Style, run.Style) {
+					runs[len(runs)-1].Text += string(r)
+				} else {
+					runs = append(runs, display.TextRun{Text: string(r), Style: run.Style})
+				}
+				text = append(text, r)
+				beforePrevious, previous, previousMode = previous, r, mode
+			}
+		}
+		flush(false)
+		if len(pieces) > start {
+			pieces[start].first = true
+			pieces[len(pieces)-1].last = true
+		}
 	}
-	if len(item.Runs) == 0 {
-		return nil, nil
+	for index := range pieces {
+		piece := &pieces[index]
+		if piece.forced {
+			continue
+		}
+		if piece.node == nil {
+			size, err := textAdvance(ctx, piece.runs, piece.resolved.LineHeight, path)
+			if err != nil {
+				return nil, err
+			}
+			piece.size = size
+		}
+		piece.width = piece.size.X + edgeAdvance(piece.resolved, piece.first, piece.last)
 	}
-	// Text fragments are split at runes only when a line has to wrap. This
-	// keeps a styled phrase together in the common case while retaining the
-	// existing renderer's deterministic rune wrapping at narrow widths.
-	var result []inlineFragment
-	var runs []display.TextRun
-	flush := func() error {
-		if len(runs) == 0 {
-			return nil
-		}
-		layout, err := display.LayoutText(ctx.compiler.Fonts, display.TextBox{
-			Bounds: image.Rect(0, 0, max(1, maxWidth), max(1, item.LineHeight)), Runs: runs,
-			Wrap: display.NoWrap, LineHeight: item.LineHeight,
-		})
-		if err != nil {
-			return fmt.Errorf("%s: %w", path, err)
-		}
-		metrics := layout.Lines()
-		if len(metrics) == 0 {
-			return nil
-		}
-		result = append(result, makeInlineFragment(item, runs, nil, layout.Size(), &metrics[0]))
-		runs = nil
-		return nil
+	return pieces, nil
+}
+
+// atomic stands for an atomic box among the characters around it, as U+FFFC
+// stands for an object in text.
+const atomic = '\uFFFC'
+
+// breakable says whether a line may end between a and b, written in mode.
+// A line may end on either side of an atomic box, as it may on either side
+// of a picture in a browser, but not before a space.
+func breakable(before, a, b rune, mode display.WrapMode) bool {
+	switch {
+	case mode == display.NoWrap || isSpaceRune(b):
+		return false
+	case mode == display.WrapRunes || a == atomic || b == atomic:
+		return true
 	}
-	for _, run := range item.Runs {
-		for _, r := range run.Text {
-			piece := display.TextRun{Text: string(r), Style: run.Style}
-			candidate := append(append([]display.TextRun{}, runs...), piece)
+	return display.BreakBetween(before, a, b)
+}
+
+// joinedMode is how the place between two characters may break. CSS leaves
+// that to the nearest element holding both of them: the item, when they are
+// in one, or else something around the two items, which is taken to be the
+// block unless both items agree.
+func (i Inline) joinedMode(a, b display.WrapMode) display.WrapMode {
+	if a == b {
+		return a
+	}
+	return i.Wrap
+}
+
+func sameTextStyle(a, b display.TextStyle) bool {
+	return a.Font == b.Font && a.Size == b.Size && a.Ink == b.Ink && slices.Equal(a.Fallback, b.Fallback) &&
+		a.Bold == b.Bold && a.LetterSpacing == b.LetterSpacing && a.Decoration == b.Decoration
+}
+
+func isSpaceRune(r rune) bool { return r == ' ' || r == '\t' || r == '\u3000' }
+
+func allSpaces(text []rune) bool {
+	for _, r := range text {
+		if !isSpaceRune(r) {
+			return false
+		}
+	}
+	return len(text) != 0
+}
+
+// edgeAdvance is how far an item's left and right padding, border and margin
+// take a piece along the line, for the sides the piece carries.
+func edgeAdvance(item InlineItem, first, last bool) int {
+	border := inlineBorderInsets(item)
+	advance := 0
+	if first {
+		advance += item.Margin.Left + border.Left + item.Padding.Left
+	}
+	if last {
+		advance += item.Margin.Right + border.Right + item.Padding.Right
+	}
+	return advance
+}
+
+func textAdvance(ctx *compileContext, runs []display.TextRun, lineHeight int, path string) (image.Point, error) {
+	layout, err := display.LayoutText(ctx.compiler.Fonts, display.TextBox{
+		Bounds: image.Rect(0, 0, 1, max(1, lineHeight)), Runs: runs,
+		Wrap: display.NoWrap, LineHeight: lineHeight,
+	})
+	if err != nil {
+		return image.Point{}, fmt.Errorf("%s: %w", path, err)
+	}
+	return layout.Size(), nil
+}
+
+// groupWidth is a group's advance, and its advance without the spaces it ends
+// with, which hang past the end of a line rather than make it longer.
+func groupWidth(group []inlinePiece) (total, fits int) {
+	hanging := 0
+	for _, piece := range group {
+		total += piece.width
+		if piece.space {
+			hanging += piece.width
+		} else {
+			hanging = 0
+		}
+	}
+	return total, total - hanging
+}
+
+// trimHangingSpaces drops the spaces a line ends with, which CSS neither
+// draws nor counts once a line has ended there.
+func trimHangingSpaces(pieces []inlinePiece) []inlinePiece {
+	for len(pieces) > 0 && pieces[len(pieces)-1].space {
+		last := pieces[len(pieces)-1]
+		pieces = pieces[:len(pieces)-1]
+		// The item still ends here, so the piece before takes its right edge.
+		if last.last && len(pieces) > 0 && pieces[len(pieces)-1].item == last.item {
+			kept := &pieces[len(pieces)-1]
+			kept.last = true
+			kept.width = kept.size.X + edgeAdvance(kept.resolved, kept.first, true)
+		}
+	}
+	return pieces
+}
+
+// splitRunes cuts a group into one piece per character, for a word that has
+// to be broken because no line is wide enough for it.
+func (i Inline) splitRunes(ctx *compileContext, group []inlinePiece, path string) ([]inlinePiece, error) {
+	var split []inlinePiece
+	for _, piece := range group {
+		if piece.node != nil || piece.space || piece.keep {
+			split = append(split, piece)
+			continue
+		}
+		var characters []display.TextRun
+		for _, run := range piece.runs {
+			for _, r := range run.Text {
+				characters = append(characters, display.TextRun{Text: string(r), Style: run.Style})
+			}
+		}
+		for index, character := range characters {
+			part := inlinePiece{item: piece.item, runs: []display.TextRun{character}, resolved: piece.resolved,
+				first: piece.first && index == 0, last: piece.last && index == len(characters)-1,
+				breakAfter: index == len(characters)-1 && piece.breakAfter}
+			size, err := textAdvance(ctx, part.runs, piece.resolved.LineHeight, path)
+			if err != nil {
+				return nil, err
+			}
+			part.size = size
+			part.width = size.X + edgeAdvance(part.resolved, part.first, part.last)
+			split = append(split, part)
+		}
+	}
+	return split, nil
+}
+
+// assemble makes a line's fragments from its pieces: the pieces of one item
+// that sit together on the line become one fragment, drawn as one box.
+func (i Inline) assemble(ctx *compileContext, pieces []inlinePiece, path string) (inlineLine, error) {
+	var line inlineLine
+	for start := 0; start < len(pieces); {
+		end := start + 1
+		if pieces[start].node == nil {
+			for end < len(pieces) && pieces[end].item == pieces[start].item && pieces[end].node == nil && !pieces[end].forced {
+				end++
+			}
+		}
+		first, last := pieces[start], pieces[end-1]
+		var fragment inlineFragment
+		if first.node != nil {
+			fragment = makeInlineFragment(first.resolved, nil, first.node, first.size, nil, true, true)
+		} else {
+			var runs []display.TextRun
+			for _, piece := range pieces[start:end] {
+				for _, run := range piece.runs {
+					if len(runs) != 0 && sameTextStyle(runs[len(runs)-1].Style, run.Style) {
+						runs[len(runs)-1].Text += run.Text
+					} else {
+						runs = append(runs, run)
+					}
+				}
+			}
 			layout, err := display.LayoutText(ctx.compiler.Fonts, display.TextBox{
-				Bounds: image.Rect(0, 0, max(1, maxWidth), max(1, item.LineHeight)), Runs: candidate,
-				Wrap: display.NoWrap, LineHeight: item.LineHeight,
+				Bounds: image.Rect(0, 0, 1, max(1, first.resolved.LineHeight)), Runs: runs,
+				Wrap: display.NoWrap, LineHeight: first.resolved.LineHeight,
 			})
 			if err != nil {
-				return nil, fmt.Errorf("%s: %w", path, err)
+				return inlineLine{}, fmt.Errorf("%s: %w", childPath(path, "items", first.item), err)
 			}
-			border := inlineBorderInsets(item)
-			if i.Wrap == display.WrapRunes && item.Wrap != display.NoWrap && len(runs) != 0 && layout.Size().X+item.Padding.horizontal()+border.horizontal()+item.Margin.horizontal() > maxWidth {
-				if err := flush(); err != nil {
-					return nil, err
-				}
-				runs = []display.TextRun{piece}
-			} else {
-				runs = candidate
-			}
+			metrics := layout.Lines()
+			fragment = makeInlineFragment(first.resolved, runs, nil, layout.Size(), &metrics[0], first.first, last.last)
 		}
+		line.fragments = append(line.fragments, fragment)
+		line.width += fragment.width
+		line.ascent = max(line.ascent, fragment.ascent)
+		line.descent = max(line.descent, fragment.descent)
+		line.height = max(line.height, fragment.height)
+		start = end
 	}
-	if err := flush(); err != nil {
-		return nil, err
+	return line, nil
+}
+
+// slice is the part of an item a fragment draws: an item cut across lines
+// keeps its left edge on its first fragment and its right edge on its last,
+// and its rounded corners only when it is not cut at all.
+func (item InlineItem) slice(first, last bool) InlineItem {
+	if first && last {
+		return item
 	}
-	return result, nil
+	if item.Border != nil {
+		item.BorderTop, item.BorderRight, item.BorderBottom, item.BorderLeft = item.Border, item.Border, item.Border, item.Border
+		item.Border = nil
+	}
+	if !first {
+		item.Margin.Left, item.Padding.Left, item.BorderLeft = 0, 0, nil
+	}
+	if !last {
+		item.Margin.Right, item.Padding.Right, item.BorderRight = 0, 0, nil
+	}
+	item.Radius, item.RadiusLength = 0, Length{}
+	return item
 }
 
 func (item InlineItem) resolved(availableWidth int) InlineItem {
@@ -440,7 +734,8 @@ func resolvedLengths(lengths [4]Length, availableWidth int, allowNegative bool) 
 	return result
 }
 
-func makeInlineFragment(item InlineItem, runs []display.TextRun, node Node, size image.Point, metrics *display.TextLineMetrics) inlineFragment {
+func makeInlineFragment(item InlineItem, runs []display.TextRun, node Node, size image.Point, metrics *display.TextLineMetrics, first, last bool) inlineFragment {
+	item = item.slice(first, last)
 	border := inlineBorderInsets(item)
 	contentW, contentH := size.X, size.Y
 	ascent, descent := contentH, 0
@@ -448,9 +743,9 @@ func makeInlineFragment(item InlineItem, runs []display.TextRun, node Node, size
 		ascent, descent = metrics.Ascent, metrics.Descent+metrics.LineGap
 	}
 	return inlineFragment{
-		item: item, runs: runs, node: node,
+		item: item, runs: runs, node: node, first: first, last: last,
 		contentW: contentW, contentH: contentH,
-		width:   contentW + item.Padding.Left + item.Padding.Right + border.horizontal() + item.Margin.Left + item.Margin.Right,
+		width:   contentW + edgeAdvance(item, true, true),
 		height:  contentH + item.Padding.Top + item.Padding.Bottom + border.vertical() + item.Margin.Top + item.Margin.Bottom,
 		ascent:  ascent + item.Padding.Top + border.Top + item.Margin.Top,
 		descent: descent + item.Padding.Bottom + border.Bottom + item.Margin.Bottom,

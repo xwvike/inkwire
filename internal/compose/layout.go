@@ -40,6 +40,13 @@ const (
 	MainStart MainAlignment = iota
 	MainCenter
 	MainEnd
+	// MainSpaceBetween and the two after it are justify-content's
+	// space-between, space-around and space-evenly: the line's free space
+	// goes between the children rather than at its ends. Like the others
+	// they only share out space nothing grew into.
+	MainSpaceBetween
+	MainSpaceAround
+	MainSpaceEvenly
 )
 
 // LayoutChild wraps one child in a Row or Column.
@@ -67,6 +74,22 @@ type LayoutChild struct {
 	// MinMain and the rest bound the resolved sizes on each axis.
 	MinMain, MaxMain   Length
 	MinCross, MaxCross Length
+	// AutoMargin marks the sides, top, right, bottom and left, whose margin
+	// is auto. Along the line they share the free space before any
+	// alignment does, so margin-left: auto pushes a child to the far end;
+	// across it they place the child instead of stretching it, so a margin
+	// of auto either side centres it.
+	AutoMargin [4]bool
+	// MinContent keeps the child from shrinking below its content along the
+	// axis: its widest word in a row, the height of what it holds in a
+	// column, or Stated if that is smaller. It is CSS's min-width: auto (or
+	// min-height) on a flex item, which is why a label next to a long
+	// paragraph keeps its word whole.
+	MinContent bool
+	// Stated is the size the child gives itself along the axis, its width
+	// or height, which Basis does not always say: flex-basis replaces it as
+	// the size to start from, but it is still what caps MinContent.
+	Stated Length
 	// AlignSelf places this child across the axis regardless of what the
 	// container asked for.
 	AlignSelf *CrossAlignment
@@ -114,6 +137,29 @@ func (c LayoutChild) crossSizeOf(measured, available int, stretched bool) int {
 	return clamp(size, c.MinCross, c.MaxCross, available)
 }
 
+// ratioMain derives the main size from the cross one when a ratio was given
+// and no main size was, and there is a cross size to work from: one that was
+// stated, or the one a stretched child of a column fills. The second is how a
+// block with nothing but aspect-ratio takes its height from the width it is
+// given, as it does in a browser.
+func (c LayoutChild) ratioMain(crossAvailable int, horizontal bool, crossAlign CrossAlignment) (int, bool) {
+	if c.Ratio <= 0 || c.Basis.IsSet() {
+		return 0, false
+	}
+	cross, ok := c.Cross.Resolve(crossAvailable)
+	if !ok {
+		if horizontal || c.alignment(crossAlign) != CrossStretch || crossAvailable >= unboundedMeasure {
+			return 0, false
+		}
+		cross = crossAvailable
+	}
+	cross = clamp(cross, c.MinCross, c.MaxCross, crossAvailable)
+	if horizontal {
+		return int(float64(float64(cross)*c.Ratio) + 0.5), true
+	}
+	return int(float64(cross)/c.Ratio + 0.5), true
+}
+
 // ratioCross derives the cross size from the main one when a ratio was given
 // and no cross size was, which is the case aspect-ratio exists for.
 func (c LayoutChild) ratioCross(mainSize int, horizontal bool) (int, bool) {
@@ -123,7 +169,7 @@ func (c LayoutChild) ratioCross(mainSize int, horizontal bool) (int, bool) {
 	if horizontal {
 		return int(float64(mainSize)/c.Ratio + 0.5), true
 	}
-	return int(float64(mainSize)*c.Ratio + 0.5), true
+	return int(float64(float64(mainSize)*c.Ratio) + 0.5), true
 }
 
 func (c LayoutChild) alignment(container CrossAlignment) CrossAlignment {
@@ -205,15 +251,22 @@ type Row struct {
 	MainAlign  MainAlignment
 	CrossAlign CrossAlignment
 	Children   []LayoutChild
+	Wrap       Wrapping
 }
 
 func (Row) composeNode() {}
 
 func (r Row) measure(ctx *compileContext, maximum image.Point, path string) (image.Point, error) {
-	return measureFlow(ctx, maximum, r.Size, r.Gap, r.GapLength, true, r.Children, path)
+	if r.Wrap.Wrap {
+		return measureWrapped(ctx, maximum, r.Size, r.Gap, r.GapLength, r.CrossAlign, r.Wrap, true, r.Children, path)
+	}
+	return measureFlow(ctx, maximum, r.Size, r.Gap, r.GapLength, r.CrossAlign, true, r.Children, path)
 }
 
 func (r Row) paint(ctx *compileContext, list *display.DisplayList, bounds image.Rectangle, path string) error {
+	if r.Wrap.Wrap {
+		return paintWrapped(ctx, list, bounds, r.Gap, r.GapLength, r.MainAlign, r.CrossAlign, r.Wrap, true, r.Children, path)
+	}
 	return paintFlow(ctx, list, bounds, r.Gap, r.GapLength, r.MainAlign, r.CrossAlign, true, r.Children, path)
 }
 
@@ -225,19 +278,38 @@ type Column struct {
 	MainAlign  MainAlignment
 	CrossAlign CrossAlignment
 	Children   []LayoutChild
+	Wrap       Wrapping
 }
 
 func (Column) composeNode() {}
 
 func (c Column) measure(ctx *compileContext, maximum image.Point, path string) (image.Point, error) {
-	return measureFlow(ctx, maximum, c.Size, c.Gap, c.GapLength, false, c.Children, path)
+	if c.Wrap.Wrap {
+		return measureWrapped(ctx, maximum, c.Size, c.Gap, c.GapLength, c.CrossAlign, c.Wrap, false, c.Children, path)
+	}
+	return measureFlow(ctx, maximum, c.Size, c.Gap, c.GapLength, c.CrossAlign, false, c.Children, path)
 }
 
 func (c Column) paint(ctx *compileContext, list *display.DisplayList, bounds image.Rectangle, path string) error {
+	if c.Wrap.Wrap {
+		return paintWrapped(ctx, list, bounds, c.Gap, c.GapLength, c.MainAlign, c.CrossAlign, c.Wrap, false, c.Children, path)
+	}
 	return paintFlow(ctx, list, bounds, c.Gap, c.GapLength, c.MainAlign, c.CrossAlign, false, c.Children, path)
 }
 
-func measureFlow(ctx *compileContext, maximum, preferred image.Point, gap int, gapLength Length, horizontal bool, children []LayoutChild, path string) (image.Point, error) {
+// Wrapping is flex-wrap: children that do not fit on one line go on to the
+// next, each line laid out as a line of its own, and the lines stacked across
+// the box with CrossGap between them. AlignContent shares out the room the
+// lines leave across the box, as align-content does; nil stretches the lines
+// into it, which is what a browser does with normal.
+type Wrapping struct {
+	Wrap           bool
+	CrossGap       int
+	CrossGapLength Length
+	AlignContent   *MainAlignment
+}
+
+func measureFlow(ctx *compileContext, maximum, preferred image.Point, gap int, gapLength Length, crossAlign CrossAlignment, horizontal bool, children []LayoutChild, path string) (image.Point, error) {
 	restoreInline := ctx.pushMeasureInline(maximum.X)
 	defer restoreInline()
 	gap = resolvedGap(gap, gapLength, mainOf(maximum, horizontal))
@@ -261,19 +333,117 @@ func measureFlow(ctx *compileContext, maximum, preferred image.Point, gap int, g
 			return image.Point{}, err
 		}
 		childMain, childCross := axes(size, horizontal)
+		if derived, ok := child.ratioMain(mainOf(maximum, !horizontal), horizontal, crossAlign); ok {
+			childMain = derived
+		}
 		childMain = child.intrinsicMain(childMain)
-		main += childMain + intrinsicMargin(child.Margin, horizontal)
-		cross = max(cross, childCross+intrinsicMargin(child.Margin, !horizontal))
+		main += childMain + measuredMargin(child.Margin, horizontal, maximum.X)
+		cross = max(cross, childCross+measuredMargin(child.Margin, !horizontal, maximum.X))
 	}
 	if len(children) > 1 {
 		main += gap * (len(children) - 1)
+	}
+	// A row too wide for its box is shrunk into it when it is painted, and
+	// what it holds is then laid out narrower: a paragraph wraps onto more
+	// lines and the row is as tall as that, not as the one long line it
+	// would be with room for it.
+	if available := maximum.X; horizontal && available < unboundedMeasure && main > available {
+		if preferred.X > 0 {
+			available = min(available, preferred.X)
+		}
+		sizes, margins, err := flexLine(ctx, image.Pt(available, maximum.Y), gap, crossAlign, horizontal, children, path, 0)
+		if err != nil {
+			return image.Point{}, err
+		}
+		cross = 0
+		for index, size := range sizes {
+			cross = max(cross, size.Y+margins[index].vertical())
+		}
 	}
 	natural := fromAxes(main, cross, horizontal)
 	return preferredSize(natural, preferred, maximum)
 }
 
+// flexLine works out the size of each child of a line in a box of the given
+// size, the way the browser's flex algorithm does: each starts at its base
+// size, the line's free space is shared out by grow or shrink, and each is
+// then measured across the line at the size it was given along it.
+//
+// The children are the ones from first on in the node path names, so a line
+// of a wrapped container still names each child by where it is in the whole.
+func flexLine(ctx *compileContext, box image.Point, gap int, crossAlign CrossAlignment, horizontal bool, children []LayoutChild, path string, first int) ([]image.Point, []Insets, error) {
+	sizes := make([]image.Point, len(children))
+	measuredMains := make([]int, len(children))
+	margins := make([]Insets, len(children))
+	availableMain := mainOf(box, horizontal)
+	baseMain, marginMain := 0, 0
+	for index, child := range children {
+		nodePath := childPath(path, "children", first+index)
+		size, err := child.Node.measure(ctx, flowMeasureMaximum(box, horizontal), nodePath)
+		if err != nil {
+			return nil, nil, err
+		}
+		margin := child.resolvedMargin(box.X)
+		margins[index] = margin
+		marginSize, crossMargin := margin.horizontal(), margin.vertical()
+		if !horizontal {
+			marginSize, crossMargin = crossMargin, marginSize
+		}
+		measuredMains[index], _ = axes(size, horizontal)
+		if derived, ok := child.ratioMain(max(0, mainOf(box, !horizontal)-crossMargin), horizontal, crossAlign); ok {
+			measuredMains[index] = derived
+		}
+		setMain(&size, horizontal, child.mainSize(measuredMains[index], availableMain))
+		sizes[index] = size
+		marginMain += marginSize
+		baseMain += mainOf(size, horizontal) + marginSize
+	}
+	baseMain += gap * max(0, len(children)-1)
+	// The least each child may shrink to, worked out only where it can
+	// matter: on a line that has to shrink, or for a child that starts out
+	// smaller than its content.
+	floors := make([]int, len(children))
+	for index, child := range children {
+		base := mainOf(sizes[index], horizontal)
+		if !child.MinContent || (baseMain <= availableMain && base >= measuredMains[index]) {
+			continue
+		}
+		floor := measuredMains[index]
+		if horizontal {
+			width, err := itemMinContent(ctx, child.Node, childPath(path, "children", first+index))
+			if err != nil {
+				return nil, nil, err
+			}
+			floor = width
+		}
+		// A child that states its size is held to the smaller of that and
+		// its content, as CSS holds an item with a width.
+		if stated, ok := child.Stated.Resolve(availableMain); ok {
+			floor = min(floor, stated)
+		}
+		floors[index] = floor
+		if base < floor {
+			setMain(&sizes[index], horizontal, floor)
+		}
+	}
+	resolved := resolveFlexMainSizes(children, sizes, max(0, availableMain-marginMain), gap, horizontal, floors)
+	for index := range resolved {
+		if horizontal && resolved[index] < measuredMains[index] {
+			// Narrower than it measured, so it is measured again at the
+			// width it has, for the height that gives it.
+			size, err := children[index].Node.measure(ctx, image.Pt(resolved[index], unboundedMeasure), childPath(path, "children", first+index))
+			if err != nil {
+				return nil, nil, err
+			}
+			sizes[index].Y = size.Y
+		}
+		setMain(&sizes[index], horizontal, resolved[index])
+	}
+	return sizes, margins, nil
+}
+
 func paintFlow(ctx *compileContext, list *display.DisplayList, bounds image.Rectangle, gap int, gapLength Length, mainAlign MainAlignment, crossAlign CrossAlignment, horizontal bool, children []LayoutChild, path string) error {
-	if mainAlign > MainEnd {
+	if mainAlign > MainSpaceEvenly {
 		return fmt.Errorf("%s: invalid main alignment %d", path, mainAlign)
 	}
 	if crossAlign > CrossEnd {
@@ -286,77 +456,60 @@ func paintFlow(ctx *compileContext, list *display.DisplayList, bounds image.Rect
 	if gap < 0 || !gapLength.valid() {
 		return fmt.Errorf("%s: gap must not be negative", path)
 	}
-	sizes := make([]image.Point, len(children))
-	margins := make([]Insets, len(children))
-	baseMain := 0
-	marginMain := 0
-	for index, child := range children {
-		nodePath := childPath(path, "children", index)
-		size, err := child.Node.measure(ctx, flowMeasureMaximum(maximum, horizontal), nodePath)
-		if err != nil {
-			return err
-		}
-		measuredMain, _ := axes(size, horizontal)
-		setMain(&size, horizontal, child.mainSize(measuredMain, mainOf(bounds.Size(), horizontal)))
-		sizes[index] = size
-		childMain, _ := axes(size, horizontal)
-		margin := child.resolvedMargin(bounds.Dx())
-		margins[index] = margin
-		marginSize := margin.horizontal()
-		if !horizontal {
-			marginSize = margin.vertical()
-		}
-		marginMain += marginSize
-		baseMain += childMain + marginSize
+	sizes, margins, err := flexLine(ctx, maximum, gap, crossAlign, horizontal, children, path, 0)
+	if err != nil {
+		return err
 	}
-	if len(children) > 1 {
-		baseMain += gap * (len(children) - 1)
-	}
+	return paintLine(ctx, list, bounds, gap, mainAlign, crossAlign, horizontal, children, path, 0, sizes, margins)
+}
+
+// paintLine places one line's children, at the sizes flexLine gave them,
+// across the whole of bounds.
+func paintLine(ctx *compileContext, list *display.DisplayList, bounds image.Rectangle, gap int, mainAlign MainAlignment, crossAlign CrossAlignment, horizontal bool, children []LayoutChild, path string, first int, sizes []image.Point, margins []Insets) error {
 	availableMain, availableCross := axes(bounds.Size(), horizontal)
-	resolved := resolveFlexMainSizes(children, sizes, max(0, availableMain-marginMain), gap, horizontal)
-	baseMain = 0
-	for index := range resolved {
-		setMain(&sizes[index], horizontal, resolved[index])
+	baseMain := gap * max(0, len(children)-1)
+	for index, size := range sizes {
 		marginSize := margins[index].horizontal()
 		if !horizontal {
 			marginSize = margins[index].vertical()
 		}
-		baseMain += resolved[index] + marginSize
-	}
-	if len(children) > 1 {
-		baseMain += gap * (len(children) - 1)
+		baseMain += mainOf(size, horizontal) + marginSize
 	}
 	if baseMain > availableMain {
 		ctx.warn(path, "layout-overflow", fmt.Sprintf("children need %d pixels on the main axis, only %d are available", baseMain, availableMain))
 	}
-	start := 0
-	if baseMain < availableMain && !hasUnfilledGrow(children, sizes, availableMain, horizontal) {
-		switch mainAlign {
-		case MainCenter:
-			start = (availableMain - baseMain) / 2
-		case MainEnd:
-			start = availableMain - baseMain
-		}
-	}
-	cursor := start
+	lead := mainLead(children, availableMain-baseMain, mainAlign, horizontal)
+	cursor := 0
 	for index, child := range children {
-		nodePath := childPath(path, "children", index)
+		nodePath := childPath(path, "children", first+index)
 		childMain, measuredCross := axes(sizes[index], horizontal)
 		alignment := child.alignment(crossAlign)
 		margin := margins[index]
 		crossMarginStart, crossMarginEnd := margin.Top, margin.Bottom
-		if horizontal {
-			crossMarginStart, crossMarginEnd = margin.Top, margin.Bottom
-		} else {
+		if !horizontal {
 			crossMarginStart, crossMarginEnd = margin.Left, margin.Right
 		}
 		availableChildCross := max(0, availableCross-crossMarginStart-crossMarginEnd)
 		childCross := child.crossSizeOf(measuredCross, availableChildCross, alignment == CrossStretch)
-		if derived, ok := child.ratioCross(childMain, horizontal); ok {
+		// A main size that came from the cross one leaves the cross alone.
+		_, fromCross := child.ratioMain(availableChildCross, horizontal, crossAlign)
+		if derived, ok := child.ratioCross(childMain, horizontal); ok && !fromCross {
 			childCross = clamp(derived, child.MinCross, child.MaxCross, availableCross)
 			if alignment == CrossStretch {
 				alignment = CrossStart
 			}
+		}
+		// Auto margins across the line place the child in what is left of
+		// it, and so it is not stretched to fill it.
+		autoStart, autoEnd := child.AutoMargin[0], child.AutoMargin[2]
+		if !horizontal {
+			autoStart, autoEnd = child.AutoMargin[3], child.AutoMargin[1]
+		}
+		if autoStart || autoEnd {
+			if alignment == CrossStretch && !child.Cross.IsSet() {
+				childCross = child.crossSizeOf(measuredCross, availableChildCross, false)
+			}
+			alignment = autoPlaced(alignment, autoStart, autoEnd)
 		}
 		crossStart := 0
 		switch alignment {
@@ -370,7 +523,7 @@ func paintFlow(ctx *compileContext, list *display.DisplayList, bounds image.Rect
 		if !horizontal {
 			mainMarginStart, mainMarginEnd = margin.Top, margin.Bottom
 		}
-		cursor += mainMarginStart
+		cursor += mainMarginStart + lead[index]
 		childBounds := rectFromAxes(bounds.Min, cursor, crossStart, childMain, childCross, horizontal)
 		if err := ctx.paintWithContaining(child.Node, list, childBounds, bounds, nodePath); err != nil {
 			return err
@@ -399,6 +552,18 @@ func intrinsicMargin(margin [4]Length, horizontal bool) int {
 		return top + bottom
 	}
 	return 0
+}
+
+// measuredMargin is a child's margin along one axis as a measure counts it.
+// A percentage is a share of the containing block's width, which a measure
+// knows when it is bounded; the margins above and below then count as they
+// will when painted. Across, the width is the thing being worked out, so a
+// share of it counts for nothing, as in CSS.
+func measuredMargin(margin [4]Length, horizontal bool, width int) int {
+	if horizontal || width >= unboundedMeasure {
+		return intrinsicMargin(margin, horizontal)
+	}
+	return resolveMargin(margin[0], width) + resolveMargin(margin[2], width)
 }
 
 func intrinsicOrZero(length Length) (int, bool) {
@@ -434,7 +599,7 @@ func flowMeasureMaximum(maximum image.Point, horizontal bool) image.Point {
 // the line's total equal to the available space whenever its constraints allow
 // it. Min/max constraints freeze items and redistribute the remaining free
 // space among the rest, matching the browser's shrink/grow loop.
-func resolveFlexMainSizes(children []LayoutChild, sizes []image.Point, available, gap int, horizontal bool) []int {
+func resolveFlexMainSizes(children []LayoutChild, sizes []image.Point, available, gap int, horizontal bool, floors []int) []int {
 	result := make([]int, len(sizes))
 	base := make([]float64, len(sizes))
 	for index, size := range sizes {
@@ -449,28 +614,95 @@ func resolveFlexMainSizes(children []LayoutChild, sizes []image.Point, available
 		free -= float64(value)
 	}
 	if free > 0 {
-		flexDistribute(children, result, base, free, true, available)
+		flexDistribute(children, result, base, free, true, available, floors)
 	} else if free < 0 {
-		flexDistribute(children, result, base, -free, false, available)
+		flexDistribute(children, result, base, -free, false, available, floors)
 	}
 	return result
 }
 
-func hasUnfilledGrow(children []LayoutChild, sizes []image.Point, available int, horizontal bool) bool {
-	for index, child := range children {
-		if child.Grow <= 0 {
-			continue
-		}
-		current := mainOf(sizes[index], horizontal)
-		if high, ok := child.MaxMain.Resolve(available); ok && current >= high {
-			continue
-		}
-		return true
+// mainLead is how much further along the line each child starts than it
+// would packed at the start, given the free space the line has once its
+// children have grown and shrunk. Auto margins take it first; justify-content
+// shares out what is left, which is nothing if they took it. Each lead counts
+// everything before that child, so the shares are rounded once each rather
+// than adding up their rounding.
+func mainLead(children []LayoutChild, free int, align MainAlignment, horizontal bool) []int {
+	lead := make([]int, len(children))
+	if free <= 0 || len(children) == 0 {
+		return lead
 	}
-	return false
+	startSide, endSide := 3, 1
+	if !horizontal {
+		startSide, endSide = 0, 2
+	}
+	autos := 0
+	for _, child := range children {
+		if child.AutoMargin[startSide] {
+			autos++
+		}
+		if child.AutoMargin[endSide] {
+			autos++
+		}
+	}
+	share := float64(free)
+	if autos > 0 {
+		taken := 0
+		for index, child := range children {
+			if child.AutoMargin[startSide] {
+				taken++
+			}
+			lead[index] = int(math.Round(share * float64(taken) / float64(autos)))
+			if child.AutoMargin[endSide] {
+				taken++
+			}
+		}
+		return relative(lead)
+	}
+	return relative(distribute(free, len(children), align))
 }
 
-func flexDistribute(children []LayoutChild, result []int, base []float64, free float64, growing bool, available int) {
+// distribute is how far each of count things starts past where it would be
+// packed at the start, when free is shared out as align says. A share that
+// is negative is not shared, so what overflows starts where it would.
+func distribute(free, count int, align MainAlignment) []int {
+	lead := make([]int, count)
+	if free <= 0 {
+		return lead
+	}
+	n, share := float64(count), float64(free)
+	for index := range lead {
+		before := 0.0
+		switch align {
+		case MainCenter:
+			before = share / 2
+		case MainEnd:
+			before = share
+		case MainSpaceBetween:
+			if count > 1 {
+				before = share * float64(index) / (n - 1)
+			}
+		case MainSpaceAround:
+			before = share * (float64(index) + 0.5) / n
+		case MainSpaceEvenly:
+			before = share * float64(index+1) / (n + 1)
+		}
+		lead[index] = int(math.Round(before))
+	}
+	return lead
+}
+
+// relative turns how far each child is from where it would be packed into how
+// much further each is than the one before it, which is what a cursor adds.
+func relative(lead []int) []int {
+	previous := 0
+	for index, total := range lead {
+		lead[index], previous = total-previous, total
+	}
+	return lead
+}
+
+func flexDistribute(children []LayoutChild, result []int, base []float64, free float64, growing bool, available int, floors []int) {
 	active := make([]bool, len(children))
 	for index, child := range children {
 		active[index] = (growing && child.Grow > 0) || (!growing && child.Shrink > 0)
@@ -485,7 +717,7 @@ func flexDistribute(children []LayoutChild, result []int, base []float64, free f
 			if growing {
 				weight += child.Grow
 			} else {
-				weight += child.Shrink * base[index]
+				weight += float64(child.Shrink * base[index])
 			}
 		}
 		if weight <= 0 {
@@ -518,7 +750,7 @@ func flexDistribute(children []LayoutChild, result []int, base []float64, free f
 			}
 			factor := child.Grow
 			if !growing {
-				factor = child.Shrink * base[index]
+				factor = float64(child.Shrink * base[index])
 			}
 			delta := remaining * factor / weight
 			// Recompute active candidates from the original flex base size. Frozen
@@ -526,9 +758,9 @@ func flexDistribute(children []LayoutChild, result []int, base []float64, free f
 			// redistributed among the unfrozen items.
 			candidate := base[index] + delta
 			if !growing {
-				candidate = target[index] - delta
+				candidate = base[index] - delta
 			}
-			clamped := clampFloat(candidate, child, available)
+			clamped := max(clampFloat(candidate, child, available), float64(floors[index]))
 			if math.Abs(clamped-candidate) > 0.001 {
 				proposal[index] = clamped
 				active[index] = false
@@ -551,23 +783,23 @@ func flexDistribute(children []LayoutChild, result []int, base []float64, free f
 	// Keep integer rounding deterministic and preserve the available line
 	// length. Earlier items receive the indivisible pixels, which is also how
 	// the previous integer grow path behaved.
-	for delta := targetSum - got; delta > 0; delta-- {
+	// The pixels are moved a whole run at a time: one at a time, a line some
+	// way past the frame would take as many steps as it has pixels.
+	if delta := targetSum - got; delta > 0 {
 		for index := range result {
-			if !active[index] {
-				continue
+			if active[index] {
+				result[index] += delta
+				break
 			}
-			result[index]++
-			break
 		}
 	}
-	for delta := got - targetSum; delta > 0; delta-- {
-		for index := len(result) - 1; index >= 0; index-- {
-			if !active[index] || result[index] <= 0 {
-				continue
-			}
-			result[index]--
-			break
+	for delta, index := got-targetSum, len(result)-1; delta > 0 && index >= 0; index-- {
+		if !active[index] || result[index] <= 0 {
+			continue
 		}
+		taken := min(delta, result[index])
+		result[index] -= taken
+		delta -= taken
 	}
 }
 
@@ -669,7 +901,12 @@ func (p Padding) paint(ctx *compileContext, list *display.DisplayList, bounds im
 	min := bounds.Min.Add(image.Pt(insets.Left, insets.Top))
 	maxPoint := bounds.Max.Sub(image.Pt(insets.Right, insets.Bottom))
 	if min.X >= maxPoint.X || min.Y >= maxPoint.Y {
-		ctx.warn(path, "empty-layout", "padding leaves no drawable area")
+		// Padding round nothing is how a box that is only its border comes
+		// out, a rule drawn with border-top and no height, and there was
+		// nothing inside it to lose.
+		if _, nothing := p.Child.(Spacer); !nothing {
+			ctx.warn(path, "empty-layout", "padding leaves no drawable area")
+		}
 		return nil
 	}
 	inner := image.Rectangle{Min: min, Max: maxPoint}
