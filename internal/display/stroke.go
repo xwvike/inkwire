@@ -367,6 +367,16 @@ func (c *Canvas) strokePointsStyled(points []image.Point, closed bool, stroke St
 	if len(points) == 0 {
 		return
 	}
+	// A point is the centre of a pixel, so a line of even width through it
+	// has an edge through the middle of a pixel on each side, and taking every
+	// pixel whose centre is within reach takes both: a line four wide drawn
+	// five where it runs along the grid and four where it does not. Each pixel
+	// is asked about half a pixel along instead, which puts the line where the
+	// square brush puts it — the width, from half of it before the point.
+	bias := 0.0
+	if stroke.Width%2 == 0 {
+		bias = 0.5
+	}
 	if len(points) == 1 {
 		if stroke.Cap == StrokeCapButt {
 			return
@@ -376,7 +386,7 @@ func (c *Canvas) strokePointsStyled(points []image.Point, closed bool, stroke St
 			radiusSquared := float64(strokeRadius(stroke.Width) * strokeRadius(stroke.Width))
 			for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 				for x := bounds.Min.X; x < bounds.Max.X; x++ {
-					if strokeDistanceSquared(float64(x), float64(y), float64(points[0].X), float64(points[0].Y)) <= radiusSquared {
+					if strokeDistanceSquared(float64(x)+bias, float64(y)+bias, float64(points[0].X), float64(points[0].Y)) <= radiusSquared {
 						c.setDevice(image.Pt(x, y), stroke.Ink)
 					}
 				}
@@ -414,7 +424,7 @@ func (c *Canvas) strokePointsStyled(points []image.Point, closed bool, stroke St
 		box = box.Intersect(bounds)
 		for y := box.Min.Y; y < box.Max.Y; y++ {
 			for x := box.Min.X; x < box.Max.X; x++ {
-				if !painted.at(x, y) && covers(float64(x), float64(y)) {
+				if !painted.at(x, y) && covers(float64(x)+bias, float64(y)+bias) {
 					paint(x, y)
 				}
 			}
@@ -429,7 +439,7 @@ func (c *Canvas) strokePointsStyled(points []image.Point, closed bool, stroke St
 				if painted.at(x, y) {
 					continue
 				}
-				distance, along, projection := distanceToFloatSegment(float64(x), float64(y), segment.from, segment.to)
+				distance, along, projection := distanceToFloatSegment(float64(x)+bias, float64(y)+bias, segment.from, segment.to)
 				if distance > radius || projection < 0 || projection > 1 {
 					continue
 				}
@@ -778,7 +788,12 @@ func styledJoinContains(x, y float64, center, previous, next image.Point, radius
 			}
 			continue
 		}
-		if pointInFloatPolygon(x, y, []floatPoint{first, miter, second}) {
+		// The bodies on either side stop square at the vertex, so the gap
+		// between them on the outside of the turn runs from the vertex out to
+		// the tip: a bevel's triangle and the miter's beyond it. Filling only
+		// the part beyond left the bevel's empty, a pinhole at every gentle
+		// turn of a flattened curve.
+		if pointInFloatPolygon(x, y, []floatPoint{{float64(center.X), float64(center.Y)}, first, miter, second}) {
 			return true
 		}
 	}

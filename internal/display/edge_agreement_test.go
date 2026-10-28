@@ -72,15 +72,13 @@ func TestFillAndStrokeAgreeOnTheEdge(t *testing.T) {
 			func(c *Canvas) { c.FillEllipse(Upright(box), InkBlack) },
 			func(c *Canvas) { c.DrawArc(Upright(box), 0, 360, thin) }},
 
-		// Not an alignment defect and not a defect at all: DrawArc agrees
-		// exactly with FillEllipse over this box, and comparing it against
-		// FillCircle compares two parameterisations. A circle given as a centre
-		// and a radius is measured between pixel centres; a shape given as a
-		// box is measured across whole pixels, which over a (2r+1) box means a
-		// radius of r+0.5. Forcing either onto the other's measure costs more
-		// than it saves, so the gap is recorded rather than removed. See
-		// TestCircleAndEllipseAreDifferentParameterisations.
-		{"Circle vs DrawArc", 92,
+		// A circle given as a centre and a radius is measured between pixel
+		// centres, and a box across whole pixels, which over a (2r+1) box is
+		// a radius of r+0.5. The circle used to stop at r and left 92 of the
+		// arc's pixels outside it; it now stops just short of r+0.5, which is
+		// the box's ellipse less only what would make a radius of one a
+		// square. See TestCircleAndEllipseAreDifferentParameterisations.
+		{"Circle vs DrawArc", 0,
 			func(c *Canvas) { c.FillCircle(center, radius, InkBlack) },
 			func(c *Canvas) { c.DrawArc(Upright(circleBounds(center, radius)), 0, 360, thin) }},
 
@@ -154,8 +152,9 @@ func TestCircleAndEllipseAreDifferentParameterisations(t *testing.T) {
 		NewCanvas(byCircle).FillCircle(center, radius, InkBlack)
 		NewCanvas(byEllipse).FillEllipse(Upright(circleBounds(center, radius)), InkBlack)
 
-		// The circle is the smaller shape and sits wholly inside the ellipse,
-		// so the two never disagree about a pixel, only about how far to reach.
+		// The circle sits wholly inside the ellipse, so the two never
+		// disagree about a pixel, only about how far to reach; at most radii
+		// they reach equally far.
 		for y := 0; y < 64; y++ {
 			for x := 0; x < 64; x++ {
 				inCircle, _ := byCircle.InkAt(x, y)
@@ -165,8 +164,8 @@ func TestCircleAndEllipseAreDifferentParameterisations(t *testing.T) {
 				}
 			}
 		}
-		if circle, ellipse := countInk(byCircle, InkBlack), countInk(byEllipse, InkBlack); ellipse <= circle {
-			t.Fatalf("radius %d: expected the ellipse to be the larger shape, got %d vs %d", radius, ellipse, circle)
+		if circle, ellipse := countInk(byCircle, InkBlack), countInk(byEllipse, InkBlack); ellipse < circle {
+			t.Fatalf("radius %d: expected the ellipse to be no smaller, got %d vs %d", radius, ellipse, circle)
 		}
 	}
 

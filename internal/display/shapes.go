@@ -72,9 +72,10 @@ func (c *Canvas) FillPolygon(points []image.Point, ink Ink) {
 //
 // A circle given as a centre and a radius is measured between pixel centres:
 // it is symmetric about the pixel at center and 2*radius+1 pixels across. That
-// is what makes a radius of one the familiar five-pixel cross. It is therefore
-// slightly smaller than the ellipse inscribed in the same bounding box, which
-// is measured across whole pixels instead; see FillEllipse.
+// is what makes a radius of one the familiar five-pixel cross. It never
+// reaches past the ellipse inscribed in the same bounding box, which is
+// measured across whole pixels instead, and at most radii is that ellipse;
+// see FillEllipse and pointInCircle.
 func (c *Canvas) FillCircle(center image.Point, radius int, ink Ink) {
 	if radius < 0 || !ink.valid() {
 		return
@@ -107,7 +108,7 @@ func (c *Canvas) StrokeCircle(center image.Point, radius int, stroke StrokeStyle
 //
 // This is a different parameterisation from FillCircle, not a disagreement
 // with it: over the bounding box of a circle of radius r this ellipse has a
-// radius of r+0.5 and so is the larger of the two.
+// radius of r+0.5, which the circle stops just short of.
 func (c *Canvas) FillEllipse(oval Oval, ink Ink) {
 	if !ink.valid() || oval.Bounds.Empty() {
 		return

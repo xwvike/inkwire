@@ -6,11 +6,16 @@ func circleBounds(center image.Point, radius int) image.Rectangle {
 	return image.Rect(center.X-radius, center.Y-radius, center.X+radius+1, center.Y+radius+1)
 }
 
+// pointInCircle is the midpoint circle's test: a pixel is in if its centre is
+// nearer than r+½, less the quarter that keeps the cross of radius one a
+// cross. Testing against r² instead leaves the four pixels on the axes alone
+// at the end of each flat side, a nub sticking out of every circle and out of
+// both edges of every ring.
 func pointInCircle(x, y int, center image.Point, radius int) bool {
 	xDistance := int64(x - center.X)
 	yDistance := int64(y - center.Y)
 	radius64 := int64(radius)
-	return xDistance*xDistance+yDistance*yDistance <= radius64*radius64
+	return xDistance*xDistance+yDistance*yDistance < radius64*radius64+radius64
 }
 
 func pointInRoundRect(x, y int, rect image.Rectangle, radius int) bool {

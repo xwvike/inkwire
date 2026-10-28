@@ -146,9 +146,11 @@ func TestStyledRoundCapAppliesToDashRuns(t *testing.T) {
 	NewCanvas(frame).DrawLine(image.Pt(2, 4), image.Pt(12, 4), StrokeStyle{
 		Ink: InkBlack, Width: 2, Cap: StrokeCapRound, Dash: []int{3, 3},
 	})
-	// The first on-run ends at x=5. A round cap reaches one pixel into the
-	// following gap; without per-run caps only the line body is painted.
-	assertInk(t, frame, 6, 4, InkBlack)
+	// The first on-run ends at x=5, and a line of even width is drawn from
+	// half its width before its points, so the run's body stops at x=4 and
+	// its cap is the pixel after. Without per-run caps x=5 is in the gap.
+	assertInk(t, frame, 5, 4, InkBlack)
+	assertInk(t, frame, 6, 4, InkWhite)
 }
 
 func TestFillPathUsesNestedContoursAsHoles(t *testing.T) {
@@ -226,4 +228,74 @@ func TestLineAfterCloseStartsAtClosedContourOrigin(t *testing.T) {
 	assertInk(t, frame, 1, 1, InkBlack)
 	assertInk(t, frame, 1, 4, InkBlack)
 	assertInk(t, frame, 1, 6, InkBlack)
+}
+
+// An open arc is a run of short segments turning a little at each point. The
+// turn leaves a wedge on its outside that the join has to fill; filling only
+// the miter's tip of it left the rest, a white pixel inside the stroke at
+// every gentle turn.
+func TestAnArcHasNoHolesAtItsTurns(t *testing.T) {
+	frame := newTestFrame(t, 90, 60)
+	var path Path
+	path.MoveTo(image.Pt(10, 50))
+	path.Arc(Upright(image.Rect(10, 15, 81, 86)), 180, 180)
+	NewCanvas(frame).StrokePath(path, StrokeStyle{Ink: InkBlack, Width: 4, Cap: StrokeCapButt, Join: StrokeJoinMiter})
+	for y := 1; y < 59; y++ {
+		for x := 1; x < 89; x++ {
+			if ink, _ := frame.InkAt(x, y); ink == InkBlack {
+				continue
+			}
+			surrounded := true
+			for _, step := range []image.Point{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
+				if ink, _ := frame.InkAt(x+step.X, y+step.Y); ink != InkBlack {
+					surrounded = false
+				}
+			}
+			if surrounded {
+				t.Fatalf("(%d,%d) is a hole in the stroke", x, y)
+			}
+		}
+	}
+}
+
+// A line of even width has its edges between pixels whichever way it runs, so
+// along the grid it is as many pixels across as it is wide, and not one more
+// for the pixels its edges pass through the middle of.
+func TestAnEvenWidthIsThatManyPixelsAcross(t *testing.T) {
+	for _, width := range []int{2, 4, 6} {
+		frame := newTestFrame(t, 20, 20)
+		NewCanvas(frame).DrawLine(image.Pt(3, 10), image.Pt(16, 10), StrokeStyle{Ink: InkBlack, Width: width, Cap: StrokeCapButt})
+		across := 0
+		for y := 0; y < 20; y++ {
+			if ink, _ := frame.InkAt(10, y); ink == InkBlack {
+				across++
+			}
+		}
+		if across != width {
+			t.Errorf("a line %d wide is %d pixels across", width, across)
+		}
+	}
+}
+
+// A circle's flat sides are as wide at the top as at the left: the pixel on
+// each axis does not stand out alone past the rest of the edge.
+func TestACircleHasNoNubsOnItsAxes(t *testing.T) {
+	frame := newTestFrame(t, 80, 80)
+	center := image.Pt(40, 40)
+	NewCanvas(frame).StrokeCircle(center, 35, StrokeStyle{Ink: InkBlack, Width: 4})
+	for _, edge := range []struct {
+		at, along image.Point
+	}{
+		{image.Pt(40, 5), image.Pt(1, 0)},
+		{image.Pt(40, 75), image.Pt(1, 0)},
+		{image.Pt(5, 40), image.Pt(0, 1)},
+		{image.Pt(75, 40), image.Pt(0, 1)},
+	} {
+		for _, side := range []int{-1, 1} {
+			beside := edge.at.Add(edge.along.Mul(side))
+			if ink, _ := frame.InkAt(beside.X, beside.Y); ink != InkBlack {
+				t.Errorf("the edge at %v stands alone; %v beside it is not drawn", edge.at, beside)
+			}
+		}
+	}
 }
