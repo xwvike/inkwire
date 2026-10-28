@@ -30,24 +30,33 @@ let nextWrite = 0;
 // rather than in answer to anything.
 let session = null;
 
-const ready = new Promise((resolve) => {
-  self.inkwireReady = resolve;
-});
+// The running module. A call that panics answers as a failure and leaves it
+// running, but a module can still end — out of memory, say — and every call
+// after that would fail the same way until the page was reloaded. So a call
+// that finds it ended starts a fresh one first.
+let go = null;
 
-const started = (async () => {
-  const go = new Go();
-  const module = await WebAssembly.instantiateStreaming(
-    fetch("inkwire.wasm"),
-    go.importObject,
-  ).catch(async () => {
-    const bytes = await (await fetch("inkwire.wasm")).arrayBuffer();
-    return WebAssembly.instantiate(bytes, go.importObject);
-  });
-  // go.run never resolves: main blocks so the exported functions stay alive.
-  go.run(module.instance);
-  await ready;
-  api = self.inkwire;
-})();
+function boot() {
+  return (async () => {
+    const ready = new Promise((resolve) => {
+      self.inkwireReady = resolve;
+    });
+    go = new Go();
+    const module = await WebAssembly.instantiateStreaming(
+      fetch("inkwire.wasm"),
+      go.importObject,
+    ).catch(async () => {
+      const bytes = await (await fetch("inkwire.wasm")).arrayBuffer();
+      return WebAssembly.instantiate(bytes, go.importObject);
+    });
+    // go.run never resolves: main blocks so the exported functions stay alive.
+    go.run(module.instance);
+    await ready;
+    api = self.inkwire;
+  })();
+}
+
+let started = boot();
 
 // proxyWrite hands a characteristic write to the page and waits for it. The
 // uploader's goroutine parks on this the same way it parks on a real radio.
@@ -83,6 +92,11 @@ self.onmessage = async (event) => {
   }
 
   await started;
+  if (go.exited) {
+    session = null;
+    started = boot();
+    await started;
+  }
   const { id, op, request } = message;
   try {
     switch (op) {

@@ -35,13 +35,13 @@ import (
 
 func main() {
 	api := js.Global().Get("Object").New()
-	api.Set("render", js.FuncOf(renderJS))
-	api.Set("compile", js.FuncOf(compileJS))
-	api.Set("measure", js.FuncOf(measureJS))
-	api.Set("identify", js.FuncOf(identifyJS))
-	api.Set("identifyNRFEPD", js.FuncOf(identifyNRFEPDJS))
-	api.Set("upload", js.FuncOf(uploadJS))
-	api.Set("payload", js.FuncOf(payloadJS))
+	api.Set("render", exported(renderJS))
+	api.Set("compile", exported(compileJS))
+	api.Set("measure", exported(measureJS))
+	api.Set("identify", exported(identifyJS))
+	api.Set("identifyNRFEPD", exported(identifyNRFEPDJS))
+	api.Set("upload", exported(uploadJS))
+	api.Set("payload", exported(payloadJS))
 	js.Global().Set("inkwire", api)
 
 	// A page that loads the module has to know when it may call it. The
@@ -51,6 +51,22 @@ func main() {
 		ready.Invoke()
 	}
 	select {}
+}
+
+// exported makes a call the page can make. A panic in a call from JavaScript
+// ends the whole Go program, and every call after it — the next keystroke's
+// render included — would then fail with nothing to say why. So a call that
+// panics answers as a failed call instead, naming what went wrong, and the
+// module stays up for the next one.
+func exported(call func(js.Value, []js.Value) any) js.Func {
+	return js.FuncOf(func(this js.Value, args []js.Value) (answer any) {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				answer = failure(fmt.Errorf("inkwire stopped on this page, which is a bug in inkwire: %v", recovered), nil)
+			}
+		}()
+		return call(this, args)
+	})
 }
 
 // resources reads the optional name-to-bytes map a caller passes as the last
