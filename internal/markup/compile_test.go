@@ -201,9 +201,9 @@ func TestUnsupportedDeclarationsAreReported(t *testing.T) {
 	}{
 		{"unknown property", `.a { box-shadow: 0 0 4px black; }`, "box-shadow"},
 		{"colour off the palette", `.a { color: #3366ff; }`, "#3366ff"},
-		{"unit with no meaning here", `.a { padding: 2em; }`, "2em"},
+		{"unit with no meaning here", `.a { padding: 2ch; }`, "2ch"},
 		{"unsupported display", `.a { display: table; }`, "table"},
-		{"weight the strikes do not have", `.a { font-weight: bold; }`, "font-weight"},
+		{"slant the faces do not have", `.a { font-style: italic; }`, "font-style"},
 		{"overflow handling", `.a { text-overflow: ellipsis; }`, "text-overflow"},
 		{"skew", `.a { transform: skew(10deg); }`, "skew"},
 		{"filter", `.a { filter: blur(2px); }`, "filter"},

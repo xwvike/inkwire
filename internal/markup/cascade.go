@@ -24,6 +24,9 @@ type declaration struct {
 	property  string
 	value     string
 	important bool
+	// agent marks a declaration from the default stylesheet rather than the
+	// page's. See agentCSS.
+	agent bool
 }
 
 // specificity is compared as CSS compares it, with document order breaking a
@@ -114,7 +117,7 @@ func parseStylesheet(source string, report func(string, string)) (*stylesheet, e
 		declarations := make([]declaration, 0, len(parsedRule.Declarations))
 		for _, parsedDeclaration := range parsedRule.Declarations {
 			declarations = append(declarations, declaration{
-				property:  strings.ToLower(strings.TrimSpace(parsedDeclaration.Property)),
+				property:  propertyName(parsedDeclaration.Property),
 				value:     strings.TrimSpace(parsedDeclaration.Value),
 				important: parsedDeclaration.Important,
 			})
@@ -304,7 +307,7 @@ func inlineDeclarations(node *html.Node) ([]declaration, error) {
 	declarations := make([]declaration, 0, len(parsed))
 	for _, parsedDeclaration := range parsed {
 		declarations = append(declarations, declaration{
-			property:  strings.ToLower(strings.TrimSpace(parsedDeclaration.Property)),
+			property:  propertyName(parsedDeclaration.Property),
 			value:     strings.TrimSpace(parsedDeclaration.Value),
 			important: parsedDeclaration.Important,
 		})
@@ -347,4 +350,15 @@ func attribute(node *html.Node, name string) string {
 		}
 	}
 	return ""
+}
+
+// propertyName is how a declaration's property is compared. CSS properties
+// are matched without regard to case, but a custom property is a name the
+// author made up, and --Big and --big are two of them.
+func propertyName(written string) string {
+	name := strings.TrimSpace(written)
+	if strings.HasPrefix(name, "--") {
+		return name
+	}
+	return strings.ToLower(name)
 }

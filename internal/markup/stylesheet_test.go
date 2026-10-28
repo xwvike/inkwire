@@ -219,7 +219,7 @@ func TestTheFontShorthandIsTakenApart(t *testing.T) {
 // nothing.
 func TestTheFontShorthandSaysWhatItDropped(t *testing.T) {
 	document, err := Compile(`<div class="page"><span class="a">x</span></div>`,
-		`.page { display: flex; width: 80px; height: 30px; } .a { font: bold 14px monaco; }`)
+		`.page { display: flex; width: 80px; height: 30px; } .a { font: italic 14px monaco; }`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestTheFontShorthandSaysWhatItDropped(t *testing.T) {
 	for _, warning := range document.Warnings {
 		said += warning.Message
 	}
-	if !strings.Contains(said, "bold") {
-		t.Errorf("the weight it dropped was not named: %q", said)
+	if !strings.Contains(said, "italic") {
+		t.Errorf("the slant it dropped was not named: %q", said)
 	}
 }

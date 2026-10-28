@@ -454,6 +454,7 @@ Non-fatal.
 | `unreadable-rule` | Rule has a syntax error; skipped |
 | `substituted-font-size` | Font or size unavailable; nearest value used |
 | `approximate-corner` | Corners the box would draw elliptical are drawn round |
+| `unsupported-element` | A browser draws something for this element that is not drawn here |
 
 ### Errors
 

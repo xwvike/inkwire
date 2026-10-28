@@ -151,8 +151,8 @@ func (c *compiler) pathCommand(letter byte, scanner *pathScanner, pen *pathPen, 
 			// the spec says to use the pen's own position.
 			control1X, control1Y = pen.x, pen.y
 			if pen.lastWasCubic {
-				control1X = 2*pen.x - pen.lastControlX
-				control1Y = 2*pen.y - pen.lastControlY
+				control1X = float64(2*pen.x) - pen.lastControlX
+				control1Y = float64(2*pen.y) - pen.lastControlY
 			}
 		}
 		x2, y2, ok := scanner.pair()
@@ -184,8 +184,8 @@ func (c *compiler) pathCommand(letter byte, scanner *pathScanner, pen *pathPen, 
 		} else {
 			controlX, controlY = pen.x, pen.y
 			if pen.lastWasQuad {
-				controlX = 2*pen.x - pen.lastControlX
-				controlY = 2*pen.y - pen.lastControlY
+				controlX = float64(2*pen.x) - pen.lastControlX
+				controlY = float64(2*pen.y) - pen.lastControlY
 			}
 		}
 		x, y, ok := scanner.pair()
@@ -265,11 +265,11 @@ func arcFromEndpoints(frame svgFrame, x1, y1, x2, y2, radiusX, radiusY float64, 
 	lambda := halfX*halfX/(radiusX*radiusX) + halfY*halfY/(radiusY*radiusY)
 	if lambda > 1 {
 		scale := math.Sqrt(lambda)
-		radiusX, radiusY = radiusX*scale, radiusY*scale
+		radiusX, radiusY = float64(radiusX*scale), float64(radiusY*scale)
 	}
 
-	numerator := radiusX*radiusX*radiusY*radiusY - radiusX*radiusX*halfY*halfY - radiusY*radiusY*halfX*halfX
-	denominator := radiusX*radiusX*halfY*halfY + radiusY*radiusY*halfX*halfX
+	numerator := float64(radiusX*radiusX*radiusY*radiusY) - float64(radiusX*radiusX*halfY*halfY) - float64(radiusY*radiusY*halfX*halfX)
+	denominator := float64(radiusX*radiusX*halfY*halfY) + float64(radiusY*radiusY*halfX*halfX)
 	factor := 0.0
 	if denominator != 0 && numerator > 0 {
 		factor = math.Sqrt(numerator / denominator)
@@ -301,8 +301,8 @@ func arcFromEndpoints(frame svgFrame, x1, y1, x2, y2, radiusX, radiusY float64, 
 	return &rect{
 		X:      pixels(math.Min(cornerX1, cornerX2)),
 		Y:      pixels(math.Min(cornerY1, cornerY2)),
-		Width:  pixels(frame.sizeX(radiusX*2)) + 1,
-		Height: pixels(frame.sizeY(radiusY*2)) + 1,
+		Width:  pixels(frame.sizeX(float64(radiusX*2))) + 1,
+		Height: pixels(frame.sizeY(float64(radiusY*2))) + 1,
 	}, start, sweep, true
 }
 

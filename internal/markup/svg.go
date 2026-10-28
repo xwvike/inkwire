@@ -184,7 +184,7 @@ func (c *compiler) svgSizing(node *html.Node, current style, viewBox svgViewBox,
 		case result.fixedWidth && result.autoHeight:
 			result.natural.Y = max(1, pixels(float64(result.natural.X)/result.ratio))
 		case result.autoWidth && result.fixedHeight:
-			result.natural.X = max(1, pixels(float64(result.natural.Y)*result.ratio))
+			result.natural.X = max(1, pixels(float64(float64(result.natural.Y)*result.ratio)))
 		}
 	}
 	result.dynamic = current.absolute && hasInset(current) &&
@@ -195,7 +195,7 @@ func (c *compiler) svgSizing(node *html.Node, current style, viewBox svgViewBox,
 func referenceViewport(viewBox svgViewBox) image.Point {
 	width, height := viewBox.width, viewBox.height
 	scale := float64(svgReferenceExtent) / math.Max(width, height)
-	return image.Pt(max(1, pixels(width*scale)), max(1, pixels(height*scale)))
+	return image.Pt(max(1, pixels(float64(width*scale))), max(1, pixels(float64(height*scale))))
 }
 
 // viewportFrame maps SVG user coordinates into one concrete viewport. Fixed
@@ -218,8 +218,8 @@ func (c *compiler) viewportFrame(node *html.Node, viewBox svgViewBox, hasViewBox
 	}
 	scale := math.Min(float64(width)/viewBox.width, float64(height)/viewBox.height)
 	return svgFrame{
-		offsetX: (float64(width)-viewBox.width*scale)/2 - viewBox.minX*scale,
-		offsetY: (float64(height)-viewBox.height*scale)/2 - viewBox.minY*scale,
+		offsetX: (float64(width)-float64(viewBox.width*scale))/2 - float64(viewBox.minX*scale),
+		offsetY: (float64(height)-float64(viewBox.height*scale))/2 - float64(viewBox.minY*scale),
 		scaleX:  scale,
 		scaleY:  scale,
 	}, false
@@ -333,8 +333,8 @@ func (c *compiler) svgUse(node *html.Node, box rect, inherited svgPaint, inherit
 	usePaint := c.svgPaint(node, inherited, inheritedStyle, path)
 
 	// x and y move the referenced element in the use's coordinate space.
-	frame.offsetX += svgLength(node, "x") * frame.scaleX
-	frame.offsetY += svgLength(node, "y") * frame.scaleY
+	frame.offsetX += float64(svgLength(node, "x") * frame.scaleX)
+	frame.offsetY += float64(svgLength(node, "y") * frame.scaleY)
 
 	saved := c.computedFor
 	c.computedFor = map[*html.Node]style{}
@@ -438,7 +438,7 @@ func (c *compiler) svgShape(node *html.Node, box rect, inherited svgPaint, curre
 			}
 			return placed{Bounds: rect{
 				X: pixels(centerX - radiusX), Y: pixels(centerY - radiusY),
-				Width: pixels(radiusX*2) + 1, Height: pixels(radiusY*2) + 1}, Node: shape}, true
+				Width: pixels(float64(radiusX*2)) + 1, Height: pixels(float64(radiusY*2)) + 1}, Node: shape}, true
 		}
 		shape := &emitted{Type: "circle", Fill: paint.fill, Stroke: paint.edge(),
 			Center: center, Radius: pixels(radius)}
@@ -468,7 +468,7 @@ func (c *compiler) svgShape(node *html.Node, box rect, inherited svgPaint, curre
 		// picture is drawn both ways and compared.
 		return placed{Bounds: rect{
 			X: pixels(centreX - radiusX), Y: pixels(centreY - radiusY),
-			Width: pixels(radiusX*2) + 1, Height: pixels(radiusY*2) + 1}, Node: shape}, true
+			Width: pixels(float64(radiusX*2)) + 1, Height: pixels(float64(radiusY*2)) + 1}, Node: shape}, true
 
 	case "line":
 		if paint.edge() == nil {
@@ -887,17 +887,17 @@ func rootFrame() svgFrame { return svgFrame{scaleX: 1, scaleY: 1} }
 
 // place puts a coordinate written in a group's own space into the drawing's.
 func (f svgFrame) place(x, y float64) (float64, float64) {
-	return f.offsetX + x*f.scaleX, f.offsetY + y*f.scaleY
+	return f.offsetX + float64(x*f.scaleX), f.offsetY + float64(y*f.scaleY)
 }
 
 // size scales a radius using the uniform component of the frame. Callers that
 // preserve both axes (ellipses and rectangles) use sizeX and sizeY instead.
 func (f svgFrame) size(value float64) float64 {
-	return value * math.Min(math.Abs(f.scaleX), math.Abs(f.scaleY))
+	return float64(value * math.Min(math.Abs(f.scaleX), math.Abs(f.scaleY)))
 }
 
-func (f svgFrame) sizeX(value float64) float64 { return value * math.Abs(f.scaleX) }
-func (f svgFrame) sizeY(value float64) float64 { return value * math.Abs(f.scaleY) }
+func (f svgFrame) sizeX(value float64) float64 { return float64(value * math.Abs(f.scaleX)) }
+func (f svgFrame) sizeY(value float64) float64 { return float64(value * math.Abs(f.scaleY)) }
 
 // transformed folds a transform attribute into the frame, reporting the parts
 // of it that cannot be folded.
@@ -920,8 +920,8 @@ func (c *compiler) transformed(node *html.Node, outer svgFrame, path string) svg
 			if len(numbers) == 2 {
 				y = numbers[1]
 			}
-			frame.offsetX += numbers[0] * frame.scaleX
-			frame.offsetY += y * frame.scaleY
+			frame.offsetX += float64(numbers[0] * frame.scaleX)
+			frame.offsetY += float64(y * frame.scaleY)
 		case "scale":
 			if len(numbers) != 1 && len(numbers) != 2 {
 				c.warn(path, "unsupported-declaration", fmt.Sprintf(

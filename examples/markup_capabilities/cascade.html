@@ -13,7 +13,7 @@
 .source { background: black; }
 .source { background: red; }
 #specific { background: yellow; }
-.important { background: black !important; }
+.important { background: black !important; color: white; }
 .inline { background: red; }
 .inherit { color: red; }
 .inherit span { color: inherit; }
@@ -29,7 +29,7 @@
     <section class="cell"><h2>SPECIFICITY</h2><div id="specific" class="swatch">id beats class</div></section>
     <section class="cell"><h2>IMPORTANT</h2><div class="swatch important" style="background: red">important beats inline</div></section>
     <section class="cell"><h2>INLINE STYLE</h2><div class="swatch inline" style="background: yellow">inline declaration</div></section>
-    <section class="cell inherit"><h2>INHERITANCE</h2><div class="swatch">parent <span>child inherits</span></div></section>
-    <section class="cell initial"><h2>INITIAL</h2><div class="swatch">parent red <span>child reset</span></div></section>
+    <section class="cell inherit"><h2>INHERITANCE</h2><div class="swatch"><div>parent <span>child inherits</span></div></div></section>
+    <section class="cell initial"><h2>INITIAL</h2><div class="swatch"><div>parent red <span>child reset</span></div></div></section>
   </div>
 </div>

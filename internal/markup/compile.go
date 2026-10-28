@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -60,6 +61,21 @@ type compiler struct {
 	// once, and without this an element's unsupported declarations would be
 	// reported once per visit.
 	computedFor map[*html.Node]style
+	// elementSaid is what warnUndrawnElement has said once and need not say
+	// again: an element set in italics, keyed by its name, so that a page of
+	// emphasis says so once.
+	elementSaid map[any]bool
+	// ordinals are the numbers list items were given, so that each one is
+	// counted on from the one before it rather than from the start.
+	ordinals map[*html.Node]int
+	// escaped are the margins a block's first and last children gave up to
+	// it, top and bottom, for its own to collapse with. See collapseMargins.
+	escaped map[*html.Node][2]int
+	// rootFontSize and viewport are what rem and vw/vh are shares of: the
+	// root element's font size, and the page's size, which the root element
+	// states. Both are known once the root has been computed.
+	rootFontSize int
+	viewport     stdimage.Point
 	// clips are the clipPath elements the document being compiled defines.
 	// Inline SVGs share one fragment namespace; an external SVG image gets a
 	// fresh compiler and therefore a separate one.
@@ -106,7 +122,7 @@ func (options Compiler) Compile(markup, css string) (Document, error) {
 	if err != nil {
 		return Document{}, fmt.Errorf("parse markup: %w", err)
 	}
-	c := &compiler{computedFor: map[*html.Node]style{}, drawings: options.Drawings}
+	c := &compiler{computedFor: map[*html.Node]style{}, elementSaid: map[any]bool{}, ordinals: map[*html.Node]int{}, escaped: map[*html.Node][2]int{}, drawings: options.Drawings}
 	c.indexSVGReferences(root)
 	css, styled := c.gatherStyles(root, css, options.StylesheetName, options.Stylesheets)
 	if strings.TrimSpace(css) == "" && !styled {
@@ -323,11 +339,17 @@ func (c *compiler) pageSize(element *html.Node) stdimage.Point {
 	if !ok {
 		return stdimage.Point{}
 	}
+	return statedSize(computed)
+}
+
+// statedSize is the width and height a style gives in pixels, or nothing if
+// it does not give both.
+func statedSize(computed style) stdimage.Point {
 	width, height := computed.width, computed.height
-	if !width.set || !height.set || width.percent != 0 || height.percent != 0 {
+	if !width.fixed() || !height.fixed() {
 		return stdimage.Point{}
 	}
-	return stdimage.Pt(int(width.pixels), int(height.pixels))
+	return stdimage.Pt(width.px(), height.px())
 }
 
 func (c *compiler) warn(path, code, message string) {
@@ -388,33 +410,76 @@ func (c *compiler) computed(node *html.Node, parent style, path string) style {
 			"%s: the style attribute was skipped: %v. Everything the stylesheet says still applies",
 			describe(node), err))
 	}
-	for _, applied := range c.sheet.declarationsFor(node) {
-		property, value := applied.property, applied.value
+	report := func(message string) {
+		c.warn(path, "unsupported-declaration", fmt.Sprintf("%s: %s", describe(node), message))
+	}
+	// The default stylesheet goes first, so that anything the page says
+	// about the same property is applied after it and wins.
+	declarations := append(agentDeclarations(node), c.sheet.declarationsFor(node)...)
+	// An em is the element's own font size, so that is settled before
+	// anything is measured in it, whichever order the two were written in.
+	// The font size's own em is the parent's.
+	units := c.unitsFor(path, parent)
+	fontSized := current
+	for _, applied := range declarations {
+		if applied.property != "font-size" && applied.property != "font" {
+			continue
+		}
+		if value, ok := c.substituted(applied, declared, nil); ok {
+			if value, ok := units.resolve(percentOfFont(applied.property, value), nil); ok {
+				fontSized.apply(applied.property, value, parent, func(string) {})
+				fontSized.agentFontSize = applied.agent
+			}
+		}
+	}
+	fontSized.settleAgentFontSize()
+	elementUnits := units
+	elementUnits.em = float64(fontSized.fontSize)
+	for _, applied := range declarations {
+		property := applied.property
 		if externalSVG && externalSVGPaintProperties[property] {
 			continue
 		}
-		if strings.Contains(value, "var(") {
-			substituted, problem := c.sheet.substitute(value, declared)
-			if problem != "" {
-				c.warn(path, "unsupported-declaration",
-					fmt.Sprintf("%s: %s: %s", describe(node), property, problem))
-				continue
-			}
-			value = substituted
+		value, ok := c.substituted(applied, declared, report)
+		if !ok {
+			continue
+		}
+		switch property {
+		case "font-size":
+			value, ok = units.resolve(percentOfFont(property, value), report)
+		case "font":
+			value, ok = resolveFont(percentOfFont(property, value), units, elementUnits, report)
+		default:
+			value, ok = elementUnits.resolve(value, report)
+		}
+		if !ok {
+			continue
 		}
 		// The whole parent style, not the inheriting subset: inherit means
 		// "take the parent's value" for any property, and display: inherit
 		// has to be able to see a display.
-		current.apply(property, value, parent, func(message string) {
-			c.warn(path, "unsupported-declaration", fmt.Sprintf("%s: %s", describe(node), message))
-		})
+		current.apply(property, value, parent, report)
+		if property == "font-size" || property == "font" {
+			current.agentFontSize = applied.agent
+		}
+	}
+	current.settleAgentFontSize()
+	// The lines an ancestor's text-decoration draws stop at a box that is
+	// laid out on its own, as they do in CSS: an inline-block, or anything
+	// positioned out of the flow.
+	if current.inlineAtomic || current.absolute {
+		current.decorated = 0
+	}
+	if path == "root" {
+		c.rootFontSize = current.fontSize
+		c.viewport = statedSize(current)
 	}
 	// A line-height written as a number is a ratio, and the font size it is a
 	// ratio of is only settled now that every declaration is in. Working it
 	// out as each declaration arrived made the answer depend on the order the
 	// two were written in.
 	if current.lineHeightMultiple > 0 {
-		current.lineHeight = int(float64(current.fontSize)*current.lineHeightMultiple + 0.5)
+		current.lineHeight = int(float64(float64(current.fontSize)*current.lineHeightMultiple) + 0.5)
 		if current.lineHeightResolvesHere {
 			current.lineHeightMultiple, current.lineHeightResolvesHere = 0, false
 		}
@@ -443,8 +508,142 @@ func (c *compiler) computed(node *html.Node, parent style, path string) style {
 			break
 		}
 	}
+	if node.Namespace == "" && current.display != displayNone {
+		c.warnUndrawnElement(node, current, path)
+	}
 	c.computedFor[node] = current
 	return current
+}
+
+// undrawnElements have nothing of their own this display can show: a form
+// control's face is the browser's, and the rest show what a page loads or
+// runs.
+var undrawnElements = map[string]string{
+	"input": "a form control", "select": "a form control", "textarea": "a form control",
+	"progress": "a form control", "meter": "a form control",
+	"canvas": "drawn by a script", "video": "a player", "audio": "a player",
+	"iframe": "another page", "object": "embedded content", "embed": "embedded content",
+}
+
+// italicByDefault are the elements a browser sets in italics.
+var italicByDefault = map[string]bool{
+	"em": true, "i": true, "cite": true, "var": true, "dfn": true, "address": true,
+}
+
+// warnUndrawnElement says when an element looks different here from how it
+// looks in a browser with no rule written for it: what a browser draws for
+// it from its own stylesheet, and this does not. Each is quiet once the page
+// says what it wants instead, the way a page written for a browser often
+// already does.
+func (c *compiler) warnUndrawnElement(node *html.Node, current style, path string) {
+	written := func(prefixes ...string) bool {
+		for _, applied := range c.sheet.declarationsFor(node) {
+			for _, prefix := range prefixes {
+				if strings.HasPrefix(applied.property, prefix) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	say := func(message string) {
+		c.warn(path, "unsupported-element", fmt.Sprintf("%s: %s", describe(node), message))
+	}
+	name := node.Data
+	switch {
+	case undrawnElements[name] != "":
+		say(fmt.Sprintf("%s is not drawn: it is %s, which this display has no way to show; draw what it should look like with boxes and text", name, undrawnElements[name]))
+	case name == "button" && !written("border", "background"):
+		say("a browser draws a button's border and background itself, and this does not; only what is inside it is drawn. Give it a border or a background to draw one")
+	case name == "table" && !written("display"):
+		say("table layout is not supported: its rows and cells are laid out as blocks, one under another. Lay it out with display: grid and grid-template-columns, with display: contents on the rows and the tbody")
+	case italicByDefault[name] && !written("font-style", "font") && hasOwnText(node) && !c.elementSaid[name]:
+		c.elementSaid[name] = true
+		say(fmt.Sprintf("a browser sets %s in italics, and the faces this build has are upright only; give it another style, such as font-weight: bold, if it needs to stand out", name))
+	}
+}
+
+// hasOwnText is whether the element has text directly inside it, which is
+// what tells emphasis apart from an <i> used as an icon.
+func hasOwnText(node *html.Node) bool {
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type == html.TextNode && strings.TrimSpace(child.Data) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// substituted is a declaration's value with its var() references filled in,
+// or false, said through report, if they could not be.
+func (c *compiler) substituted(applied declaration, declared map[string]string, report func(string)) (string, bool) {
+	value := applied.value
+	if !strings.Contains(value, "var(") {
+		return value, true
+	}
+	substituted, problem := c.sheet.substitute(value, declared)
+	if problem != "" {
+		if report != nil {
+			report(fmt.Sprintf("%s: %s", applied.property, problem))
+		}
+		return "", false
+	}
+	return substituted, true
+}
+
+// percentOfFont writes a percentage font size as the share of the parent's em
+// that it is, which is what CSS measures it against. In the shorthand only the
+// size can be a percentage of the font: one after the slash is a line height,
+// which is a share of the element's own size and is read where line-height is.
+func percentOfFont(property, value string) string {
+	size, height, slashed := value, "", false
+	if property == "font" {
+		size, height, slashed = strings.Cut(value, "/")
+	} else if property != "font-size" {
+		return value
+	}
+	fields := strings.Fields(size)
+	changed := false
+	for index, field := range fields {
+		if number, ok := strings.CutSuffix(field, "%"); ok {
+			if share, err := parseFinite(number); err == nil {
+				fields[index] = strconv.FormatFloat(share/100, 'f', -1, 64) + "em"
+				changed = true
+			}
+		}
+	}
+	if !changed {
+		return value
+	}
+	size = strings.Join(fields, " ")
+	if slashed {
+		return size + "/" + height
+	}
+	return size
+}
+
+// resolveFont resolves the font shorthand, whose size is measured in the
+// parent's em and whose line height, after the slash, in the element's own.
+func resolveFont(value string, units, elementUnits relativeUnits, report func(string)) (string, bool) {
+	size, height, slashed := strings.Cut(value, "/")
+	size, ok := units.resolve(size, report)
+	if !ok || !slashed {
+		return size, ok
+	}
+	height, ok = elementUnits.resolve(height, report)
+	return size + "/" + height, ok
+}
+
+// unitsFor is what the relative units mean for an element whose parent's
+// style is given: em is the parent's font size until the element's own is
+// known.
+func (c *compiler) unitsFor(path string, parent style) relativeUnits {
+	units := relativeUnits{em: float64(parent.fontSize), rem: float64(c.rootFontSize), viewport: c.viewport}
+	if path == "root" || units.rem == 0 {
+		// The root's rem is the initial font size, as html's is.
+		units.rem = display.DefaultFontSize
+	}
+	return units
 }
 
 // variablesFor gathers the custom properties in scope for one element: those
@@ -513,7 +712,8 @@ func (c *compiler) element(node *html.Node, parent style, path string, containin
 	if current.hidden {
 		current.background, current.gradient, current.border = nil, nil, nil
 	}
-	inner, insetAlready := c.children(node, current, path, containing)
+	marker := c.listMarkerFor(node, current, path)
+	inner, insetAlready, markedInside := c.children(node, current, path, containing, marker)
 	if inner == nil && (current.background == nil && current.gradient == nil && !hasBorder(current) || current.hasBoxEdges()) {
 		// An element with nothing to paint still has a box. Dropping it
 		// shifted everything after it along, which in a grid meant a spacer
@@ -529,12 +729,22 @@ func (c *compiler) element(node *html.Node, parent style, path string, containin
 	if !insetAlready {
 		inner = padded(inner, current)
 	}
+	// A marker the first line could not take is hung beside the item, where
+	// list-style-position: outside puts it.
+	if marker != nil && !markedInside {
+		if current.listInside {
+			c.warn(path, "unsupported-declaration", fmt.Sprintf(
+				"%s: list-style-position: inside puts the marker on the item's first line of text, and this item starts with a box; the marker is drawn outside", describe(node)))
+		}
+		inner = &emitted{Type: "stack", Children: []*emitted{inner, marker.outside(c, current, path)}}
+	}
 
 	// A background and a border are layers under the content, which is what a
 	// stack is for. An element with neither is just its content.
 	var layers []*emitted
 	if current.background != nil || current.gradient != nil {
-		layer := &emitted{Type: "rectangle", Gradient: gradientOf(current.gradient), Radius: radiusOf(current)}
+		layer := &emitted{Type: "rectangle", Gradient: gradientOf(current.gradient)}
+		layer.Radius, layer.RadiusLength = radiusOf(current)
 		if current.background != nil {
 			layer.Fill = inkName(*current.background)
 		}
@@ -546,20 +756,24 @@ func (c *compiler) element(node *html.Node, parent style, path string, containin
 	// the page would show a line the author asked not to have, or asked for in
 	// a shape this has no way to make.
 	if edge, sides := borderStrokes(current); edge != nil || sides != ([4]*stroke{}) {
-		borderLayer := &emitted{Type: "rectangle", Radius: radiusOf(current), Stroke: edge,
+		borderLayer := &emitted{Type: "rectangle", Stroke: edge,
 			StrokeTop: sides[0], StrokeRight: sides[1], StrokeBottom: sides[2], StrokeLeft: sides[3]}
+		borderLayer.Radius, borderLayer.RadiusLength = radiusOf(current)
 		layers = append(layers, borderLayer)
 	}
 	// overflow confines what is inside the element; the element's own
 	// background and border are drawn regardless. clip-path is the other way
 	// round: it shapes the element itself, so it is applied further out.
 	if current.clip && inner != nil {
-		if current.border != nil && current.border.radius > 0 {
+		if radius := radiusLengthOf(current); radius.pixels > 0 || radius.percent > 0 {
 			// Clipping to the box means clipping to the box as drawn, and a
-			// rounded border draws a rounded box.
-			inner = &emitted{Type: "clipShape", Child: inner, Shape: shapeOf(compose.Shape{
-				Kind: compose.ShapeInset, Corner: compose.Pixels(current.border.radius),
-			})}
+			// rounded border draws a rounded box: an ellipse, when the
+			// corners are half of it.
+			corner := compose.Shape{Kind: compose.ShapeInset, Corner: lengthOf(radius)}
+			if radius.pixels == 0 && radius.percent >= 50 {
+				corner = compose.Shape{Kind: compose.ShapeEllipse}
+			}
+			inner = &emitted{Type: "clipShape", Child: inner, Shape: shapeOf(corner)}
 		} else {
 			inner = &emitted{Type: "clip", Child: inner}
 		}
@@ -634,9 +848,19 @@ func relatively(node *emitted, s style) *emitted {
 	}
 }
 
-func radiusOf(s style) int {
+// radiusOf is the radius a box's corners are written with: in the legacy pixel
+// field when it is pixels, and as a length when it is a share of the box.
+func radiusOf(s style) (int, any) {
+	radius := radiusLengthOf(s)
+	if radius.percent == 0 {
+		return radius.px(), nil
+	}
+	return 0, lengthValue(lengthOf(radius))
+}
+
+func radiusLengthOf(s style) length {
 	if s.border == nil {
-		return 0
+		return length{}
 	}
 	return s.border.radius
 }
@@ -910,26 +1134,56 @@ func pathExtension(source string) string {
 // which it does when it has laid an anchored layer over the content: an
 // absolutely positioned child is placed against the padding box and not inside
 // it, so the padding has to go round the line rather than round both.
-func (c *compiler) children(node *html.Node, current style, path string, containing *childBoxes) (*emitted, bool) {
+//
+// A list item's marker is put on its first line when it says inside and its
+// first line is a line of text, and the last result says whether it was.
+func (c *compiler) children(node *html.Node, current style, path string, containing *childBoxes, marker *listMarker) (*emitted, bool, bool) {
+	inside := marker != nil && current.listInside
 	// A flex container lays out boxes, never a line of text, so the inline
 	// path is not even attempted for one.
 	if current.display != displayFlex && c.inlineCompatible(node, current, path) {
 		if items, ok, special := c.inlineItems(node, current, path, containing); ok && special {
+			if current.ellipsis {
+				c.warn(path, "unsupported-declaration", fmt.Sprintf(
+					"%s: text-overflow: ellipsis works on text with no elements inside it; this text is cut off instead", describe(node)))
+			}
+			if inside {
+				items = append([]inlineItem{marker.inside(c, current, path)}, items...)
+			}
 			return &emitted{Type: "inline", Items: items,
 				Align: horizontalAlignName(current.textAlign),
-				Wrap:  wrapName(current.wrap), LineHeight: current.lineHeight}, false
+				Wrap:  textWrap(current.textWrap()), LineHeight: current.lineHeight}, false, inside
 		}
-		if runs := c.textRuns(node, current, path); len(runs) > 0 {
+		if runs := c.textRuns(node, current, path); len(runs) > 0 && inside {
+			// The marker is a box of its own on the line, so the text is set
+			// as a line of boxes for it to go first in.
+			items := []inlineItem{marker.inside(c, current, path),
+				{Runs: runs, LineHeight: current.lineHeight, Wrap: wrapName(current.textWrap())}}
+			return &emitted{Type: "inline", Items: items,
+				Align: horizontalAlignName(current.textAlign),
+				Wrap:  textWrap(current.textWrap()), LineHeight: current.lineHeight}, false, true
+		} else if len(runs) > 0 {
 			// Text sits at the top of its box, as it does in CSS. Centring it
 			// vertically is what vertical-align: middle is for, and the
 			// centring is where a half pixel has to go somewhere: a line of
 			// Chinese and a line of mixed Chinese and Latin have ink of
 			// different heights, so at an even line height the two settled a
 			// pixel apart. At the top they cannot.
+			// An ellipsis marks text that overflow has cut off, so without
+			// overflow there is nothing to mark, as in a browser.
+			if current.ellipsis && !current.clip {
+				c.warn(path, "unsupported-declaration", fmt.Sprintf(
+					"%s: text-overflow: ellipsis has no effect without overflow: hidden, as in a browser", describe(node)))
+			}
 			return &emitted{Type: "text", Runs: runs,
 				Align: horizontalAlignName(current.textAlign),
-				Wrap:  wrapName(current.wrap), LineHeight: current.lineHeight}, false
+				Wrap:  textWrap(current.textWrap()), LineHeight: current.lineHeight,
+				Ellipsis: current.ellipsis && current.clip}, false, false
 		}
+	}
+	if current.ellipsis && firstElement(node) != nil {
+		c.warn(path, "unsupported-declaration", fmt.Sprintf(
+			"%s: text-overflow applies to the lines of text in a box, and this one holds boxes; put it on the box the text is in", describe(node)))
 	}
 
 	var boxes childBoxes
@@ -948,16 +1202,16 @@ func (c *compiler) children(node *html.Node, current style, path string, contain
 			"gap has no effect on a block container; it spaces flex and grid children")
 	}
 
-	flow := func(line *emitted) (*emitted, bool) {
+	flow := func(line *emitted) (*emitted, bool, bool) {
 		line = padded(line, current)
 		if len(placed) == 0 {
-			return line, line != nil
+			return line, line != nil, false
 		}
 		layered := anchoredIn(placed, current)
 		if line == nil {
-			return layered, true
+			return layered, true, false
 		}
-		return &emitted{Type: "stack", Children: []*emitted{line, layered}}, true
+		return &emitted{Type: "stack", Children: []*emitted{line, layered}}, true, false
 	}
 
 	if current.display == displayGrid {
@@ -970,30 +1224,259 @@ func (c *compiler) children(node *html.Node, current style, path string, contain
 			ColumnGapLength: deferredLengthValue(lengthOf(current.columnGapLength)),
 			RowGapLength:    deferredLengthValue(lengthOf(current.rowGapLength)),
 			AlignItems:      crossAlignName(current.alignItems),
-			JustifyItems:    crossAlignName(crossOfMain(current.justify)),
+			JustifyItems:    crossAlignName(current.gridJustifyItems()),
+			JustifyContent:  optionalMainAlignName(current.justifyContent),
+			AlignContent:    optionalMainAlignName(current.alignContent),
 			Children:        cells,
 		})
 	}
 	if current.display == displayFlex {
-		if current.spaceEvenly {
-			items = spread(items)
-		}
 		cross := current.alignItems
-		if current.direction == axisColumn {
-			return flow(&emitted{Type: "column", Gap: current.rowGap, GapLength: deferredLengthValue(lengthOf(current.rowGapLength)),
-				MainAlign: mainAlignName(current.justify), CrossAlign: crossAlignName(cross),
-				Children: items})
+		justify := current.justify
+		if current.reverse {
+			// A reversed line is the same line laid out from its far end:
+			// the items in the other order, and packed against that end.
+			// Margins and the rest stay on the sides they were written on.
+			items = slices.Clone(items)
+			slices.Reverse(items)
+			if !current.justifyWritten {
+				switch justify {
+				case compose.MainStart:
+					justify = compose.MainEnd
+				case compose.MainEnd:
+					justify = compose.MainStart
+				}
+			}
 		}
-		return flow(&emitted{Type: "row", Gap: current.columnGap, GapLength: deferredLengthValue(lengthOf(current.columnGapLength)),
-			MainAlign: mainAlignName(current.justify), CrossAlign: crossAlignName(cross),
-			Children: items})
+		line := &emitted{Type: "row", Gap: current.columnGap, GapLength: deferredLengthValue(lengthOf(current.columnGapLength)),
+			MainAlign: mainAlignName(justify), CrossAlign: crossAlignName(cross), Children: items}
+		crossGap, crossGapLength := current.rowGap, current.rowGapLength
+		if current.direction == axisColumn {
+			line.Type, line.Gap, line.GapLength = "column", current.rowGap, deferredLengthValue(lengthOf(current.rowGapLength))
+			crossGap, crossGapLength = current.columnGap, current.columnGapLength
+		}
+		if current.flexWrap {
+			// The gap across the line is the one between lines, and
+			// align-content shares out the room they leave.
+			line.Wrap, line.CrossGap = true, crossGap
+			line.CrossGapLength = deferredLengthValue(lengthOf(crossGapLength))
+			line.AlignContent = optionalMainAlignName(current.alignContent)
+		}
+		return flow(line)
 	}
 	// Block children stack down the page, which is a column that neither
 	// grows nor gaps.
 	if len(items) == 0 {
 		return flow(nil)
 	}
+	c.collapseMargins(node, current, path, items)
 	return flow(&emitted{Type: "column", Children: items})
+}
+
+// collapseMargins does to the vertical margins of a block's children what CSS
+// does: two that meet become the larger of the two rather than both, and
+// where nothing of the block's own stands between it and its first or last
+// child, the child's margin goes outside the block and joins the block's own.
+// That is why stacked paragraphs with margin: 8px 0 are 8px apart, and why a
+// heading's margin-top moves the box it is in rather than the heading.
+//
+// What leaves the block is kept in escaped until the block's own margin is
+// written, in appendChildren. A margin that is a share of the width is not
+// known here, and is left as it is, and said.
+func (c *compiler) collapseMargins(node *html.Node, current style, path string, items []layoutChild) {
+	// The margins between one box with height and the next all meet: the
+	// first's bottom, the next's top, and both of each empty box between
+	// them, which has nothing to keep its own two apart. They come to one
+	// margin, put on the next box's top, or at the end on the last box's
+	// bottom.
+	first, last := -1, -1
+	run := []int{}
+	pixels, meeting := true, 0
+	settle := func(next int) {
+		defer func() { run, pixels, meeting = run[:0], true, 0 }()
+		if !pixels {
+			if meeting > 1 {
+				c.warn(path, "unsupported-declaration", fmt.Sprintf(
+					"%s: margins that meet are collapsed into the larger, as in a browser, but not when one is a percentage; these are added", describe(node)))
+			}
+			return
+		}
+		value := collapsedMargin(run...)
+		switch {
+		case next >= 0:
+			setMarginSide(&items[next], 0, value)
+		case last >= 0:
+			setMarginSide(&items[last], 2, value)
+		default:
+			return
+		}
+		if last >= 0 && next >= 0 {
+			setMarginSide(&items[last], 2, 0)
+		}
+		for index := max(0, last+1); index < len(items) && (next < 0 || index < next); index++ {
+			setMarginSide(&items[index], 0, 0)
+			setMarginSide(&items[index], 2, 0)
+		}
+	}
+	collect := func(item layoutChild, side int) {
+		margin, ok := marginSide(item, side)
+		run = append(run, margin)
+		pixels = pixels && ok
+		if margin != 0 || !ok {
+			meeting++
+		}
+	}
+	for index, item := range items {
+		if item.through {
+			collect(item, 0)
+			collect(item, 2)
+			continue
+		}
+		if first < 0 {
+			first = index
+		}
+		if last >= 0 || index > 0 {
+			collect(item, 0)
+			settle(index)
+		}
+		last = index
+		collect(item, 2)
+	}
+	if last >= 0 && len(run) > 1 {
+		settle(-1)
+	}
+	// A box laid out on its own keeps its children's margins inside it, as
+	// does the page, and so does a margin of its own that is not in pixels.
+	if path == "root" || current.blockified || current.absolute || current.inlineAtomic || current.clip {
+		return
+	}
+	// The first and last child's margins leave the box where nothing of the
+	// box's own is in the way: no padding or border on that side, a margin
+	// of its own in pixels for them to join, and below, no height of its own.
+	edges := current.edgesLengths()
+	topOpen := zeroLength(edges[0]) && current.marginLength[0].percent == 0 && !current.autoTop
+	bottomOpen := zeroLength(edges[2]) && current.marginLength[2].percent == 0 && !current.autoBottom &&
+		!current.height.set && current.minSize[1].pixels == 0 && current.minSize[1].percent == 0
+	var escaped [2]int
+	if first < 0 {
+		// Nothing but empty boxes: their margins all meet, and go out of
+		// the box as one, through the top if that is open.
+		if !pixels {
+			if meeting > 1 {
+				c.warn(path, "unsupported-declaration", fmt.Sprintf(
+					"%s: margins that meet are collapsed into the larger, as in a browser, but not when one is a percentage; these are added", describe(node)))
+			}
+			return
+		}
+		switch {
+		case topOpen:
+			escaped[0] = collapsedMargin(run...)
+		case bottomOpen:
+			escaped[1] = collapsedMargin(run...)
+		default:
+			return
+		}
+		for index := range items {
+			setMarginSide(&items[index], 0, 0)
+			setMarginSide(&items[index], 2, 0)
+		}
+	} else {
+		if top, ok := marginSide(items[first], 0); ok && topOpen {
+			escaped[0] = top
+			setMarginSide(&items[first], 0, 0)
+		}
+		if bottom, ok := marginSide(items[last], 2); ok && bottomOpen {
+			escaped[1] = bottom
+			setMarginSide(&items[last], 2, 0)
+		}
+	}
+	if escaped != [2]int{} {
+		c.escaped[node] = escaped
+	}
+}
+
+// collapsesThrough is whether an element in a block's flow is an empty box
+// whose own top and bottom margins meet, as CSS has them do: nothing inside
+// it, and no height, padding or border to hold them apart.
+func (c *compiler) collapsesThrough(node *html.Node, current style) bool {
+	if current.display != displayBlock || current.inline || current.inlineAtomic || current.blockified ||
+		current.absolute || current.clip || current.ratio > 0 || inlineByDefault[node.Data] || undrawnElements[node.Data] != "" {
+		return false
+	}
+	if current.height.percent != 0 || current.height.pixels != 0 || current.minSize[1].percent != 0 || current.minSize[1].pixels != 0 {
+		return false
+	}
+	edges := current.edgesLengths()
+	if !zeroLength(edges[0]) || !zeroLength(edges[2]) {
+		return false
+	}
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		switch {
+		case child.Type == html.TextNode && strings.TrimSpace(child.Data) != "":
+			return false
+		case child.Type == html.ElementNode && !notContent[child.Data]:
+			// An empty box inside is as empty as no box, its margins having
+			// left through this one; see collapseMargins.
+			style, ok := c.computedFor[child]
+			if !ok || (style.display != displayNone && !style.absolute && !c.collapsesThrough(child, style)) {
+				return false
+			}
+			if current.marginLength[0].percent != 0 || current.marginLength[2].percent != 0 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// marginSide is one side of an item's margin in pixels, or false if it is
+// not a number of pixels.
+func marginSide(item layoutChild, side int) (int, bool) {
+	if item.Margin == nil {
+		return 0, true
+	}
+	value := [4]any{item.Margin.Top, item.Margin.Right, item.Margin.Bottom, item.Margin.Left}[side]
+	switch value := value.(type) {
+	case nil:
+		return 0, true
+	case int:
+		return value, true
+	default:
+		return 0, false
+	}
+}
+
+func setMarginSide(item *layoutChild, side, pixels int) {
+	if item.Margin == nil {
+		if pixels == 0 {
+			return
+		}
+		item.Margin = &lengthInsets{Top: 0, Right: 0, Bottom: 0, Left: 0}
+	}
+	value := any(pixels)
+	switch side {
+	case 0:
+		item.Margin.Top = value
+	case 2:
+		item.Margin.Bottom = value
+	}
+}
+
+// zeroLength is whether a padding and border side has nothing in it.
+func zeroLength(length compose.Length) bool {
+	percent, pixels := length.Parts()
+	return percent == 0 && pixels == 0
+}
+
+// collapsedMargin is what margins that meet come to in CSS: the largest
+// positive one plus the most negative one, so the larger of two positive
+// ones, the more negative of two negative ones, and the sum of one of each.
+func collapsedMargin(margins ...int) int {
+	largest, smallest := 0, 0
+	for _, margin := range margins {
+		largest, smallest = max(largest, margin), min(smallest, margin)
+	}
+	return largest + smallest
 }
 
 // inlineCompatible is a side-effect-free preflight. It prevents the collector
@@ -1154,7 +1637,7 @@ func contentsContext(container, contents style) style {
 	next.fontFamily, next.fontFallback, next.fontSize = inherited.fontFamily, slices.Clone(inherited.fontFallback), inherited.fontSize
 	next.textAlign = inherited.textAlign
 	next.lineHeight, next.lineHeightMultiple = inherited.lineHeight, inherited.lineHeightMultiple
-	next.wrap, next.preserve, next.hidden = inherited.wrap, inherited.preserve, inherited.hidden
+	next.wrap, next.preserve, next.hidden, next.breakAll = inherited.wrap, inherited.preserve, inherited.hidden, inherited.breakAll
 	next.lineCap, next.lineJoin = inherited.lineCap, inherited.lineJoin
 	return next
 }
@@ -1172,14 +1655,6 @@ func hasInset(s style) bool {
 // itself for an element with display: contents, whose children belong to this
 // container rather than to a box of its own.
 func (c *compiler) appendChildren(node *html.Node, current style, path string, into, containing *childBoxes) {
-	// The axis the children actually run along. direction only means anything
-	// on a flex container; a block container stacks down the page whatever it
-	// says, and reading direction straight off it left every block at the row
-	// default, which sent a left margin into the gap above the box.
-	flow := current.direction
-	if current.display != displayFlex {
-		flow = axisColumn
-	}
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
 		if child.Type == html.TextNode {
 			if current.hidden {
@@ -1194,7 +1669,7 @@ func (c *compiler) appendChildren(node *html.Node, current style, path string, i
 			}
 			anonymous := &emitted{Type: "text",
 				Runs:       plainRuns([]run{c.runOf(text, current, path)}),
-				Wrap:       wrapName(current.wrap),
+				Wrap:       textWrap(current.textWrap()),
 				LineHeight: current.lineHeight,
 			}
 			if current.display == displayGrid {
@@ -1229,59 +1704,55 @@ func (c *compiler) appendChildren(node *html.Node, current style, path string, i
 			continue
 		}
 		if current.display == displayGrid {
-			into.cells = append(into.cells, gridCell(compiled, childStyle))
+			into.cells = append(into.cells, gridCell(compiled, childStyle, current))
 			continue
 		}
-		// margin-left:auto on a row, or margin-top:auto on a column, pushes
-		// this child and everything after it to the far end. A spacer that
-		// takes all the slack is how compose says the same thing.
-		if current.display == displayFlex && ((flow == axisRow && childStyle.autoLeft) ||
-			(flow == axisColumn && childStyle.autoTop)) {
-			into.items = append(into.items, grower())
+		item := c.layoutChild(compiled, childStyle, current, childPath)
+		item.through = c.collapsesThrough(child, childStyle)
+		if escaped, ok := c.escaped[child]; ok {
+			// The margins the child's first and last children gave up join
+			// the child's own, which collapseMargins made sure are pixels.
+			top, _ := marginSide(item, 0)
+			bottom, _ := marginSide(item, 2)
+			setMarginSide(&item, 0, collapsedMargin(top, escaped[0]))
+			setMarginSide(&item, 2, collapsedMargin(bottom, escaped[1]))
 		}
-		into.items = append(into.items, c.layoutChild(compiled, childStyle, current, childPath))
-		if current.display == displayFlex && ((flow == axisRow && childStyle.autoRight) ||
-			(flow == axisColumn && childStyle.autoBottom)) {
-			into.items = append(into.items, grower())
-		}
+		into.items = append(into.items, item)
 	}
-}
-
-// grower is the spacer that takes whatever room is left, which is how a
-// margin of auto and a space-between are both said.
-func grower() layoutChild {
-	return layoutChild{Node: &emitted{Type: "spacer"}, Grow: 1}
 }
 
 // gridCell carries a child's own placement into the grid, where a line number
 // and a span are the whole of what a cell needs to know.
-func gridCell(node *emitted, child style) gridChild {
+// stretches says whether an item is stretched: by its own alignment if it
+// states one, by its container's if not.
+func stretches(self *compose.CrossAlignment, container compose.CrossAlignment) bool {
+	if self != nil {
+		return *self == compose.CrossStretch
+	}
+	return container == compose.CrossStretch
+}
+
+func gridCell(node *emitted, child, grid style) gridChild {
+	// stretch fills a size nobody gave. An item that states its width or
+	// height keeps it, and stretch then means start, as it does in CSS.
+	alignSelf, justifySelf := child.alignSelf, child.justifySelf
+	start := compose.CrossStart
+	if (child.height.set || child.contentSized[1]) && stretches(alignSelf, grid.alignItems) {
+		alignSelf = &start
+	}
+	if (child.width.set || child.contentSized[0]) && stretches(justifySelf, grid.gridJustifyItems()) {
+		justifySelf = &start
+	}
 	return gridChild{
 		Node:        node,
 		Column:      child.cellColumn[0],
 		ColumnSpan:  child.cellColumn[1],
 		Row:         child.cellRow[0],
 		RowSpan:     child.cellRow[1],
-		AlignSelf:   optionalCrossAlignName(child.alignSelf),
-		JustifySelf: optionalCrossAlignName(child.justifySelf),
-		Margin:      lengthInsetsOf(styleLengths(child.marginLength, child.margin)),
+		AlignSelf:   optionalCrossAlignName(alignSelf),
+		JustifySelf: optionalCrossAlignName(justifySelf),
+		Margin:      marginInsetsOf(styleLengths(child.marginLength, child.margin), child.autoMargins(displayGrid)),
 	}
-}
-
-// spread puts a growing spacer between each pair of items, which is what
-// space-between describes: the slack goes into the gaps rather than the ends.
-func spread(items []layoutChild) []layoutChild {
-	if len(items) < 2 {
-		return items
-	}
-	spaced := make([]layoutChild, 0, len(items)*2-1)
-	for index, item := range items {
-		if index > 0 {
-			spaced = append(spaced, grower())
-		}
-		spaced = append(spaced, item)
-	}
-	return spaced
 }
 
 // layoutChild hands the child's stated sizes to the layout as lengths, which
@@ -1299,7 +1770,7 @@ func (c *compiler) layoutChild(node *emitted, child, parent style, path string) 
 	if parent.display == displayFlex {
 		item.Grow, item.Shrink = child.grow, child.shrink
 	}
-	item.Margin = lengthInsetsOf(styleLengths(child.marginLength, child.margin))
+	item.Margin = marginInsetsOf(styleLengths(child.marginLength, child.margin), child.autoMargins(parent.display))
 
 	// Every stated size is the content's unless the box says border-box, so
 	// the item the line is given has to be the box around it. flex-basis is
@@ -1317,9 +1788,44 @@ func (c *compiler) layoutChild(node *emitted, child, parent style, path string) 
 		item.Basis = lengthValue(lengthOf(child.outerSize(child.basis, along == axisRow)))
 	}
 	item.Cross = lengthValue(lengthOf(crossSize))
-	item.Ratio = child.ratio
+	// fit-content across the line is the content's size, which stretching
+	// would replace: as in CSS, the box keeps it and sits at the start, or
+	// wherever its auto margins put it.
+	crossContent := child.contentSized[1]
+	if along == axisColumn {
+		crossContent = child.contentSized[0]
+	}
+	container := compose.CrossStretch
+	if parent.display == displayFlex {
+		container = parent.alignItems
+	}
+	if crossContent && item.Cross == nil && stretches(child.alignSelf, container) {
+		start := compose.CrossStart
+		item.AlignSelf = optionalCrossAlignName(&start)
+	}
+	// A browser stretches a row's item to the row's height and takes its
+	// width from that by the ratio. Here a row's height comes from its items,
+	// so there is nothing to take it from.
+	if along == axisRow && child.ratio > 0 && item.Basis == nil && item.Cross == nil {
+		c.warn(path, "unsupported-declaration",
+			"aspect-ratio on a flex item in a row that states neither its width nor its height has nothing to work from here, so the box takes the width of its content; give it a width or a height")
+	}
+	// With both sizes stated aspect-ratio has nothing left to decide, and
+	// CSS ignores it.
+	if item.Basis == nil || item.Cross == nil {
+		item.Ratio = child.ratio
+	}
 	item.MinMain, item.MaxMain = lengthValue(lengthOf(minMain)), lengthValue(lengthOf(maxMain))
 	item.MinCross, item.MaxCross = lengthValue(lengthOf(minCross)), lengthValue(lengthOf(maxCross))
+	// min-width and min-height start out auto, which on a flex item is the
+	// least its content can be laid out in. A box that clips what it holds
+	// has nothing it must keep in view, so for it auto is zero.
+	if parent.display == displayFlex && item.MinMain == nil && !child.clip {
+		item.MinMain = "auto"
+		// flex-basis replaces the width as where the item starts, but the
+		// width still caps how far auto holds it up.
+		item.Stated = lengthValue(lengthOf(mainSize))
+	}
 	return item
 }
 
@@ -1465,7 +1971,7 @@ func (c *compiler) collectInline(node *html.Node, current style, path string, co
 			}
 			items = append(items, nested...)
 			special = special || nestedSpecial || inlineBoxStyle(childStyle) ||
-				childStyle.wrap != current.wrap || childStyle.lineHeight != current.lineHeight
+				childStyle.textWrap() != current.textWrap() || childStyle.lineHeight != current.lineHeight
 		}
 	}
 	return items, true, special
@@ -1475,7 +1981,7 @@ func (c *compiler) inlineTextItem(text string, current, box style, boxed bool, p
 	item := c.inlineBoxItem(box)
 	item.LineHeight = current.lineHeight
 	item.VerticalAlign = inlineVerticalAlignName(current.inlineVAlign)
-	item.Wrap = wrapName(current.wrap)
+	item.Wrap = wrapName(current.textWrap())
 	item.Runs = []run{c.runOf(text, current, path)}
 	if !boxed {
 		item.Padding = nil
@@ -1529,7 +2035,7 @@ func mergeInlineBox(outer, inner style) style {
 
 func (c *compiler) inlineBoxItem(current style) inlineItem {
 	item := inlineItem{LineHeight: current.lineHeight,
-		VerticalAlign: inlineVerticalAlignName(current.inlineVAlign), Wrap: wrapName(current.wrap)}
+		VerticalAlign: inlineVerticalAlignName(current.inlineVAlign), Wrap: wrapName(current.textWrap())}
 	item.Padding = insetsOf(current.padding)
 	item.PaddingLength = deferredLengthInsetsOf(styleLengths(current.paddingLength, current.padding))
 	if item.PaddingLength != nil {
@@ -1551,7 +2057,7 @@ func (c *compiler) inlineBoxItem(current style) inlineItem {
 		item.BorderTop, item.BorderRight = sides[0], sides[1]
 		item.BorderBottom, item.BorderLeft = sides[2], sides[3]
 	}
-	item.Radius = radiusOf(current)
+	item.Radius, item.RadiusLength = radiusOf(current)
 	item.Top = lengthValue(lengthOf(current.inset[0]))
 	item.Right = lengthValue(lengthOf(current.inset[1]))
 	item.Bottom = lengthValue(lengthOf(current.inset[2]))

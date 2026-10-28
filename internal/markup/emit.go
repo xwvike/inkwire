@@ -54,6 +54,7 @@ type emitted struct {
 	LengthInsets *lengthInsets `json:"lengthInsets,omitempty"`
 
 	Radius       int           `json:"radius,omitempty"`
+	RadiusLength any           `json:"radiusLength,omitempty"`
 	Fill         string        `json:"fill,omitempty"`
 	Gradient     *gradientJSON `json:"gradient,omitempty"`
 	Stroke       *stroke       `json:"stroke,omitempty"`
@@ -71,8 +72,11 @@ type emitted struct {
 	Items         []inlineItem `json:"items,omitempty"`
 	Align         string       `json:"align,omitempty"`
 	VerticalAlign string       `json:"verticalAlign,omitempty"`
-	Wrap          string       `json:"wrap,omitempty"`
-	LineHeight    int          `json:"lineHeight,omitempty"`
+	// Wrap is how a text's lines wrap, as a name, or whether a row or a
+	// column wraps, as true: the scene document spells both "wrap".
+	Wrap       any  `json:"wrap,omitempty"`
+	LineHeight int  `json:"lineHeight,omitempty"`
+	Ellipsis   bool `json:"ellipsis,omitempty"`
 
 	Source     string     `json:"source,omitempty"`
 	Processing string     `json:"processing,omitempty"`
@@ -111,6 +115,9 @@ type emitted struct {
 	GapLength  any    `json:"gapLength,omitempty"`
 	MainAlign  string `json:"mainAlign,omitempty"`
 	CrossAlign string `json:"crossAlign,omitempty"`
+	// CrossGap is the gap between a wrapped flex line and the next.
+	CrossGap       int `json:"crossGap,omitempty"`
+	CrossGapLength any `json:"crossGapLength,omitempty"`
 
 	Columns         []any  `json:"columns,omitempty"`
 	Rows            []any  `json:"rows,omitempty"`
@@ -120,6 +127,8 @@ type emitted struct {
 	RowGapLength    any    `json:"rowGapLength,omitempty"`
 	AlignItems      string `json:"alignItems,omitempty"`
 	JustifyItems    string `json:"justifyItems,omitempty"`
+	JustifyContent  string `json:"justifyContent,omitempty"`
+	AlignContent    string `json:"alignContent,omitempty"`
 
 	// Raw is the description a scene element handed over, spliced in whole.
 	// A page that embeds a drawing embeds the drawing, so what leaves here is
@@ -174,11 +183,14 @@ type stroke struct {
 }
 
 type run struct {
-	Text     string   `json:"text"`
-	Font     string   `json:"font,omitempty"`
-	Fallback []string `json:"fallback,omitempty"`
-	Size     int      `json:"size,omitempty"`
-	Ink      string   `json:"ink,omitempty"`
+	Text          string   `json:"text"`
+	Font          string   `json:"font,omitempty"`
+	Fallback      []string `json:"fallback,omitempty"`
+	Size          int      `json:"size,omitempty"`
+	Ink           string   `json:"ink,omitempty"`
+	Bold          bool     `json:"bold,omitempty"`
+	LetterSpacing int      `json:"letterSpacing,omitempty"`
+	Decoration    string   `json:"decoration,omitempty"`
 }
 
 // inlineItem is one fragment of an inline formatting context. It deliberately
@@ -200,6 +212,7 @@ type inlineItem struct {
 	BorderBottom  *stroke       `json:"borderBottom,omitempty"`
 	BorderLeft    *stroke       `json:"borderLeft,omitempty"`
 	Radius        int           `json:"radius,omitempty"`
+	RadiusLength  any           `json:"radiusLength,omitempty"`
 	LineHeight    int           `json:"lineHeight,omitempty"`
 	VerticalAlign string        `json:"verticalAlign,omitempty"`
 	Wrap          string        `json:"wrap,omitempty"`
@@ -233,6 +246,21 @@ func lengthInsetsOf(lengths [4]compose.Length) *lengthInsets {
 		return nil
 	}
 	return &lengthInsets{Top: lengthValue(lengths[0]), Right: lengthValue(lengths[1]), Bottom: lengthValue(lengths[2]), Left: lengthValue(lengths[3])}
+}
+
+// marginInsetsOf writes a margin, with "auto" for the sides that are.
+func marginInsetsOf(lengths [4]compose.Length, autos [4]bool) *lengthInsets {
+	if autos == [4]bool{} {
+		return lengthInsetsOf(lengths)
+	}
+	values := [4]any{}
+	for index, length := range lengths {
+		values[index] = lengthValue(length)
+		if autos[index] {
+			values[index] = "auto"
+		}
+	}
+	return &lengthInsets{Top: values[0], Right: values[1], Bottom: values[2], Left: values[3]}
 }
 
 func lengthsSet(lengths [4]compose.Length) bool {
@@ -312,11 +340,15 @@ type layoutChild struct {
 	Shrink    float64       `json:"shrink,omitempty"`
 	Margin    *lengthInsets `json:"margin,omitempty"`
 	MinMain   any           `json:"minMain,omitempty"`
+	Stated    any           `json:"stated,omitempty"`
 	MaxMain   any           `json:"maxMain,omitempty"`
 	MinCross  any           `json:"minCross,omitempty"`
 	MaxCross  any           `json:"maxCross,omitempty"`
 	AlignSelf string        `json:"alignSelf,omitempty"`
 	Ratio     float64       `json:"ratio,omitempty"`
+	// through marks an empty box whose margins collapse through it; see
+	// collapseMargins. It is not part of the scene.
+	through bool
 }
 
 // gridChild is one cell.
@@ -466,8 +498,26 @@ func mainAlignName(a compose.MainAlignment) string {
 		return "center"
 	case compose.MainEnd:
 		return "end"
+	case compose.MainSpaceBetween:
+		return "space-between"
+	case compose.MainSpaceAround:
+		return "space-around"
+	case compose.MainSpaceEvenly:
+		return "space-evenly"
 	}
 	return ""
+}
+
+// optionalMainAlignName writes a grid's content alignment, which is stretch
+// when it is absent, so start has to be written.
+func optionalMainAlignName(a *compose.MainAlignment) string {
+	if a == nil {
+		return ""
+	}
+	if *a == compose.MainStart {
+		return "start"
+	}
+	return mainAlignName(*a)
 }
 
 // optionalCrossAlignName writes an alignment a child may or may not have
@@ -506,16 +556,6 @@ func horizontalAlignName(a display.HorizontalAlign) string {
 	return ""
 }
 
-func verticalAlignName(a display.VerticalAlign) string {
-	switch a {
-	case display.AlignMiddle:
-		return "middle"
-	case display.AlignBottom:
-		return "bottom"
-	}
-	return ""
-}
-
 func inlineVerticalAlignName(a compose.InlineVerticalAlign) string {
 	switch a {
 	case compose.InlineTop:
@@ -528,9 +568,21 @@ func inlineVerticalAlignName(a compose.InlineVerticalAlign) string {
 	return ""
 }
 
+// textWrap is a text's wrap as the emitted node carries it, absent when it
+// does not wrap.
+func textWrap(w display.WrapMode) any {
+	if name := wrapName(w); name != "" {
+		return name
+	}
+	return nil
+}
+
 func wrapName(w display.WrapMode) string {
-	if w == display.WrapRunes {
+	switch w {
+	case display.WrapRunes:
 		return "runes"
+	case display.WrapWords:
+		return "words"
 	}
 	return ""
 }
@@ -624,7 +676,23 @@ func (c *compiler) runOf(text string, s style, path string) run {
 	if ink := inkName(s.color); ink != "black" {
 		written.Ink = ink
 	}
+	written.Bold, written.LetterSpacing = s.bold, s.letterSpacing
+	written.Decoration = decorationName(s.decorated | s.decoration)
 	return written
+}
+
+// decorationName writes a decoration as CSS writes text-decoration-line.
+func decorationName(decoration display.TextDecoration) string {
+	var lines []string
+	for _, line := range []struct {
+		flag display.TextDecoration
+		name string
+	}{{display.Underline, "underline"}, {display.LineThrough, "line-through"}, {display.Overline, "overline"}} {
+		if decoration&line.flag != 0 {
+			lines = append(lines, line.name)
+		}
+	}
+	return strings.Join(lines, " ")
 }
 
 // plainRuns drops the family and size from a line that is entirely in the

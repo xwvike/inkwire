@@ -156,14 +156,14 @@ func TestUnsetInheritsOnlyInheritedProperties(t *testing.T) {
 
 func TestInheritedBorderIsCopiedPerField(t *testing.T) {
 	parent := style{
-		border:     &border{width: 3, ink: display.InkRed, radius: 4},
+		border:     &border{width: 3, ink: display.InkRed, radius: length{set: true, pixels: 4}},
 		line:       borderDashed,
 		dash:       []int{6, 2},
 		dashOffset: 1,
 	}
-	child := style{border: &border{width: 9, ink: display.InkWhite, radius: 8}}
+	child := style{border: &border{width: 9, ink: display.InkWhite, radius: length{set: true, pixels: 8}}}
 	child.inheritOne("border-color", parent, func(string) { t.Fatal("border-color: inherit reported") })
-	if child.border.width != 9 || child.border.ink != display.InkRed || child.border.radius != 8 {
+	if child.border.width != 9 || child.border.ink != display.InkRed || child.border.radius.px() != 8 {
 		t.Fatalf("border-color inherit changed unrelated fields: %+v", *child.border)
 	}
 	child.inheritOne("border", parent, func(string) { t.Fatal("border: inherit reported") })
@@ -229,7 +229,7 @@ func TestTheBorderShorthandTakesAStyleKeyword(t *testing.T) {
 // wins. Deduplicating by content dropped the link and left the style element
 // that the link was written to override.
 func TestAStylesheetThatArrivesTwiceIsReadOnce(t *testing.T) {
-	const sheet = `.page { display: flex; width: 60px; height: 30px; } .a { letter-spacing: 1px; }`
+	const sheet = `.page { display: flex; width: 60px; height: 30px; } .a { text-shadow: 0 0 1px black; }`
 	document, err := Compiler{
 		Stylesheets:    func(string) ([]byte, error) { return []byte(sheet), nil },
 		StylesheetName: "page.css",
@@ -486,7 +486,7 @@ func TestKeywordsAndUnitsAreMatchedWithoutRegardToCase(t *testing.T) {
 		"grid-template-columns: AUTO 1FR", "display: INHERIT", "color: INITIAL",
 	} {
 		t.Run(declaration, func(t *testing.T) {
-			said := warningsFor(t, `<i class="a">x</i>`,
+			said := warningsFor(t, `<span class="a">x</span>`,
 				` .a { display: block; width: 20px; height: 20px; `+declaration+`; }`)
 			if said != "" {
 				t.Errorf("%q was reported: %q", declaration, said)

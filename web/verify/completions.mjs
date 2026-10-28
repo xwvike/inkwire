@@ -59,7 +59,9 @@ const CONTEXTS = {
   Text: (rule, property) =>
     property === "vertical-align"
       ? [`<div>text <span class="probe">x</span></div>`, rule]
-      : [`<div class="probe">text</div>`, rule],
+      : property === "text-overflow"
+        ? [`<div class="probe">text</div>`, `.probe { overflow: hidden } ${rule}`]
+        : [`<div class="probe">text</div>`, rule],
   Position: (rule) => [
     `<div class="host"><div class="probe">x</div></div>`,
     `.host { position: relative; width: 60px; height: 40px } ${rule}`,
@@ -99,6 +101,7 @@ const PROBE_VALUE = [
   [/^(border|border-(top|right|bottom|left))$/, "1px solid black"],
   [/-(width)$|^border-width$/, "1px"],
   [/-(style)$|^border-style$/, "solid"],
+  [/^text-decoration-color$/, "currentColor"],
   [/-(color)$|^(color|background|background-color|border-color|fill|stroke)$/, "black"],
   [/^border-radius$/, "2px"],
   [/^(width|height|min-|max-|flex-basis)/, "10px"],

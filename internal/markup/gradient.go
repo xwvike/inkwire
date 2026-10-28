@@ -139,9 +139,9 @@ func parseGradientDirection(argument string) (direction display.GradientDirectio
 	case "deg":
 		degrees = number
 	case "turn":
-		degrees = number * 360
+		degrees = float64(number * 360)
 	case "grad":
-		degrees = number * 0.9
+		degrees = float64(number * 0.9)
 	case "rad":
 		degrees = number * 180 / math.Pi
 	default:

@@ -13,18 +13,25 @@ syntax only for the subproperties listed here.
 
 | Category | Properties | Accepted values or syntax | Notes |
 |---|---|---|---|
-| Box | `display` | `block`, `inline`, `inline-block`, `flex`, `inline-flex`, `grid`, `inline-grid`, `contents`, `none` | `inline-*` creates the corresponding atomic box; `contents` creates no box of its own |
-| Size | `width`, `height`, `min-width`, `max-width`, `min-height`, `max-height`, `flex-basis` | `px`, `%`, `calc()`, `auto` where meaningful | Percentages resolve against the containing block; `flex-basis` supplies the flex base size |
-| Ratio | `aspect-ratio` | `number` or `number / number` | Both numbers must be positive |
+| Box | `display` | `block`, `list-item`, `inline`, `inline-block`, `flex`, `inline-flex`, `grid`, `inline-grid`, `contents`, `none` | `inline-*` creates the corresponding atomic box; `contents` creates no box of its own; `list-item` is a block with a marker, and is what `li` is |
+| Size | `width`, `height` | `px`, `%`, `calc()`, `auto`, `fit-content` | Percentages resolve against the containing block; a `fit-content` box is as wide (or tall) as its content and is not stretched by its container; `max-content` draws as `fit-content` and warns, and so does `min-content` |
+| Size | `min-width`, `min-height`, `flex-basis` | `px`, `%`, `calc()`, `auto` | `flex-basis` supplies the flex base size; as in a browser, a flex item's `min-width`/`min-height` starts at `auto` and it does not shrink below its longest word (or its content's height in a column) unless that is set to `0` or it has `overflow: hidden`; `min-content` is the same as `auto` |
+| Size | `max-width`, `max-height` | `px`, `%`, `calc()`, `none` | `none` leaves the box unbounded |
+| Ratio | `aspect-ratio` | `number` or `number / number` | Both numbers must be positive; the size not given is worked out from the one that is, or from the width a block fills, and with both given it is ignored |
 | Box | `box-sizing` | `content-box`, `border-box` | Applies to `width`, `height`, `min-*`, `max-*`, and `flex-basis` |
 | Padding | `padding`, `padding-top`, `padding-right`, `padding-bottom`, `padding-left` | Non-negative `px`, `%`, `calc()` | Percentages resolve against the containing block's inline size and settle to whole pixels |
-| Margin | `margin`, `margin-top`, `margin-right`, `margin-bottom`, `margin-left` | `px`, `%`, `calc()`, `auto` | `auto` participates in free-space distribution; percentages use the containing block's inline size |
+| Margin | `margin`, `margin-top`, `margin-right`, `margin-bottom`, `margin-left` | `px`, `%`, `calc()`, `auto`; may be negative | `auto` takes a flex line's free space before `justify-content` and places flex and grid items across; `margin: 0 auto` centres a block with a width; percentages use the containing block's inline size; in block flow, vertical margins collapse as in a browser (see below) |
 | Flex | `flex` | `none`, `auto`, `<grow>`, `<grow> <shrink>`, `<grow> <shrink> <basis>` | A one-number form uses `0%` basis; `<basis>` accepts `auto`, `px`, `%`, `calc()` |
-| Flex | `flex-direction` | `row`, `column` | — |
+| Flex | `flex-direction` | `row`, `row-reverse`, `column`, `column-reverse` | A reversed line places its items from the far end; `justify-content: start`, `end`, `left` and `right` keep naming the line's own ends, as in a browser |
+| Flex | `flex-wrap` | `nowrap`, `wrap` | Items that do not fit go on further lines, as in a browser: each line is flexed on its own, `row-gap` (`column-gap` in a column) separates the lines, and `align-content` places them; `wrap-reverse` draws as `wrap` and warns |
+| Flex | `flex-flow` | `row`, `row-reverse`, `column`, `column-reverse`, `nowrap`, `wrap` | A direction and a wrap, in either order |
 | Flex | `flex-grow`, `flex-shrink` | Non-negative numbers | The initial `flex-shrink` is `1` |
-| Gap | `gap`, `row-gap`, `column-gap` | Non-negative `px`, `%`, `calc()` | `row-gap` percentages resolve against the containing block's block size, `column-gap` against its inline size; the first `gap` value is row-gap and the second is column-gap; values settle to whole pixels |
+| Gap | `gap`, `row-gap`, `column-gap` | `normal` (no gap), non-negative `px`, `%`, `calc()` | `row-gap` percentages resolve against the containing block's block size, `column-gap` against its inline size; the first `gap` value is row-gap and the second is column-gap; values settle to whole pixels |
 | Alignment | `align-items`, `align-self`, `justify-items`, `justify-self` | `stretch`, `flex-start`, `start`, `center`, `flex-end`, `end`; `align-self` and `justify-self` also accept `auto` | `justify-*` uses the same alignment set |
-| Alignment | `justify-content` | `flex-start`, `start`, `normal`, `center`, `flex-end`, `end`, `space-between` | `space-around` and `space-evenly` are not implemented |
+| Alignment | `justify-content` | `flex-start`, `start`, `normal`, `center`, `flex-end`, `end`, `space-between`, `space-around`, `space-evenly` | Shares only the space nothing grew into; on a grid it places the columns, and `normal` stretches `auto` columns to fill instead |
+| Alignment | `align-content` | `flex-start`, `start`, `normal`, `stretch`, `center`, `flex-end`, `end`, `space-between`, `space-around`, `space-evenly` | Places a grid's rows as `justify-content` places its columns, and the lines of a wrapping flex box; `normal` and `stretch` stretch them into the room left; a flex box that does not wrap has one line and ignores it, as in a browser |
+| Alignment | `place-items`, `place-self` | `stretch`, `flex-start`, `start`, `center`, `flex-end`, `end`; `place-self` also accepts `auto` | The `align-*` value, then the `justify-*` value; one value sets both |
+| Alignment | `place-content` | `flex-start`, `start`, `normal`, `stretch`, `center`, `flex-end`, `end`, `space-between`, `space-around`, `space-evenly` | `align-content`, then `justify-content`; one value sets both |
 | Grid | `grid-template-columns`, `grid-template-rows` | `px`, `%`, `calc()`, positive `fr`, `auto`, `min-content`, `max-content`, `repeat()` | `repeat()` is limited to 400 tracks |
 | Grid | `grid-column`, `grid-row` | `auto`, a line number, `span N`, `N / M`, `N / span M` | Line numbers and spans are positive integers |
 | Position | `position` | `static`, `relative`, `absolute` | `fixed` and `sticky` are not implemented |
@@ -33,10 +40,10 @@ syntax only for the subproperties listed here.
 | Colour | `color` | `black`, `white`, `red`, `yellow`, written by name, in hexadecimal, or as `rgb()`, `rgba()`, `hsl()`, `hsla()`, `oklab()` or `oklch()` | A grey or tinted grey is drawn black with a warning; transparency, other colour functions, and other named colours are not supported |
 | Colour | `background`, `background-color`, `border-color`, `border-top-color`, `border-right-color`, `border-bottom-color`, `border-left-color` | `black`, `white`, `red`, `yellow`, the greys `gray`, `grey`, `silver`, `lightgray`, `lightgrey`, `darkgray`, `darkgrey`, `dimgray`, `dimgrey`, `gainsboro`, `whitesmoke`, and any of these or any grey written in hexadecimal or as `rgb()`, `rgba()`, `hsl()`, `hsla()`, `oklab()` or `oklch()` | A grey is dithered from black and white. A tinted grey, whose red, green and blue differ by at most 48, such as `#6b7280` or Tailwind 4's `oklch(55.1% 0.027 264.364)`, is drawn as the grey of its lightness with a warning. Transparency, other colour functions, and other named colours are not supported; other colours are not approximated |
 | Colour | `background`, `background-image` | `none`, or `linear-gradient()` towards `to top`, `to right`, `to bottom`, `to left`, or `0deg`, `90deg`, `180deg`, `270deg` and the same angles in `turn`, `rad`, `grad`; two or more stops in white and one ink or its greys, each with an optional `%` position | The image is painted over `background-color`. Corner directions, other angles, two inks in one gradient, colour hints, two-position stops, length positions, `radial-gradient()`, `conic-gradient()`, `repeating-*-gradient()`, and `url()` warn and drop the declaration |
-| Border | `border`, `border-top`, `border-right`, `border-bottom`, `border-left` | One width, line style, and colour in any order | An omitted line style is `none` and draws nothing |
-| Border | `border-width`, `border-top-width`, `border-right-width`, `border-bottom-width`, `border-left-width` | Non-negative `px` or a pixel-only `calc()` | Rounded to whole pixels at layout; percentages and multi-value border widths are not implemented |
+| Border | `border`, `border-top`, `border-right`, `border-bottom`, `border-left` | One width, line style, and colour in any order | An omitted line style is `none` and draws nothing; an omitted colour, like `currentColor` in any border colour, is the colour of the element's text |
+| Border | `border-width`, `border-top-width`, `border-right-width`, `border-bottom-width`, `border-left-width` | Non-negative `px`, a pixel-only `calc()`, or `thin`, `medium`, `thick` (1, 3 and 5px) | Rounded to whole pixels at layout; percentages and multi-value border widths are not implemented |
 | Border | `border-style`, `border-top-style`, `border-right-style`, `border-bottom-style`, `border-left-style` | `solid`, `dashed`, `dotted`, `none`, `hidden` | A dotted mark and its gap each equal the line width |
-| Border | `border-radius` | Non-negative `px` or a pixel-only `calc()` | Rounded to whole pixels at layout; percentages and elliptical two-value radii are not implemented |
+| Border | `border-radius` | One non-negative `px`, `%`, or `calc()` radius for all four corners | Rounded to whole pixels at layout; a percentage is a share of the box, and at `50%` or more the box is drawn as a circle or ellipse; a smaller percentage on a box that is not square would make elliptical corners, which are drawn round at the smaller radius and warn; per-corner and `/` elliptical radii warn |
 | Visibility | `visibility` | `visible`, `hidden` | `hidden` keeps the layout box and removes its paint |
 | Clipping | `overflow` | `visible`, `hidden`, `clip` | There is no scrolling |
 | Clipping | `clip-path` | `none`, `inset()`, `circle()`, `ellipse()`, `polygon()` | Function arguments accept `px`, `%`, and `calc()`; `inset()` has one radius at most |
@@ -51,17 +58,30 @@ syntax only for the subproperties listed here.
 | SVG paint | `stroke-linejoin` | `miter`, `round`, `bevel` | Applies where adjacent SVG path segments meet; SVG defaults to `miter` |
 | Font | `font` | `size[/line-height] family` | Only size, line-height, and family are read; style and weight fields warn |
 | Font | `font-family` | `ui`, `hzk`, `monaco`, or a family stack | Families are tried per glyph in declaration order; unknown names are skipped, and an entirely unavailable stack uses the default with a warning |
-| Font | `font-size` | `px` or a pixel-only `calc()` | The nearest bitmap strike is used and `substituted-font-size` is emitted |
-| Text | `line-height` | `px`, a pixel-only `calc()`, a unitless ratio, or a percentage of the font size | Unitless values resolve against the element's own size; percentages inherit their computed length |
+| Font | `font-size` | `px`, a pixel-only `calc()`, or a percentage of the parent's font size | The nearest bitmap strike is used and `substituted-font-size` is emitted |
+| Text | `line-height` | `normal`, `px`, a pixel-only `calc()`, a unitless ratio, or a percentage of the font size | Unitless values resolve against the element's own size; percentages inherit their computed length |
 | Text | `text-align` | `left`, `start`, `center`, `right`, `end` | — |
 | Text | `vertical-align` | `baseline`, `top`, `middle`, `bottom` | Inline-level only; the initial value is `baseline` and it is not inherited |
-| Text | `white-space` | `normal`, `nowrap`, `pre`, `pre-wrap` | — |
+| Text | `white-space` | `normal`, `nowrap`, `pre`, `pre-wrap` | Lines wrap between words as a browser wraps them: after spaces and hyphens, and between Chinese, Japanese and Korean characters except before closing punctuation |
+| Text | `word-break` | `normal`, `break-all`, `break-word` | `break-all` lets a line end between any two characters; `keep-all` warns and acts as `normal` |
+| Text | `overflow-wrap`, `word-wrap` | `normal`, `break-word`, `anywhere` | A word longer than its line is always broken where it stops fitting, so every value draws the same |
+| Text | `font-weight` | `normal`, `bold`, `bolder`, `lighter`, or a number from 1 to 1000 | 600 and above draw bold: each glyph is drawn again a pixel to its right and takes a pixel more room, since the bundled faces have one weight |
+| Text | `font-style` | `normal` | `italic` and `oblique` warn; the bundled faces are upright only |
+| Text | `letter-spacing` | `normal`, `px`, a pixel-only `calc()` | Added after every character, and may be negative |
+| Text | `text-decoration`, `text-decoration-line` | `none`, `underline`, `line-through`, `overline` | Solid lines in the text's colour, a pixel thick for every 16 of the font's height; as in CSS, the lines run through descendants' text, a descendant's `none` cannot remove them, and they stop at inline-blocks and positioned boxes; a style, colour, or thickness in the shorthand warns |
+| Text | `text-decoration-style` | `solid` | Other styles warn |
+| Text | `text-decoration-color` | `currentColor` | A decoration is drawn in its text's colour; other colours warn |
+| Text | `text-decoration-thickness`, `text-underline-offset` | `auto` | Other values warn |
+| Text | `text-overflow` | `clip`, `ellipsis` | `ellipsis` ends a line cut off by `overflow: hidden` with "…", as in a browser, on text with no elements inside it; elsewhere it warns |
+| List | `list-style`, `list-style-type` | `disc`, `circle`, `square`, `none`, `decimal`, `decimal-leading-zero`, `lower-alpha`, `upper-alpha`, `lower-latin`, `upper-latin`, `lower-roman`, `upper-roman`, `lower-greek`, `cjk-decimal`, `simp-chinese-informal`, `trad-chinese-informal`, `cjk-ideographic`, `disclosure-open`, `disclosure-closed`, or a string; the shorthand also takes a position | A marker is drawn for each `display: list-item` box in its colour and font, numbered from the `ol`'s `start`, `reversed` and each `li`'s `value`; a type with no counter style here is drawn as `decimal` and warns |
+| List | `list-style-position` | `outside`, `inside` | `outside` hangs the marker beside the first line, outside the item's border; `inside` puts it first on the line, and warns and is drawn outside when the item starts with a box rather than text |
+| List | `list-style-image` | `none` | An image warns, and the type's marker is drawn |
 | Image | `object-fit` | `fill`, `contain`, `cover` | Applies to `img` and external drawings inside their boxes |
 
 Every implemented property accepts `inherit`, `initial`, `unset`, and `revert`. The properties that
 inherit by default are `color`, `fill`, `stroke`, `stroke-width`, `stroke-dasharray`,
-`stroke-dashoffset`, `stroke-linecap`, `stroke-linejoin`, `font`, `font-family`, `font-size`, `line-height`, `text-align`, `white-space`,
-and `visibility`; `vertical-align` is not inherited. Custom properties named `--name` may be declared,
+`stroke-dashoffset`, `stroke-linecap`, `stroke-linejoin`, `font`, `font-family`, `font-size`, `font-weight`, `font-style`,
+`letter-spacing`, `line-height`, `text-align`, `white-space`, `word-break`, `overflow-wrap`, `list-style` and its longhands, and `visibility`; `vertical-align` is not inherited. Custom properties named `--name` may be declared,
 then read with `var()`, and cascade and inherit by the same rules.
 
 Built-in bitmap strikes:
@@ -77,13 +97,11 @@ Every CSS property absent from the table above is unsupported. An unsupported va
 property has the same result: the declaration is ignored and `unsupported-declaration` is emitted.
 Common unsupported items include:
 
-- Layout: `float`, `clear`, `order`, `flex-wrap`, `align-content`, `grid-template-areas`,
-  `grid-auto-columns`, `grid-auto-rows`, `grid-auto-flow`, `place-content`, `place-items`,
-  `place-self`, `table-layout`.
+- Layout: `float`, `clear`, `order`, `grid-template-areas`,
+  `grid-auto-columns`, `grid-auto-rows`, `grid-auto-flow`, `table-layout`.
 - Position and effects: `position: fixed`, `position: sticky`, `opacity`, `filter`, `box-shadow`,
   `text-shadow`, `mix-blend-mode`, `background-repeat`, `background-size`.
-- Text: `font-weight`, `font-style`, `font-variant`, `text-decoration`, `text-indent`,
-  `letter-spacing`, `word-spacing`, `text-transform`, `text-overflow`, `hyphens`.
+- Text: `font-variant`, `text-indent`, `word-spacing`, `text-transform`, `hyphens`.
 - Images: `object-position`.
 - Colour and transform values: `hwb()`, `lab()`, `lch()`, `color()`, `color-mix()`, and other colour functions not listed above, `radial-gradient()`, `conic-gradient()`, repeating gradients, alpha; transform functions
   other than `scale()` and `rotate()`; fractional, negative, or non-uniform CSS `scale`; `border-style`
@@ -98,6 +116,27 @@ Common unsupported items include:
   padding.
 - The `flex` shorthand preserves grow, shrink, and basis. `flex: 1` is `1 1 0%`; the initial
   `flex-shrink` is `1`.
+- Vertical margins in block flow collapse as in a browser: margins that meet come to the largest
+  positive one plus the most negative one, through empty boxes, and a first or last child's margin
+  leaves its parent where no padding, border or (below) height of the parent's own is in the way.
+  Flex and grid items, inline-blocks, positioned boxes, `overflow: hidden` boxes and the page keep
+  their children's margins inside. A percentage margin is not collapsed; where it meets another it
+  warns, and the two are added.
+- Elements look as a browser's own stylesheet draws them, and every rule the page writes outranks it,
+  whatever its selector: `h1` to `h6` are bold, at 2, 1.5, 1.17, 1, 0.83 and 0.67 times their
+  parent's font size, settled quietly on the nearest size the face has; `p`, `ul`, `ol`, `dl`,
+  `menu`, `pre` and the headings have a browser's top and bottom margins; `blockquote` and `figure`
+  are inset 40px on both sides and `dd` on the left; `ul`, `ol` and `menu` are indented 40px and
+  their items marked, a list in a list with no margins and a circle, then a square; `ol`'s and
+  `li`'s `type` attribute names the marker; `b`, `strong` and `th` are bold, `th`, `caption` and
+  `center` centred; `u`, `ins` and `a` with an `href` underlined; `s`, `del` and `strike` struck
+  through; `small` is 0.83 times; `hr` is a 1px line in the colour of the text; and `pre` keeps its
+  spaces. Link colours are not drawn. Where a browser would draw something this does not,
+  `unsupported-element` says so, and goes quiet once the page says what it wants instead: form
+  controls, `canvas`, `video`, `audio`, `iframe`, `object` and `embed` are not drawn; a `button`
+  with no border or background draws no box; a `table` without a `display` is laid out as blocks;
+  and `em`, `i`, `cite`, `var`, `dfn` and `address` are upright. An italic element's name is said
+  once per page.
 - Inline content, images, and inline SVG share line boxes. `vertical-align` applies only to inline-level
   boxes; a declaration on a block, flex item, or grid item warns. For a single text line, a line-height
   equal to the box height provides its vertical alignment.
@@ -107,12 +146,17 @@ Common unsupported items include:
   an undefined or cyclic `var()` drops the declaration that uses it.
 - Padding and margins resolve percentages against the containing block's inline size; `row-gap` uses
   its block size and `column-gap` its inline size. All settle to whole pixels at layout time. Border
-  widths, radii, and font sizes accept pixels or pixel-only `calc()`; `calc()` supports addition and
-  subtraction of `px` and `%` terms only.
+  widths and font sizes accept pixels or pixel-only `calc()`. `calc()` adds and subtracts lengths,
+  multiplies and divides them by numbers, and nests brackets; `min()`, `max()`, and `clamp()` work
+  wherever `calc()` does, as long as none of their arguments is a percentage.
+- Wherever a pixel length is accepted, including inside `calc()` and custom properties, a length may
+  also be written in `em` (the element's font size; in `font-size`, the parent's), `rem` (the root
+  element's font size, 12px unless the root sets one), `vw`, `vh`, `vmin`, `vmax` (shares of the root
+  element's `width` and `height`, which must both be given in pixels, or the declaration warns and is
+  dropped), or `pt`, `pc`, `in`, `cm`, `mm`, `Q` at 96px to the inch. `ch` and `ex` warn.
 - Fonts come from bitmap families bundled at build time. An unknown family falls back to the default;
   a family stack falls back per glyph; an unavailable size falls back to the nearest strike. The
-  bundled faces have no weight variants, so `font-weight` and the default bold styling of `<b>` and
-  `<strong>` do not change the rendered glyphs.
+  bundled faces have one weight, and bold is drawn from it.
 - A grey is black dithered over white in a 4x4 ordered pattern, at the nearest of sixteen coverages:
   `#808080` is 8/16, and a grey that rounds to none or all of them is white or black. The pattern is
   keyed to frame coordinates, so neighbouring grey areas meet without a seam and a page draws the
@@ -152,7 +196,8 @@ finite non-zero factors, and `rotate` accepts an angle or an angle with a rotati
 `img src` accepts an HTTP/HTTPS URL or a relative path. `.png`, `.jpg`, and `.jpeg` are loaded as
 bitmaps; `.svg` is loaded as an external SVG drawing. Relative paths are resolved only through the
 page resource map; the HTTP service never reads a client path or an arbitrary file in its working
-directory.
+directory. The HTTP service fetches a URL only from the public internet — never from the machine it
+runs on or the network it is on — while the command line fetches from anywhere.
 
 An SVG in `<img>` is a replaced image: page CSS sizes and clips its image box, but does not cascade
 into the SVG document. Its supported SVG paint and viewport are retained. Page CSS declarations for
@@ -177,4 +222,4 @@ the same rule, and a stylesheet may be uploaded as its own part.
 Markup may emit: `text-clipped`, `layout-overflow`, `empty-layout`, `missing-runes`, `size-mismatch`,
 `unsupported-ink`, `unsupported-declaration`, `unsupported-at-rule`, `unresolved-drawing`,
 `unresolved-image`, `no-stylesheet`, `unresolved-stylesheet`, `duplicate-stylesheet`,
-`over-constrained`, `unsupported-selector`, `unreadable-rule`, and `substituted-font-size`.
+`over-constrained`, `unsupported-selector`, `unreadable-rule`, `substituted-font-size`, `approximate-corner`, and `unsupported-element`.

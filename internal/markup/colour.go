@@ -56,7 +56,7 @@ func parseColour(value string) (red, green, blue int, opaque, read bool) {
 		lightness := need(colourComponent(components[0], 1))
 		chroma := math.Max(need(colourComponent(components[1], 0.4)), 0)
 		hue := need(colourHue(components[2])) * math.Pi / 180
-		rgb = oklabToRGB(lightness, chroma*math.Cos(hue), chroma*math.Sin(hue))
+		rgb = oklabToRGB(lightness, float64(chroma*math.Cos(hue)), float64(chroma*math.Sin(hue)))
 	default:
 		return 0, 0, 0, false, false
 	}
@@ -69,7 +69,7 @@ func parseColour(value string) (red, green, blue int, opaque, read bool) {
 	}
 	var levels [3]int
 	for index, channel := range rgb {
-		levels[index] = int(math.Round(math.Min(math.Max(channel, 0), 1) * 255))
+		levels[index] = int(math.Round(float64(math.Min(math.Max(channel, 0), 1) * 255)))
 	}
 	return levels[0], levels[1], levels[2], opaque, true
 }
@@ -126,7 +126,7 @@ func colourComponent(text string, full float64) (float64, bool) {
 		return 0, false
 	}
 	if percent {
-		number = number / 100 * full
+		number = float64(number / 100 * full)
 	}
 	return number, true
 }
@@ -144,7 +144,7 @@ func colourHue(text string) (float64, bool) {
 	}{{"deg", 1}, {"grad", 0.9}, {"rad", 180 / math.Pi}, {"turn", 360}} {
 		if number, cut := strings.CutSuffix(text, unit.suffix); cut {
 			parsed, err := strconv.ParseFloat(number, 64)
-			return parsed * unit.degrees, err == nil && !math.IsNaN(parsed) && !math.IsInf(parsed, 0)
+			return float64(parsed * unit.degrees), err == nil && !math.IsNaN(parsed) && !math.IsInf(parsed, 0)
 		}
 	}
 	parsed, err := strconv.ParseFloat(text, 64)
@@ -158,8 +158,8 @@ func hslToRGB(hue, saturation, lightness float64) [3]float64 {
 	lightness = math.Min(math.Max(lightness, 0), 1)
 	channel := func(n float64) float64 {
 		k := math.Mod(n+hue/30, 12)
-		a := saturation * math.Min(lightness, 1-lightness)
-		return lightness - a*math.Max(-1, math.Min(math.Min(k-3, 9-k), 1))
+		a := float64(saturation * math.Min(lightness, 1-lightness))
+		return lightness - float64(a*math.Max(-1, math.Min(math.Min(k-3, 9-k), 1)))
 	}
 	return [3]float64{channel(0), channel(8), channel(4)}
 }
@@ -170,21 +170,21 @@ func hslToRGB(hue, saturation, lightness float64) [3]float64 {
 // oklch() grey is read as the grey it is; every lightness in steps of 0.00001
 // was checked to round to three equal levels.
 func oklabToRGB(lightness, a, b float64) [3]float64 {
-	l := cube(lightness + 0.3963377774*a + 0.2158037573*b)
-	m := cube(lightness - 0.1055613458*a - 0.0638541728*b)
-	s := cube(lightness - 0.0894841775*a - 1.2914855480*b)
+	l := cube(lightness + float64(0.3963377774*a) + float64(0.2158037573*b))
+	m := cube(lightness - float64(0.1055613458*a) - float64(0.0638541728*b))
+	s := cube(lightness - float64(0.0894841775*a) - float64(1.2914855480*b))
 	return [3]float64{
-		srgbEncode(+4.0767416621*l - 3.3077115913*m + 0.2309699292*s),
-		srgbEncode(-1.2684380046*l + 2.6097574011*m - 0.3413193965*s),
-		srgbEncode(-0.0041960863*l - 0.7034186147*m + 1.7076147010*s),
+		srgbEncode(float64(+4.0767416621*l) - float64(3.3077115913*m) + float64(0.2309699292*s)),
+		srgbEncode(float64(-1.2684380046*l) + float64(2.6097574011*m) - float64(0.3413193965*s)),
+		srgbEncode(float64(-0.0041960863*l) - float64(0.7034186147*m) + float64(1.7076147010*s)),
 	}
 }
 
-func cube(x float64) float64 { return x * x * x }
+func cube(x float64) float64 { return float64(x * x * x) }
 
 func srgbEncode(linear float64) float64 {
 	if linear <= 0.0031308 {
-		return 12.92 * linear
+		return float64(12.92 * linear)
 	}
-	return 1.055*math.Pow(linear, 1/2.4) - 0.055
+	return float64(1.055*math.Pow(linear, 1/2.4)) - 0.055
 }

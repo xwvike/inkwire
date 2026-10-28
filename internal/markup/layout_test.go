@@ -186,6 +186,26 @@ func TestBorderSitsAtTheEdge(t *testing.T) {
 	expect(t, got, display.InkBlack, image.Rect(0, 0, 100, 50), "the border traces the box")
 }
 
+// A border with no colour of its own is the colour of the element's text, as
+// CSS's currentcolor is, whichever of the two was written first.
+func TestABorderIsTheColourOfItsTextUnlessItSaysOtherwise(t *testing.T) {
+	for _, css := range []string{
+		`.a { border: 1px solid; color: red; }`,
+		`.a { color: red; border: 1px solid; }`,
+		`.a { border: 1px solid black; border-color: currentColor; color: red; }`,
+		`.a { border-top: 1px solid currentcolor; border-right: 1px solid; border-bottom: 1px solid; border-left: 1px solid; color: red; }`,
+		`.page { color: red; } .a { border: 1px solid; }`,
+	} {
+		got := boxes(t, `<i class="a"></i>`, `.a { display: block; flex-grow: 1; } `+css)
+		expect(t, got, display.InkRed, image.Rect(0, 0, 100, 50), css)
+	}
+	got := boxes(t, `<i class="a"></i>`, `.a { display: block; flex-grow: 1; border: 1px solid black; color: red; }`)
+	expect(t, got, display.InkBlack, image.Rect(0, 0, 100, 50), "a border that names black")
+	if said := warningsFor(t, `<span class="a">x</span>`, `.a { border: 1px solid currentColor; border-left-color: currentcolor; }`); said != "" {
+		t.Errorf("currentColor said %q", said)
+	}
+}
+
 // A percentage is resolved against the container once the container has a
 // size, which is the point of carrying lengths unresolved into the layout.
 // Before that it worked only for a block child taking a share of its line.

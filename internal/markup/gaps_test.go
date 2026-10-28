@@ -271,10 +271,10 @@ func TestCSSWideKeywords(t *testing.T) {
 	if _, drawn := got[display.InkBlack]; !drawn {
 		t.Error("inherit was treated as an error and the box vanished")
 	}
-	if said := warningsFor(t, `<i class="a">x</i>`, ` .a { color: inherit; }`); said != "" {
+	if said := warningsFor(t, `<span class="a">x</span>`, ` .a { color: inherit; }`); said != "" {
 		t.Errorf("inherit was reported: %s", said)
 	}
-	if said := warningsFor(t, `<i class="a">x</i>`, ` .a { color: initial; }`); said != "" {
+	if said := warningsFor(t, `<span class="a">x</span>`, ` .a { color: initial; }`); said != "" {
 		t.Errorf("initial was reported: %s", said)
 	}
 }
@@ -475,9 +475,9 @@ func TestCalcEdges(t *testing.T) {
 		t.Errorf("a calc resolving below zero drew %v", got[display.InkBlack])
 	}
 	for _, css := range []string{
-		`.a { width: calc(100% * 2); }`,
+		`.a { width: calc(100% * 2px); }`,
 		`.a { width: calc(100% -); }`,
-		`.a { width: calc(2em + 4px); }`,
+		`.a { width: calc(2ch + 4px); }`,
 	} {
 		if said := warningsFor(t, `<i class="a"></i>`,
 			` .a { display: block; background: black; flex-grow: 1; }`+css); said == "" {
@@ -877,8 +877,8 @@ func TestInheritAndInitialWorkOnPropertiesThatDoNotInherit(t *testing.T) {
 
 	// And a property this renderer does not implement says so rather than
 	// quietly accepting the keyword.
-	said := warningsFor(t, `<i class="a">x</i>`, ` .a { letter-spacing: inherit; }`)
-	if !strings.Contains(said, "letter-spacing") {
+	said := warningsFor(t, `<i class="a">x</i>`, ` .a { text-shadow: inherit; }`)
+	if !strings.Contains(said, "text-shadow") {
 		t.Errorf("inherit on an unimplemented property was accepted silently: %q", said)
 	}
 }
@@ -888,7 +888,7 @@ func TestInheritAndInitialWorkOnPropertiesThatDoNotInherit(t *testing.T) {
 // percentage instead of silently truncating it.
 func TestSpacingPercentagesResolveAtLayoutTime(t *testing.T) {
 	for _, declaration := range []string{
-		"border-radius: 50%", "border-width: 10%", "font-size: 50%",
+		"border-width: 10%",
 	} {
 		t.Run(declaration, func(t *testing.T) {
 			said := warningsFor(t, `<i class="a">x</i>`, ` .a { display: block; `+declaration+`; }`)
@@ -986,5 +986,214 @@ func TestLineHeightIsARatioUntilTheFontSizeIsSettled(t *testing.T) {
 	if inherited := lineOf(t,
 		` .page { font-size: 10px; line-height: 200%; } .a { flex-grow: 1; font-size: 20px; }`); inherited != `"lineHeight":20` {
 		t.Errorf("a child inheriting a resolved percentage got %s, want 20", inherited)
+	}
+}
+
+// A page wraps between words, as a browser does, unless it asks for
+// word-break: break-all, and a span inside a paragraph carries its own.
+func TestWordBreakChoosesWhereLinesEnd(t *testing.T) {
+	tests := []struct {
+		name, body, css, want string
+	}{
+		{"words by default", `<p>one two</p>`, `p { color: black; }`, `"wrap": "words"`},
+		{"break-all", `<p>one two</p>`, `p { word-break: break-all; }`, `"wrap": "runes"`},
+		{"break-word is the default", `<p>one two</p>`, `p { word-break: break-word; }`, `"wrap": "words"`},
+		{"inherited", `<div><p>one two</p></div>`, `div { word-break: break-all; }`, `"wrap": "runes"`},
+		{"in a span", `<p>one <span>two</span> three</p>`, `span { word-break: break-all; }`, `"wrap": "runes"`},
+		{"initial", `<div><p>one two</p></div>`, `div { word-break: break-all; } p { word-break: initial; }`, `"wrap": "words"`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			page, err := Compile(test.body, test.css)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(page.Warnings) != 0 {
+				t.Fatalf("warnings = %v", page.Warnings)
+			}
+			if !strings.Contains(string(page.JSON), test.want) {
+				t.Fatalf("%s not in %s", test.want, page.JSON)
+			}
+		})
+	}
+	for _, css := range []string{`p { word-break: keep-all; }`, `p { overflow-wrap: wobble; }`} {
+		if said := warningsFor(t, `<p>one two</p>`, css); said == "" {
+			t.Errorf("%s was accepted without a word", css)
+		}
+	}
+	if said := warningsFor(t, `<p>one two</p>`, `p { overflow-wrap: anywhere; word-wrap: break-word; }`); said != "" {
+		t.Errorf("overflow-wrap drew a warning: %s", said)
+	}
+}
+
+// min-width starts out auto, which keeps a flex item's longest word whole;
+// min-width: 0 and a box that clips its overflow give that up, as in a
+// browser.
+func TestAFlexItemsLeastWidthStartsAtItsContent(t *testing.T) {
+	body := `<div class="r"><b>Temperature</b><p>` + strings.Repeat("words that run on ", 8) + `</p></div>`
+	const css = `.r { display: flex; width: 100px; font-family: monaco; font-size: 12px; } b { color: red; }`
+	labelWidth := func(extra string) int {
+		t.Helper()
+		got := boxes(t, body, css+extra)
+		return got[display.InkRed].Dx()
+	}
+	whole := labelWidth(``)
+	if whole < 70 {
+		t.Fatalf("the label was squeezed to %dpx; its word is wider than that", whole)
+	}
+	for _, extra := range []string{`b { min-width: 0; }`, `b { overflow: hidden; }`} {
+		if got := labelWidth(extra); got >= whole {
+			t.Errorf("with %s the label kept its %dpx", extra, got)
+		}
+	}
+	// A width wider than the word does not hold it up either: the least is
+	// the smaller of the two, so a wide label shrinks as far as its word.
+	short := boxes(t, `<div class="r"><b>Tmp</b><p>`+strings.Repeat("words that run on ", 8)+`</p></div>`,
+		css+` b { display: block; width: 60px; background: red; font-weight: normal; }`)
+	if got := short[display.InkRed].Dx(); got != 21 {
+		t.Errorf("a 60px label holding a 21px word is %dpx, want 21", got)
+	}
+	// A width narrower than the word is as far as auto holds it up, and a
+	// flex-basis does not change that.
+	for _, extra := range []string{`b { width: 30px; }`, `b { width: 30px; flex-basis: 50px; }`} {
+		if got := labelWidth(extra + ` b { display: block; background: red; }`); got != 30 {
+			t.Errorf("with %s the label is %dpx, want 30", extra, got)
+		}
+	}
+}
+
+func TestARatioARowCannotWorkFromIsReported(t *testing.T) {
+	said := warningsFor(t, `<div class="r"><i class="a"></i></div>`,
+		`.r { display: flex; } .a { aspect-ratio: 2; background: red; }`)
+	if !strings.Contains(said, "aspect-ratio") {
+		t.Fatalf("an aspect-ratio with nothing to work from went unremarked: %q", said)
+	}
+	for _, css := range []string{`.a { width: 20px; }`, `.a { height: 20px; }`, `.r { flex-direction: column; }`} {
+		if said := warningsFor(t, `<div class="r"><i class="a"></i></div>`,
+			`.r { display: flex; } .a { aspect-ratio: 2; background: red; } `+css); said != "" {
+			t.Errorf("with %s: %s", css, said)
+		}
+	}
+}
+
+// aspect-ratio works out whichever size was not given: the height from a
+// width that was stated or that a block fills, the width from a height.
+func TestAspectRatioWorksFromEitherSize(t *testing.T) {
+	tests := []struct {
+		name, css string
+		want      image.Point
+	}{
+		{"filling the width", `.a { aspect-ratio: 4; }`, image.Pt(100, 25)},
+		{"from a width", `.a { width: 60px; aspect-ratio: 3; }`, image.Pt(60, 20)},
+		{"from a height", `.a { height: 10px; aspect-ratio: 4; }`, image.Pt(40, 10)},
+		{"both stated", `.a { width: 30px; height: 12px; aspect-ratio: 9; }`, image.Pt(30, 12)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := boxes(t, `<div class="col"><div class="a"></div></div>`,
+				`.col { display: block; width: 100px; } .a { background: red; } `+test.css)
+			if size := got[display.InkRed].Size(); size != test.want {
+				t.Fatalf("the box is %v, want %v", size, test.want)
+			}
+		})
+	}
+	// And the block around it is as tall as that, so what follows starts
+	// below it.
+	got := boxes(t, `<div class="col"><div class="wrap"><div class="a"></div></div><div class="b"></div></div>`,
+		`.col { display: block; width: 100px; } .a { aspect-ratio: 4; background: red; }
+		 .b { height: 5px; background: black; }`)
+	if top := got[display.InkBlack].Min.Y; top != 25 {
+		t.Fatalf("the block after it starts at %d, want 25", top)
+	}
+}
+
+// A negative margin pulls a box over the one before it, as it does in a
+// browser, rather than having the whole page refused.
+func TestANegativeMarginOverlapsTheBoxBefore(t *testing.T) {
+	tests := []struct {
+		name, body, css string
+		want            image.Rectangle
+	}{
+		{"block", `<div class="col"><div class="a"></div><div class="b"></div></div>`,
+			`.col { display: block; width: 100px; } .b { margin-top: -10px; }`, image.Rect(0, 10, 100, 30)},
+		{"row", `<div class="row"><div class="a"></div><div class="b"></div></div>`,
+			`.row { display: flex; } .a, .b { width: 30px; } .b { margin-left: -10px; }`, image.Rect(20, 0, 50, 20)},
+		{"percentage", `<div class="row"><div class="a"></div><div class="b"></div></div>`,
+			`.row { display: flex; width: 100px; } .a, .b { width: 30px; } .b { margin-left: -10%; }`, image.Rect(20, 0, 50, 20)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := boxes(t, test.body, `.a { height: 20px; background: red; } .b { height: 20px; background: black; } `+test.css)
+			if got[display.InkBlack] != test.want {
+				t.Fatalf("the second box covers %v, want %v", got[display.InkBlack], test.want)
+			}
+		})
+	}
+}
+
+// justify-content and auto margins place items where a browser does: the
+// space goes between them, gap stays the size it says, and an item that grows
+// leaves nothing for either.
+func TestFreeSpaceIsSharedAsCSSSharesIt(t *testing.T) {
+	three := `<div class="r"><i class="a"></i><i class="b"></i><i class="a"></i></div>`
+	tests := []struct {
+		name, body, css string
+		ink             display.Ink
+		want            image.Rectangle
+	}{
+		{"space-between", three, `.r { justify-content: space-between; }`, display.InkBlack, image.Rect(40, 0, 60, 10)},
+		{"space-between with a gap", three, `.r { justify-content: space-between; gap: 5px; }`, display.InkBlack, image.Rect(40, 0, 60, 10)},
+		{"space-around", `<div class="r"><i class="b"></i><i class="a"></i></div>`, `.r { justify-content: space-around; }`,
+			display.InkBlack, image.Rect(15, 0, 35, 10)},
+		{"space-evenly", `<div class="r"><i class="b"></i><i class="a"></i></div>`, `.r { justify-content: space-evenly; }`,
+			display.InkBlack, image.Rect(20, 0, 40, 10)},
+		{"margin-left auto", `<div class="r"><i class="a"></i><i class="b push"></i></div>`, `.push { margin-left: auto; }`,
+			display.InkBlack, image.Rect(80, 0, 100, 10)},
+		{"auto margins either side", `<div class="r"><i class="b mid"></i></div>`, `.mid { margin: 0 auto; }`,
+			display.InkBlack, image.Rect(40, 0, 60, 10)},
+		{"a growing item leaves nothing", `<div class="r"><i class="a grow"></i><i class="b push"></i></div>`,
+			`.grow { flex: 1; } .push { margin-left: auto; } .r { justify-content: center; }`, display.InkBlack, image.Rect(80, 0, 100, 10)},
+		{"margin-top auto in a row", `<div class="r tall"><i class="b down"></i></div>`, `.tall { height: 30px; } .down { margin-top: auto; }`,
+			display.InkBlack, image.Rect(0, 20, 20, 30)},
+		{"justify-items does not move flex items", `<div class="r"><i class="b"></i></div>`, `.r { justify-items: center; }`,
+			display.InkBlack, image.Rect(0, 0, 20, 10)},
+		{"a block centred by its margins", `<div class="col"><i class="b mid"></i></div>`, `.col { display: block; width: 100px; } .mid { display: block; margin: 0 auto; }`,
+			display.InkBlack, image.Rect(40, 0, 60, 10)},
+		{"a block with no width fills the line", `<div class="col"><i class="b mid"></i></div>`,
+			`.col { display: block; width: 100px; } .mid { display: block; width: auto; margin: 0 auto; }`,
+			display.InkBlack, image.Rect(0, 0, 100, 10)},
+		{"a grid item keeps its stated size", `<div class="g"><i class="b"></i></div>`,
+			`.g { display: grid; grid-template-columns: 100px; grid-template-rows: 30px; }`,
+			display.InkBlack, image.Rect(0, 0, 20, 10)},
+		{"a grid item without one fills its cell", `<div class="g"><i class="b free"></i></div>`,
+			`.g { display: grid; grid-template-columns: 100px; grid-template-rows: 30px; } .free { width: auto; height: auto; }`,
+			display.InkBlack, image.Rect(0, 0, 100, 30)},
+		{"a grid's columns centred", `<div class="g"><i class="b"></i></div>`,
+			`.g { display: grid; grid-template-columns: 20px; justify-content: center; }`,
+			display.InkBlack, image.Rect(40, 0, 60, 10)},
+		{"a grid's columns spaced", `<div class="g"><i class="a"></i><i class="b"></i></div>`,
+			`.g { display: grid; grid-template-columns: 20px 20px; justify-content: space-between; }`,
+			display.InkBlack, image.Rect(80, 0, 100, 10)},
+		{"a grid's rows at the end", `<div class="g"><i class="b"></i></div>`,
+			`.g { display: grid; grid-template-rows: 10px; height: 30px; align-content: end; }`,
+			display.InkBlack, image.Rect(0, 20, 20, 30)},
+		{"an auto column fills the grid", `<div class="g"><i class="b free"></i></div>`,
+			`.g { display: grid; grid-template-columns: auto; } .free { width: auto; }`,
+			display.InkBlack, image.Rect(0, 0, 100, 10)},
+		{"unless the columns are placed", `<div class="g"><i class="b free"></i><i class="a"></i></div>`,
+			`.g { display: grid; grid-template-columns: auto 20px; justify-content: start; } .free { width: auto; }`,
+			display.InkBlack, image.Rect(0, 0, 0, 0)},
+		{"a grid item centred by its margins", `<div class="g"><i class="b mid"></i></div>`,
+			`.g { display: grid; grid-template-columns: 100px; grid-template-rows: 30px; } .mid { margin: auto; }`,
+			display.InkBlack, image.Rect(40, 10, 60, 20)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := boxes(t, test.body, `.r, .g { width: 100px; } .r { display: flex; align-items: flex-start; }
+				i { display: block; width: 20px; height: 10px; } .a { background: red; } .b { background: black; } `+test.css)
+			if got[test.ink] != test.want {
+				t.Fatalf("the box covers %v, want %v", got[test.ink], test.want)
+			}
+		})
 	}
 }

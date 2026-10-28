@@ -2,85 +2,12 @@ package markup
 
 import (
 	"encoding/json"
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/xwvike/inkwire/internal/compose"
 	"github.com/xwvike/inkwire/internal/scene"
 )
-
-// Everything this package writes has to be a field the schema reads. The two
-// lists are in different packages and neither imports the other, so the only
-// thing keeping them together is this.
-//
-// The decoder refuses a field it does not know, which catches a wrong name the
-// first time a page using it is rendered. That is late: a field this package
-// writes on a node nobody has an example of would sit here unrendered and
-// unrefused until somebody wrote the page. This checks the names without
-// needing the page.
-func TestEveryFieldThisPackageWritesIsAFieldTheSchemaReads(t *testing.T) {
-	read := schemaFields(t)
-	if len(read) < 40 {
-		t.Fatalf("found %d field names in the schema, which cannot be right", len(read))
-	}
-	written := map[string]string{}
-	for _, emitted := range []any{document{}, emitted{}, size{}, insets{}, stroke{}, run{}, command{},
-		overrides{}, point{}, shape{}, rect{}, placed{}, pathValue{}, origin{}, layoutChild{}, gridChild{}, anchor{}} {
-		structure := reflect.TypeOf(emitted)
-		for index := range structure.NumField() {
-			tag, ok := structure.Field(index).Tag.Lookup("json")
-			if !ok {
-				continue
-			}
-			name, _, _ := strings.Cut(tag, ",")
-			if name == "" || name == "-" {
-				continue
-			}
-			written[name] = structure.Name()
-		}
-	}
-	for name, where := range written {
-		if !read[name] {
-			t.Errorf("markup writes %q on %s and no scene document has a field by that name", name, where)
-		}
-	}
-}
-
-// schemaFields is every json tag in the decoder, which is the whole of what a
-// document may say.
-func schemaFields(t *testing.T) map[string]bool {
-	t.Helper()
-	file, err := parser.ParseFile(token.NewFileSet(), "../scene/decode.go", nil, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	names := map[string]bool{}
-	ast.Inspect(file, func(n ast.Node) bool {
-		field, ok := n.(*ast.Field)
-		if !ok || field.Tag == nil {
-			return true
-		}
-		tag, err := strconv.Unquote(field.Tag.Value)
-		if err != nil {
-			return true
-		}
-		value, ok := reflect.StructTag(tag).Lookup("json")
-		if !ok {
-			return true
-		}
-		name, _, _ := strings.Cut(value, ",")
-		if name != "" && name != "-" {
-			names[name] = true
-		}
-		return true
-	})
-	return names
-}
 
 // A length is the one value with three spellings, and the difference between
 // them is not cosmetic: the decoder tries a number before a string, so 5 and

@@ -33,7 +33,7 @@ func TestNothingAnAuthorWritesStopsThePageBeingDrawn(t *testing.T) {
 		"a size past the largest":   `.a { font-size: 100px; }`,
 		"a colour with no ink":      `.a { color: blue; }`,
 		"a colour written as hex":   `.a { color: #336699; }`,
-		"a unit that means nothing": `.a { font-size: 1.2rem; width: 50vw; }`,
+		"a unit that means nothing": `.a { font-size: 1.2rem; width: 50vw; margin: 2ch; }`,
 		"a weight there is one of":  `.a { font-weight: 600; }`,
 		"a property nobody has":     `.a { opacity: .5; box-shadow: 0 1px 2px #000; transition: all .2s; }`,
 		"an at-rule":                `@media (min-width: 10px) { .a { color: red; } }`,
@@ -93,7 +93,7 @@ func TestWhatCannotBeHonouredIsAlwaysSaid(t *testing.T) {
 		"blue":       `.a { color: blue; }`,
 		"opacity":    `.a { opacity: .5; }`,
 		"@media":     `@media print { .a { color: red; } }`,
-		"1.2rem":     `.a { font-size: 1.2rem; }`,
+		"2ch":        `.a { margin: 2ch; }`,
 		"box-shadow": `.a { box-shadow: 0 1px 2px #000; }`,
 	}
 	for want, css := range tests {

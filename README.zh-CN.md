@@ -429,6 +429,7 @@ curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
 | `unreadable-rule` | 语法错误规则，跳过 |
 | `substituted-font-size` | 字体或字号不可用，使用最近值 |
 | `approximate-corner` | 本应为椭圆的圆角按圆角绘制 |
+| `unsupported-element` | 浏览器会为该元素绘制的内容，这里不绘制 |
 
 ### 错误
 
