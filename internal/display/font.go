@@ -64,11 +64,16 @@ type BitmapFontSpec struct {
 	Data         []byte
 	DataOffset   int
 	MaxASCIIRune rune
+	// Redrawn replaces the record for a character with one of the same size,
+	// leaving Data as it came, so a file can stay the one its source
+	// publishes while a glyph in it is drawn as this face needs it.
+	Redrawn map[rune][]byte
 }
 
 type BitmapFace struct {
 	spec       BitmapFontSpec
 	recordSize int
+	redrawn    map[int][]byte
 }
 
 func NewBitmapFace(spec BitmapFontSpec) (*BitmapFace, error) {
@@ -107,7 +112,21 @@ func NewBitmapFace(spec BitmapFontSpec) (*BitmapFace, error) {
 	if spec.Encoding == BitmapASCII && spec.MaxASCIIRune == 0 {
 		spec.MaxASCIIRune = 0x7e
 	}
-	return &BitmapFace{spec: spec, recordSize: recordSize}, nil
+	face := &BitmapFace{spec: spec, recordSize: recordSize}
+	for r, record := range spec.Redrawn {
+		index, ok := face.glyphIndex(r)
+		if !ok || index < 0 || index >= spec.GlyphCount {
+			return nil, fmt.Errorf("font %s cannot redraw %q, which it has no place for", spec.Name, r)
+		}
+		if len(record) != recordSize {
+			return nil, fmt.Errorf("font %s redraws %q in %d bytes, not %d", spec.Name, r, len(record), recordSize)
+		}
+		if face.redrawn == nil {
+			face.redrawn = make(map[int][]byte, len(spec.Redrawn))
+		}
+		face.redrawn[index] = record
+	}
+	return face, nil
 }
 
 func (f *BitmapFace) Name() string {
@@ -134,6 +153,9 @@ func (f *BitmapFace) Glyph(r rune) (Glyph, bool) {
 	start := f.spec.DataOffset + index*f.recordSize
 	end := start + f.recordSize
 	data := f.spec.Data[start:end]
+	if record, ok := f.redrawn[index]; ok {
+		data = record
+	}
 	// An index can be in range and still address an unassigned slot: the HZK
 	// files disagree about which GBK extensions beyond GB2312 they fill, and
 	// the ASCII strikes leave the control range empty. Reporting those as

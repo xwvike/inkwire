@@ -179,3 +179,27 @@ func TestAnEllipsisEndsALineTooLongForItsBox(t *testing.T) {
 		}
 	}
 }
+
+// An ellipsis comes from the face the line ends in. The ui sets have "…" only
+// in their Chinese face, where it is centred in a full-width cell; borrowed
+// for a line of Latin text it is three beads at the height of the x, which is
+// not what a browser ends that line with.
+func TestAnEllipsisIsDrawnInTheFaceTheLineEndsIn(t *testing.T) {
+	for _, test := range []struct {
+		text, ends string
+	}{
+		{"Quarterly results", "..."},
+		{"这是一段很长的中文文本内容", "…"},
+	} {
+		style := TextStyle{Font: "ui", Size: 16}
+		_, whole := drawnText(t, style, test.text, TextBox{})
+		_, layout := drawnText(t, style, test.text, TextBox{Bounds: image.Rect(0, 0, whole.Size().X/2, 20), Ellipsis: true})
+		var written strings.Builder
+		for _, placement := range layout.lines[0].glyphs {
+			written.WriteRune(placement.r)
+		}
+		if !strings.HasSuffix(written.String(), test.ends) {
+			t.Errorf("%q is cut to %q; want it to end in %q", test.text, written.String(), test.ends)
+		}
+	}
+}

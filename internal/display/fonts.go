@@ -28,6 +28,7 @@ type bundledFontSpec struct {
 	baseline   int
 	lineGap    int
 	advance    int
+	redrawn    map[rune][]byte
 }
 
 var bundledFontSpecs = []bundledFontSpec{
@@ -35,9 +36,35 @@ var bundledFontSpecs = []bundledFontSpec{
 	{name: "MONACO12", encoding: BitmapASCII, size: 12, width: 8, height: 15, rowBytes: 1, glyphCount: 127, baseline: 12, lineGap: 2, advance: 7},
 	{name: "MONACO14", encoding: BitmapASCII, size: 14, width: 8, height: 18, rowBytes: 1, glyphCount: 127, baseline: 14, lineGap: 2, advance: 8},
 	{name: "MONACO16", encoding: BitmapASCII, size: 16, width: 10, height: 20, rowBytes: 2, glyphCount: 127, baseline: 16, lineGap: 2, advance: 10},
-	{name: "HZK12", encoding: BitmapGB2312, width: 12, height: 12, rowBytes: 2, glyphCount: 87 * 94},
+	{name: "HZK12", encoding: BitmapGB2312, width: 12, height: 12, rowBytes: 2, glyphCount: 87 * 94, redrawn: map[rune][]byte{
+		'…': record(2, 12, 5, "_##__##__##_"),
+		'·': record(2, 12, 5, "_____##_____"),
+	}},
 	{name: "HZK14", encoding: BitmapGB2312, width: 14, height: 14, rowBytes: 2, glyphCount: 87 * 94},
-	{name: "HZK16", encoding: BitmapGB2312, width: 16, height: 16, rowBytes: 2, glyphCount: 87 * 94},
+	{name: "HZK16", encoding: BitmapGB2312, width: 16, height: 16, rowBytes: 2, glyphCount: 87 * 94, redrawn: map[rune][]byte{
+		'…': record(2, 16, 7, "__##___##___##__"),
+		'·': record(2, 16, 7, "_______##_______"),
+	}},
+}
+
+// The HZK12 and HZK16 files draw "…" and "·" as dots three and four pixels
+// across, which on a panel read as a row of beads where a browser's font has
+// a pair of pixels. They are redrawn here, as HZK14 already draws them, rather
+// than in the files, which stay the bytes upstream publishes.
+
+// record is a glyph whose only ink is one row of dots two pixels deep, from
+// row top down: enough for the marks that are all a glyph needs redrawing
+// for, and short enough to read as the mark it draws.
+func record(rowBytes, height, top int, dots string) []byte {
+	data := make([]byte, rowBytes*height)
+	for y := top; y < top+2; y++ {
+		for x, pixel := range dots {
+			if pixel == '#' {
+				data[y*rowBytes+x/8] |= 0x80 >> uint(x%8)
+			}
+		}
+	}
+	return data
 }
 
 // NewBuiltinFontRegistry loads the selected HZK and Monaco bitmap strikes.
@@ -62,6 +89,7 @@ func NewBuiltinFontRegistry() (*FontRegistry, error) {
 			Advance:      spec.advance,
 			Data:         data,
 			MaxASCIIRune: 0x7e,
+			Redrawn:      spec.redrawn,
 		})
 		if err != nil {
 			return nil, err

@@ -352,8 +352,11 @@ func emboldened(glyph Glyph, made map[*byte]Glyph) Glyph {
 // ellipsize ends every line too long for the box with an ellipsis, taking
 // off as many characters as it needs to fit one. The ellipsis is drawn in
 // the face of the last character kept, or as three full stops where that
-// face has no "…". A box too narrow for even the ellipsis keeps as much of
-// it as fits, as a browser does.
+// face has no "…": a set that has to reach into another face for it finds
+// the one in a Chinese face, three heavy dots in the middle of a full-width
+// cell, which ends a line of Latin text as nothing a browser would draw. A
+// box too narrow for even the ellipsis keeps as much of it as fits, as a
+// browser does.
 func (l *TextLayout) ellipsize(bold map[*byte]Glyph) {
 	available := l.box.Bounds.Dx()
 	l.width = 0
@@ -362,7 +365,7 @@ func (l *TextLayout) ellipsize(bold map[*byte]Glyph) {
 		if line.width > available && len(line.glyphs) > 0 {
 			last := line.glyphs[len(line.glyphs)-1]
 			mark := []glyphPlacement{}
-			if dots, ok := place('…', last.style, last.set, bold); ok {
+			if dots, ok := place('…', last.style, last.set, bold); ok && sameFace(last.set, last.r, '…') {
 				mark = append(mark, dots)
 			} else {
 				dot, _ := place('.', last.style, last.set, bold)
@@ -382,6 +385,17 @@ func (l *TextLayout) ellipsize(bold map[*byte]Glyph) {
 		}
 		l.width = max(l.width, line.width)
 	}
+}
+
+// sameFace says whether a set finds two characters in the same face. A
+// character the set has nowhere is in no face, and so in nobody's.
+func sameFace(set *FontSet, a, b rune) bool {
+	first, ok := set.Resolve(a)
+	if !ok {
+		return false
+	}
+	second, ok := set.Resolve(b)
+	return ok && first.Face == second.Face
 }
 
 func widthOf(glyphs []glyphPlacement) int {

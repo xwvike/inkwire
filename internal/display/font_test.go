@@ -193,3 +193,33 @@ func glyphIsBlank(glyph Glyph) bool {
 	}
 	return true
 }
+
+// Every HZK strike draws "…" and "·" as dots two pixels square, the weight
+// HZK14 draws them at and a browser's font comes close to; the files that
+// draw them heavier are redrawn as they load and are otherwise left alone.
+func TestTheChineseStrikesDrawLightDots(t *testing.T) {
+	registry := builtinRegistry(t)
+	for _, name := range []string{"HZK12", "HZK14", "HZK16"} {
+		set, ok := registry.Lookup(name)
+		if !ok {
+			t.Fatalf("%s is not registered", name)
+		}
+		for r, want := range map[rune]int{'…': 3 * 4, '·': 4} {
+			resolved, ok := set.Resolve(r)
+			if !ok {
+				t.Fatalf("%s has no %q", name, r)
+			}
+			inked := 0
+			for y := 0; y < resolved.Glyph.Height; y++ {
+				for x := 0; x < resolved.Glyph.Width; x++ {
+					if resolved.Glyph.On(x, y) {
+						inked++
+					}
+				}
+			}
+			if inked != want {
+				t.Errorf("%s draws %q with %d pixels; want %d", name, r, inked, want)
+			}
+		}
+	}
+}

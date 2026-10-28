@@ -7,6 +7,11 @@ directory. Inkwire uses its own Go loader and does not include the upstream C++
 decoder. Other HZK styles and sizes are intentionally excluded so the UI keeps
 one consistent glyph style.
 
+Modified on load, not in the files: HZK12 and HZK16 draw U+2026 "…" and U+00B7
+"·" with dots three and four pixels across, which read as beads on a panel.
+bundledFontSpecs in ../fonts.go redraws those two glyphs as two-pixel dots,
+the weight HZK14 already uses. The files themselves stay upstream's bytes.
+
 The MONACO files are 1-bit ASCII strikes generated from macOS
 /System/Library/Fonts/Monaco.ttf with Pillow 12.3.0, integer coordinates, and
 no antialiasing. MONACO10 keeps the exact 8x12, baseline 10, advance 6 setup
