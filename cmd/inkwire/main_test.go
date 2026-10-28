@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/xwvike/inkwire/internal/compose"
+	"github.com/xwvike/inkwire/internal/gicisky"
 	"github.com/xwvike/inkwire/internal/scene"
 	"github.com/xwvike/inkwire/internal/server"
 )
@@ -61,9 +62,12 @@ func TestServeOnlyBindsLoopback(t *testing.T) {
 // transfer off partway and report a failure the tag never had.
 func TestServeTimeoutsCannotCutAPushShort(t *testing.T) {
 	httpServer := newHTTPServer("127.0.0.1:0", nil)
+	// A push first fetches its pictures and finds its tag, and only then
+	// writes; the write budget is what is left after both.
+	before := server.ImageFetchTimeout + gicisky.DefaultScanTimeout + 5*time.Second
 	for family, budget := range map[string]time.Duration{
-		"gicisky": server.DefaultPushTimeout,
-		"nrfepd":  server.DefaultNRFEPDPushTimeout,
+		"gicisky": before + server.DefaultPushTimeout,
+		"nrfepd":  before + server.DefaultNRFEPDPushTimeout,
 	} {
 		if httpServer.WriteTimeout <= budget {
 			t.Errorf("write timeout %s does not outlast the %s push budget %s", httpServer.WriteTimeout, family, budget)

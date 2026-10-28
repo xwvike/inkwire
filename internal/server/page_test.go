@@ -163,3 +163,29 @@ func TestARequestCarriesAPageOrASceneAndNotBoth(t *testing.T) {
 		t.Fatalf("code = %d, body = %s", response.Code, response.Body.String())
 	}
 }
+
+// What anyone can send the server cannot have it fetch from the server's own
+// network: a picture named by a local address is not fetched, and the answer
+// says why.
+func TestAPageCannotHaveTheServerFetchFromItsOwnNetwork(t *testing.T) {
+	fetched := false
+	local := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		fetched = true
+		writer.Write(solidPNG(t, color.NRGBA{A: 0xff}))
+	}))
+	defer local.Close()
+	handler := New(Config{Logf: func(string, ...any) {}})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, pageRequest(t, "/v1/render?size=16x16",
+		map[string]string{
+			"page": `<div class="page"><img src="` + local.URL + `/secret.png"></div>`,
+			"stylesheet": `.page { display: flex; width: 16px; height: 16px; background: white; }
+			               img { display: block; width: 8px; height: 8px; }`,
+		}, nil))
+	if fetched {
+		t.Fatal("the server fetched from its own machine")
+	}
+	if !strings.Contains(response.Body.String(), "not on the public internet") {
+		t.Fatalf("code %d, and the answer does not say why: %s", response.Code, response.Body.String())
+	}
+}

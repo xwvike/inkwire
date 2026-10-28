@@ -477,7 +477,8 @@ curl -X POST 'http://127.0.0.1:8080/v1/mode?device=NRF_EPD_C1F8&mode=clock'
 ## 图片资源
 
 HTML 使用 `img src` 引用图片。`src` 可以是 HTTP/HTTPS 链接，也可以是相对路径；`.png`、
-`.jpg`、`.jpeg` 为位图，`.svg` 为外部 SVG。
+`.jpg`、`.jpeg` 为位图，`.svg` 为外部 SVG。`inkwire serve` 只从公网拉取 URL，不访问自身
+所在机器和局域网；命令行不受此限。
 
 ```html
 <img src="assets/portrait.png" class="portrait">

@@ -1219,3 +1219,48 @@ func TestAMistypedPanelOrSizeIsABadRequest(t *testing.T) {
 		}
 	}
 }
+
+// A write that stops with a panic gives the adapter back. net/http recovers
+// from the panic without knowing anything was held, so without this every
+// later write would be refused as busy until the service was restarted.
+func TestAWriteThatPanicsGivesTheAdapterBack(t *testing.T) {
+	panicking := true
+	handler := New(Config{
+		Logf: func(string, ...any) {},
+		Scan: scanFor(t, "PICKSMART", 0x0033),
+		Push: func(context.Context, string, []byte) error {
+			if panicking {
+				panic("the driver fell over")
+			}
+			return nil
+		},
+	})
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("the push did not panic")
+			}
+		}()
+		request(t, handler, "/v1/push?device=PICKSMART", testScene)
+	}()
+	panicking = false
+	if response := request(t, handler, "/v1/push?device=PICKSMART", testScene); response.Code != http.StatusOK {
+		t.Fatalf("the next write got %d: %s", response.Code, response.Body.String())
+	}
+}
+
+// A claim given back as it should be is not given back twice: a later
+// request's claim of the same device is its own and outlives the first.
+func TestAbandoningAReleasedClaimLeavesTheNextOneAlone(t *testing.T) {
+	handler := New(Config{Logf: func(string, ...any) {}})
+	_, first, _ := handler.claim("PICKSMART")
+	handler.release("PICKSMART", 0, nil)
+	_, _, claimed := handler.claim("PICKSMART")
+	if !claimed {
+		t.Fatal("the second claim was refused")
+	}
+	handler.abandon("PICKSMART", first)
+	if _, _, again := handler.claim("OTHER"); again {
+		t.Fatal("abandoning the first claim released the second")
+	}
+}

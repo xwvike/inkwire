@@ -504,7 +504,8 @@ Defaults: scan 15 s, reply 5 s, retry interval 2 s, three attempts.
 
 HTML references images through `img src`. `src` may be an HTTP/HTTPS URL or a
 relative path. `.png`, `.jpg` and `.jpeg` are bitmaps; `.svg` is an external
-drawing.
+drawing. `inkwire serve` fetches a URL only from the public internet, never from
+its own machine or local network; the command line fetches from anywhere.
 
 ```html
 <img src="assets/portrait.png" class="portrait">

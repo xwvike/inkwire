@@ -874,9 +874,9 @@ func newHTTPServer(address string, handler http.Handler) *http.Server {
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       time.Minute,
-		// A write must outlast a full push, so this is the server's push
-		// budget for either family plus room for the response itself.
-		WriteTimeout: max(server.DefaultPushTimeout, server.DefaultNRFEPDPushTimeout) + 15*time.Second,
+		// A write must outlast the longest request — its pictures, finding
+		// the tag and the push — plus room for the response itself.
+		WriteTimeout: server.LongestRequest() + 15*time.Second,
 		IdleTimeout:  time.Minute,
 	}
 }

@@ -56,7 +56,23 @@ const (
 	// writes have completed inside the server's existing 60-second window;
 	// retries share this total budget rather than multiplying it.
 	DefaultNRFEPDPushTimeout = 60 * time.Second
+	// ImageFetchTimeout bounds every picture a request names, fetched
+	// together, rather than each one: a page naming ten slow pictures would
+	// otherwise hold its request for ten fetch timeouts.
+	ImageFetchTimeout = 20 * time.Second
 )
+
+// LongestRequest is how long a request can take with the default budgets:
+// fetching its pictures, finding its tag and writing to it, one after the
+// other. A connection held for less than this could be cut off in the middle
+// of a write that was going to succeed.
+func LongestRequest() time.Duration {
+	return ImageFetchTimeout + gicisky.DefaultScanTimeout + locateSlack +
+		max(DefaultPushTimeout, DefaultNRFEPDPushTimeout)
+}
+
+// locateSlack is the time a scan is given past its own window to stop.
+const locateSlack = 5 * time.Second
 
 type Config struct {
 	Adapter *bluetooth.Adapter
@@ -169,9 +185,12 @@ type Handler struct {
 	enableOnce sync.Once
 	enableErr  error
 
-	mu      sync.Mutex
-	active  string
-	since   time.Time
+	mu     sync.Mutex
+	active string
+	since  time.Time
+	// claims counts the claims ever taken, so a claim can tell whether the
+	// one held now is still its own.
+	claims  uint64
 	history map[string]DeviceStatus
 }
 
@@ -234,15 +253,16 @@ func New(config Config) *Handler {
 // devices reports every tag advertising nearby and what panel each one has.
 // It takes the same claim a write does, because both need the radio.
 func (h *Handler) serveScan(writer http.ResponseWriter, request *http.Request) {
-	busy, claimed := h.claim(scanHolder)
+	busy, claim, claimed := h.claim(scanHolder)
 	if !claimed {
 		writeStatus(writer, http.StatusConflict, "device-busy",
 			fmt.Errorf("the adapter is busy writing %s", busy.Device), busy)
 		return
 	}
+	defer h.abandon(scanHolder, claim)
 	// One pass of the radio covers both families, so the budget is one window
 	// and the slack to stop it in.
-	ctx, cancel := context.WithTimeout(request.Context(), h.scanTimeout+5*time.Second)
+	ctx, cancel := context.WithTimeout(request.Context(), h.scanTimeout+locateSlack)
 	defer cancel()
 	devices, err := h.scanBothFamilies(ctx)
 	h.release(scanHolder, 0, err)
@@ -439,7 +459,7 @@ func (h *Handler) servePush(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	busy, claimed := h.claim(target)
+	busy, claim, claimed := h.claim(target)
 	if !claimed {
 		// One adapter can hold one conversation, so a second write is
 		// refused outright instead of queued behind a ten-second upload the
@@ -448,12 +468,13 @@ func (h *Handler) servePush(writer http.ResponseWriter, request *http.Request) {
 			fmt.Errorf("device %s is being written", busy.Device), busy)
 		return
 	}
+	defer h.abandon(target, claim)
 
 	// Which family the target belongs to is discovered, so the listening comes
 	// first and gets its own budget. The write that follows is billed to the
 	// family that answered, which is the only point either budget was measured
 	// against.
-	locateCtx, done := context.WithTimeout(request.Context(), h.scanTimeout+5*time.Second)
+	locateCtx, done := context.WithTimeout(request.Context(), h.scanTimeout+locateSlack)
 	found, err := h.locate(locateCtx, target, asserted)
 	locateFailed := locateCtx.Err()
 	done()
@@ -533,17 +554,18 @@ func (h *Handler) serveMode(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	busy, claimed := h.claim(target)
+	busy, claim, claimed := h.claim(target)
 	if !claimed {
 		writeStatus(writer, http.StatusConflict, "device-busy",
 			fmt.Errorf("device %s is being written", busy.Device), busy)
 		return
 	}
+	defer h.abandon(target, claim)
 
 	// nrfepd is asserted rather than discovered. A Gicisky tag has no mode to
 	// set — the whole route is a property of the other firmware — so being told
 	// that is more use than being told no EPD-nRF5 tag answered.
-	locateCtx, done := context.WithTimeout(request.Context(), h.scanTimeout+5*time.Second)
+	locateCtx, done := context.WithTimeout(request.Context(), h.scanTimeout+locateSlack)
 	found, err := h.locate(locateCtx, target, tag.NRFEPD)
 	locateFailed := locateCtx.Err()
 	done()
@@ -595,7 +617,18 @@ func (h *Handler) setModeOn(ctx context.Context, target string, found nrfepd.Fou
 
 // locate works out which tag a request means, from one pass of the radio or
 // from whatever the hooks supply in place of one.
+//
+// On the radio it stops listening as soon as the named tag has answered in
+// full, which is what the command line does: a tag nearby answers within a
+// second or two, and waiting out the rest of the window only kept the request
+// and the adapter for nothing.
 func (h *Handler) locate(ctx context.Context, target, asserted string) (tag.Found, error) {
+	if !h.ownTransport {
+		if err := h.enableAdapter(); err != nil {
+			return tag.Found{}, err
+		}
+		return tag.Locate(ctx, h.adapter, h.scanTimeout, target, asserted)
+	}
 	tags, others, err := h.scanRadio(ctx)
 	if err != nil {
 		return tag.Found{}, err
@@ -645,15 +678,32 @@ func (h *Handler) writeGicisky(writer http.ResponseWriter, ctx context.Context,
 // claim makes a write exclusive across every device, because exclusivity is a
 // property of the single Bluetooth adapter rather than of the target tag. The
 // returned status describes whoever holds it.
-func (h *Handler) claim(target string) (DeviceStatus, bool) {
+func (h *Handler) claim(target string) (DeviceStatus, uint64, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.active != "" {
-		return h.statusLocked(h.active), false
+		return h.statusLocked(h.active), 0, false
 	}
 	h.active = target
 	h.since = time.Now()
-	return h.statusLocked(target), true
+	h.claims++
+	return h.statusLocked(target), h.claims, true
+}
+
+// abandon gives back a claim that was never released, which happens only when
+// the work done under it stopped without finishing — a panic, which net/http
+// recovers from without knowing that anything was held. Without this the
+// adapter would stay claimed by a request that no longer exists, and every
+// write after it would be refused as busy until the service was restarted.
+// A claim released as it should be, or one taken since by someone else, is
+// left alone.
+func (h *Handler) abandon(target string, claim uint64) {
+	h.mu.Lock()
+	held := h.active != "" && h.claims == claim
+	h.mu.Unlock()
+	if held {
+		h.release(target, 0, errors.New("the write stopped without finishing"))
+	}
 }
 
 func (h *Handler) release(target string, size int, err error) DeviceStatus {
@@ -802,11 +852,17 @@ func (h *Handler) decodeRequest(writer http.ResponseWriter, incoming *http.Reque
 		// part can be resolved for this request.
 		baseDir = ""
 	}
+	fetching, stop := context.WithTimeout(incoming.Context(), ImageFetchTimeout)
+	defer stop()
 	document, err := (scene.Decoder{
 		BaseDir:       baseDir,
 		RestrictFiles: true,
 		Resources:     sent.resources,
 		ResourcesOnly: sent.page != nil,
+		// What arrives here can come from anyone who can reach the server,
+		// so it may not have the server fetch from the server's own network.
+		PublicImagesOnly: true,
+		Context:          fetching,
 	}).Decode(bytes.NewReader(sceneBytes))
 	if err != nil {
 		writeError(writer, http.StatusUnprocessableEntity, "invalid-scene", err)
