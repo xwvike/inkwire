@@ -1,5 +1,7 @@
 # Markup Manual
 
+The binary carries this manual: `inkwire docs` prints it.
+
 Markup uses HTML for content, CSS for layout and paint, and SVG for geometry. `render`, `measure`,
 and HTTP `render` require `size` or `panel`; `push` obtains the panel size and inks from the target
 device. The page is the body, and all of it is drawn, as in a browser. A body that holds one element

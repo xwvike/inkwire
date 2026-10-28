@@ -25,6 +25,7 @@ differences.
 | `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] [-asset SRC=FILE] <page.html>` | Render and write |
 | `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 clock / calendar |
 | `inkwire serve [-listen ADDR] [-assets DIR]` | Start the HTTP service |
+| `inkwire docs [-lang en\|zh-CN] [markup\|readme]` | Print a manual the binary carries |
 | `inkwire help` | `-h`, `--help` |
 | `inkwire version` | `-v`, `--version` |
 
@@ -224,6 +225,22 @@ There is no authentication and write requests reach hardware directly. Only a
 loopback address is accepted. Relative resources in JSON scenes are read below
 the `-assets` directory; multipart pages must upload local resources. See
 [Running the HTTP service](#running-the-http-service) for routes and error codes.
+
+### docs
+
+Prints a manual built into the binary, so the executable alone is enough to
+learn how a page is written. The markup manual is the default; `readme` is this
+document. Both are printed as markdown, exactly as in the repository.
+
+```bash
+inkwire docs                    # the markup manual
+inkwire docs -lang en readme    # this document, in English
+inkwire docs | less
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `-lang` | from `LC_ALL`, `LC_MESSAGES` or `LANG`: `zh-CN` for a Chinese locale, otherwise `en` | `en` or `zh-CN` |
 
 ## Gicisky
 

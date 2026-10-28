@@ -24,6 +24,7 @@ Markup 遵循 Web 布局规则，实现面向电子纸面板的 CSS 子集。支
 | `inkwire push -device NAME [-family gicisky\|nrfepd] [-settle 30s] [-asset SRC=FILE] <page.html>` | 渲染并写入 |
 | `inkwire mode -device NAME [-mode picture\|calendar\|clock] [-week-start sunday\|monday] [-settle 30s]` | EPD-nRF5 时钟/日历 |
 | `inkwire serve [-listen ADDR] [-assets DIR]` | 启动 HTTP 服务 |
+| `inkwire docs [-lang en\|zh-CN] [markup\|readme]` | 输出二进制自带的手册 |
 | `inkwire help` | `-h`、`--help` |
 | `inkwire version` | `-v`、`--version` |
 
@@ -214,6 +215,21 @@ listening on http://127.0.0.1:8080
 
 无鉴权，写入请求直达硬件；仅允许绑定回环地址。JSON 场景的相对资源从 `-assets` 指定的目录
 读取；multipart 页面必须上传本地资源。路由和错误码见[创建 HTTP 服务](#创建-http-服务)。
+
+### docs
+
+输出编译进二进制的手册，只有可执行文件也能查到页面怎么写。默认输出 Markup 手册；`readme`
+即本文档。两者都按仓库中的原文输出 markdown。
+
+```bash
+inkwire docs                       # Markup 手册
+inkwire docs -lang zh-CN readme    # 本文档，中文
+inkwire docs | less
+```
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `-lang` | 依次取 `LC_ALL`、`LC_MESSAGES`、`LANG`：中文环境为 `zh-CN`，其他为 `en` | `en` 或 `zh-CN` |
 
 ## Gicisky
 

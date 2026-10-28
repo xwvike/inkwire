@@ -1,5 +1,7 @@
 # Markup 手册
 
+本手册已编入二进制，`inkwire docs` 即可输出。
+
 Markup 使用 HTML 表达内容，CSS 表达布局和绘制，SVG 表达几何图形。`render`、`measure` 和
 HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面板尺寸和墨色。
 页面就是 body，与浏览器一致，整个 body 都会绘制。body 里只有一个元素、没有其他内容时（如常见的

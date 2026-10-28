@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/xwvike/inkwire"
 	"github.com/xwvike/inkwire/internal/ble"
 	"github.com/xwvike/inkwire/internal/compose"
 	"github.com/xwvike/inkwire/internal/display"
@@ -71,6 +72,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runMode(ctx, args[1:], logger, stdout, stderr)
 	case "serve":
 		return runServe(ctx, args[1:], logger, stdout, stderr)
+	case "docs":
+		return runDocs(args[1:], os.Getenv, stdout, stderr)
 	default:
 		// Every invocation names a command. There used to be a bare form that
 		// took a file path and wrote it to a tag, which is how `inkwire
@@ -131,6 +134,7 @@ var usageLines = []struct{ name, takes string }{
 	{"scan", "[-timeout 15s]"},
 	{"mode", "-device MAC-or-name [-mode picture|calendar|clock] [-week-start sunday|monday] [-settle 30s]"},
 	{"serve", "[-listen address] [-assets directory]"},
+	{"docs", "[-lang en|zh-CN] [markup|readme]"},
 	{"version", ""},
 }
 
@@ -272,6 +276,47 @@ func runServe(ctx context.Context, args []string, logger *log.Logger, stdout, st
 		return 1
 	}
 	return 0
+}
+
+// runDocs prints a manual the binary carries: the markup manual unless the
+// README is asked for, in the language the environment is set to unless -lang
+// says otherwise. It is the markdown as written, which a pager, a terminal and
+// a model all read.
+func runDocs(args []string, getenv func(string) string, stdout, stderr io.Writer) int {
+	flags := command("docs", stderr)
+	lang := flags.String("lang", localeLanguage(getenv), "language of the manual: en or zh-CN")
+	if code, ok := parseFlags(flags, args, stdout); !ok {
+		return code
+	}
+	if flags.NArg() > 1 {
+		flags.Usage()
+		return 2
+	}
+	topic := "markup"
+	if flags.NArg() == 1 {
+		topic = flags.Arg(0)
+	}
+	content, ok := inkwire.Doc(topic, *lang)
+	if !ok {
+		fmt.Fprintf(stderr, "no manual %q in %q; topics are markup and readme, languages en and zh-CN\n", topic, *lang)
+		return 2
+	}
+	_, _ = stdout.Write(content)
+	return 0
+}
+
+// localeLanguage is zh-CN for a Chinese locale and en for any other, read the
+// way POSIX ranks the variables: LC_ALL over LC_MESSAGES over LANG.
+func localeLanguage(getenv func(string) string) string {
+	for _, name := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
+		if value := getenv(name); value != "" {
+			if strings.HasPrefix(strings.ToLower(value), "zh") {
+				return "zh-CN"
+			}
+			return "en"
+		}
+	}
+	return "en"
 }
 
 func runScan(ctx context.Context, args []string, logger *log.Logger, stdout, stderr io.Writer) int {
