@@ -2,7 +2,12 @@
 
 Markup uses HTML for content, CSS for layout and paint, and SVG for geometry. `render`, `measure`,
 and HTTP `render` require `size` or `panel`; `push` obtains the panel size and inks from the target
-device. The root element may omit `width` and `height`: they affect CSS layout only and do not select
+device. The page is the body, and all of it is drawn, as in a browser. A body that holds one element
+and nothing else, such as the usual `<div class="page">`, is drawn from that element unless a rule
+styles the body itself; either way, a body that states neither an `orientation` nor a pixel size
+takes both from that element. The root element below is the one the page is drawn from.
+
+The root element may omit `width` and `height`: they affect CSS layout only and do not select
 the render target. Root `orientation` accepts `landscape`, `portrait-cw`, and `portrait-ccw`; the
 default is `landscape`.
 
@@ -38,8 +43,8 @@ syntax only for the subproperties listed here.
 | Position | `position` | `static`, `relative`, `absolute` | `fixed` and `sticky` are not implemented |
 | Position | `top`, `right`, `bottom`, `left`, `inset` | `px`, `%`, `calc()`, `auto` | Percentages resolve against the positioned containing block |
 | Position | `z-index` | Number | Changes paint order only for positioned elements |
-| Colour | `color` | `black`, `white`, `red`, `yellow`, written by name, in hexadecimal, or as `rgb()`, `rgba()`, `hsl()`, `hsla()`, `oklab()` or `oklch()` | A grey or tinted grey is drawn black with a warning; transparency, other colour functions, and other named colours are not supported |
-| Colour | `background`, `background-color`, `border-color`, `border-top-color`, `border-right-color`, `border-bottom-color`, `border-left-color` | `black`, `white`, `red`, `yellow`, the greys `gray`, `grey`, `silver`, `lightgray`, `lightgrey`, `darkgray`, `darkgrey`, `dimgray`, `dimgrey`, `gainsboro`, `whitesmoke`, and any of these or any grey written in hexadecimal or as `rgb()`, `rgba()`, `hsl()`, `hsla()`, `oklab()` or `oklch()` | A grey is dithered from black and white. A tinted grey, whose red, green and blue differ by at most 48, such as `#6b7280` or Tailwind 4's `oklch(55.1% 0.027 264.364)`, is drawn as the grey of its lightness with a warning. Transparency, other colour functions, and other named colours are not supported; other colours are not approximated |
+| Colour | `color` | `black`, `white`, `red`, `yellow`, written by name, in hexadecimal, or as `rgb()`, `rgba()`, `hsl()`, `hsla()`, `oklab()` or `oklch()` | A colour within two steps of an ink in every channel, as an `oklch()` or `hsl()` form of one often comes out, is that ink. A grey or tinted grey is drawn black with a warning; transparency, other colour functions, and other named colours are not supported |
+| Colour | `background`, `background-color`, `border-color`, `border-top-color`, `border-right-color`, `border-bottom-color`, `border-left-color` | `black`, `white`, `red`, `yellow`, the greys `gray`, `grey`, `silver`, `lightgray`, `lightgrey`, `darkgray`, `darkgrey`, `dimgray`, `dimgrey`, `gainsboro`, `whitesmoke`, and any of these or any grey written in hexadecimal or as `rgb()`, `rgba()`, `hsl()`, `hsla()`, `oklab()` or `oklch()` | A colour within two steps of an ink in every channel is that ink. A grey is dithered from black and white. A tinted grey, whose red, green and blue differ by at most 48, such as `#6b7280` or Tailwind 4's `oklch(55.1% 0.027 264.364)`, is drawn as the grey of its lightness with a warning. Transparency, other colour functions, and other named colours are not supported; other colours are not approximated |
 | Colour | `background`, `background-image` | `none`, or `linear-gradient()` towards `to top`, `to right`, `to bottom`, `to left`, or `0deg`, `90deg`, `180deg`, `270deg` and the same angles in `turn`, `rad`, `grad`; two or more stops in white and one ink or its greys, each with an optional `%` position | The image is painted over `background-color`. Corner directions, other angles, two inks in one gradient, colour hints, two-position stops, length positions, `radial-gradient()`, `conic-gradient()`, `repeating-*-gradient()`, and `url()` warn and drop the declaration |
 | Border | `border`, `border-top`, `border-right`, `border-bottom`, `border-left` | One width, line style, and colour in any order | An omitted line style is `none` and draws nothing; an omitted colour, like `currentColor` in any border colour, is the colour of the element's text |
 | Border | `border-width`, `border-top-width`, `border-right-width`, `border-bottom-width`, `border-left-width` | Non-negative `px`, a pixel-only `calc()`, or `thin`, `medium`, `thick` (1, 3 and 5px) | Rounded to whole pixels at layout; percentages and multi-value border widths are not implemented |
@@ -73,7 +78,7 @@ syntax only for the subproperties listed here.
 | Text | `text-decoration-style` | `solid` | Other styles warn |
 | Text | `text-decoration-color` | `currentColor` | A decoration is drawn in its text's colour; other colours warn |
 | Text | `text-decoration-thickness`, `text-underline-offset` | `auto` | Other values warn |
-| Text | `text-overflow` | `clip`, `ellipsis` | `ellipsis` ends a line cut off by `overflow: hidden` with "…", as in a browser, on text with no elements inside it; elsewhere it warns |
+| Text | `text-overflow` | `clip`, `ellipsis` | `ellipsis` ends a line cut off by `overflow: hidden` with an ellipsis, as in a browser: "…" after Chinese, and three full stops after Latin text, whose bundled faces have no "…"; on text with no elements inside it; elsewhere it warns |
 | List | `list-style`, `list-style-type` | `disc`, `circle`, `square`, `none`, `decimal`, `decimal-leading-zero`, `lower-alpha`, `upper-alpha`, `lower-latin`, `upper-latin`, `lower-roman`, `upper-roman`, `lower-greek`, `cjk-decimal`, `simp-chinese-informal`, `trad-chinese-informal`, `cjk-ideographic`, `disclosure-open`, `disclosure-closed`, or a string; the shorthand also takes a position | A marker is drawn for each `display: list-item` box in its colour and font, numbered from the `ol`'s `start`, `reversed` and each `li`'s `value`; a type with no counter style here is drawn as `decimal` and warns |
 | List | `list-style-position` | `outside`, `inside` | `outside` hangs the marker beside the first line, outside the item's border; `inside` puts it first on the line, and warns and is drawn outside when the item starts with a box rather than text |
 | List | `list-style-image` | `none` | An image warns, and the type's marker is drawn |
@@ -98,8 +103,7 @@ Every CSS property absent from the table above is unsupported. An unsupported va
 property has the same result: the declaration is ignored and `unsupported-declaration` is emitted.
 Common unsupported items include:
 
-- Layout: `float`, `clear`, `order`, `grid-template-areas`,
-  `grid-auto-columns`, `grid-auto-rows`, `grid-auto-flow`, `table-layout`.
+- Layout: `float`, `clear`, `order`, `grid-template-areas`, `grid-auto-flow`, `table-layout`.
 - Position and effects: `position: fixed`, `position: sticky`, `opacity`, `filter`, `box-shadow`,
   `text-shadow`, `mix-blend-mode`, `background-repeat`, `background-size`.
 - Text: `font-variant`, `text-indent`, `word-spacing`, `text-transform`, `hyphens`.
@@ -198,7 +202,15 @@ finite non-zero factors, and `rotate` accepts an angle or an angle with a rotati
 bitmaps; `.svg` is loaded as an external SVG drawing. Relative paths are resolved only through the
 page resource map; the HTTP service never reads a client path or an arbitrary file in its working
 directory. The HTTP service fetches a URL only from the public internet — never from the machine it
-runs on or the network it is on — while the command line fetches from anywhere.
+runs on or the network it is on — while the command line fetches from anywhere. An SVG named by URL
+is held to the same rule. The service connects directly rather than through the system proxy, so a
+picture reachable only through a proxy is not drawn by it, and it refuses 198.18.0.0/15, the
+addresses a proxy's fake-IP DNS hands out: under such DNS it can fetch nothing. A picture that cannot
+be read, fetched or decoded leaves an empty box and an `unresolved-image` warning.
+
+An `<img>` or inline `<svg>` is a box like any other: its padding, background and border are drawn
+round the picture, and `border-radius` clips the picture to its corners, so `border-radius: 50%`
+makes a round portrait.
 
 An SVG in `<img>` is a replaced image: page CSS sizes and clips its image box, but does not cascade
 into the SVG document. Its supported SVG paint and viewport are retained. Page CSS declarations for

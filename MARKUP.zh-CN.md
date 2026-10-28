@@ -2,6 +2,10 @@
 
 Markup 使用 HTML 表达内容，CSS 表达布局和绘制，SVG 表达几何图形。`render`、`measure` 和
 HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面板尺寸和墨色。
+页面就是 body，与浏览器一致，整个 body 都会绘制。body 里只有一个元素、没有其他内容时（如常见的
+`<div class="page">`），只要没有规则单独作用于 body，就从这个元素开始绘制；无论哪种情况，body
+既没写 `orientation` 也没写像素尺寸时，两者都从这个元素读取。下文的根元素即页面开始绘制的那个元素。
+
 根元素可以省略 `width` 和 `height`，它们只参与 CSS 布局，不决定渲染目标。根元素的
 `orientation` 支持 `landscape`、`portrait-cw` 和 `portrait-ccw`，默认值为 `landscape`。
 
@@ -37,8 +41,8 @@ HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面�
 | 定位 | `position` | `static`、`relative`、`absolute` | 不实现 `fixed` 和 `sticky` |
 | 定位 | `top`、`right`、`bottom`、`left`、`inset` | `px`、`%`、`calc()`、`auto` | 百分比按定位包含块解析 |
 | 定位 | `z-index` | 数字 | 仅改变已定位元素的绘制层级 |
-| 颜色 | `color` | `black`、`white`、`red`、`yellow`，可写名称、十六进制，或 `rgb()`、`rgba()`、`hsl()`、`hsla()`、`oklab()`、`oklch()` | 灰色或带色偏的灰会画成黑色并给出警告；不支持透明度、其他颜色函数和其他命名色 |
-| 颜色 | `background`、`background-color`、`border-color`、`border-top-color`、`border-right-color`、`border-bottom-color`、`border-left-color` | `black`、`white`、`red`、`yellow`、灰色 `gray`、`grey`、`silver`、`lightgray`、`lightgrey`、`darkgray`、`darkgrey`、`dimgray`、`dimgrey`、`gainsboro`、`whitesmoke`，及这些颜色或任意灰色的十六进制、`rgb()`、`rgba()`、`hsl()`、`hsla()`、`oklab()`、`oklch()` 写法 | 灰色由黑白抖动而成。带色偏的灰（红绿蓝相差不超过 48，如 `#6b7280` 或 Tailwind 4 的 `oklch(55.1% 0.027 264.364)`）按其亮度画成灰色并给出警告。不支持透明度、其他颜色函数和其他命名色；其他颜色不会近似 |
+| 颜色 | `color` | `black`、`white`、`red`、`yellow`，可写名称、十六进制，或 `rgb()`、`rgba()`、`hsl()`、`hsla()`、`oklab()`、`oklch()` | 每个通道与某种墨色相差不超过 2 的颜色按该墨色处理（`oklch()`、`hsl()` 写出的墨色换算后常差一两级）。灰色或带色偏的灰会画成黑色并给出警告；不支持透明度、其他颜色函数和其他命名色 |
+| 颜色 | `background`、`background-color`、`border-color`、`border-top-color`、`border-right-color`、`border-bottom-color`、`border-left-color` | `black`、`white`、`red`、`yellow`、灰色 `gray`、`grey`、`silver`、`lightgray`、`lightgrey`、`darkgray`、`darkgrey`、`dimgray`、`dimgrey`、`gainsboro`、`whitesmoke`，及这些颜色或任意灰色的十六进制、`rgb()`、`rgba()`、`hsl()`、`hsla()`、`oklab()`、`oklch()` 写法 | 每个通道与某种墨色相差不超过 2 的颜色按该墨色处理。灰色由黑白抖动而成。带色偏的灰（红绿蓝相差不超过 48，如 `#6b7280` 或 Tailwind 4 的 `oklch(55.1% 0.027 264.364)`）按其亮度画成灰色并给出警告。不支持透明度、其他颜色函数和其他命名色；其他颜色不会近似 |
 | 颜色 | `background`、`background-image` | `none`，或 `linear-gradient()`，方向为 `to top`、`to right`、`to bottom`、`to left`，或 `0deg`、`90deg`、`180deg`、`270deg` 及以 `turn`、`rad`、`grad` 表示的同样角度；两个及以上色标，取白色和同一种墨色或其灰色，每个色标可带一个 `%` 位置 | 背景图画在 `background-color` 之上。对角方向、其他角度、一个渐变里两种墨色、颜色提示、双位置色标、长度位置、`radial-gradient()`、`conic-gradient()`、`repeating-*-gradient()` 和 `url()` 会给出警告并丢弃该声明 |
 | 边框 | `border`、`border-top`、`border-right`、`border-bottom`、`border-left` | 一个宽度、线型和颜色，顺序任意 | 线型省略时为 `none`，不会绘制；颜色省略时与任一边框颜色写 `currentColor` 一样，取元素的文字颜色 |
 | 边框 | `border-width`、`border-top-width`、`border-right-width`、`border-bottom-width`、`border-left-width` | 非负 `px`、仅含像素的 `calc()`，或 `thin`、`medium`、`thick`（1、3、5px） | 布局时取整；不接受百分比或多值边框宽度 |
@@ -72,7 +76,7 @@ HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面�
 | 文本 | `text-decoration-style` | `solid` | 其他线型产生警告 |
 | 文本 | `text-decoration-color` | `currentColor` | 装饰线以文字颜色绘制；其他颜色产生警告 |
 | 文本 | `text-decoration-thickness`、`text-underline-offset` | `auto` | 其他取值产生警告 |
-| 文本 | `text-overflow` | `clip`、`ellipsis` | 与浏览器一致，`ellipsis` 在被 `overflow: hidden` 截断的行末显示“…”，仅作用于不含子元素的文字；其他情况产生警告 |
+| 文本 | `text-overflow` | `clip`、`ellipsis` | 与浏览器一致，`ellipsis` 在被 `overflow: hidden` 截断的行末显示省略号：中文后为“…”，英文后为三个句点（内置英文字体没有“…”），仅作用于不含子元素的文字；其他情况产生警告 |
 | 列表 | `list-style`、`list-style-type` | `disc`、`circle`、`square`、`none`、`decimal`、`decimal-leading-zero`、`lower-alpha`、`upper-alpha`、`lower-latin`、`upper-latin`、`lower-roman`、`upper-roman`、`lower-greek`、`cjk-decimal`、`simp-chinese-informal`、`trad-chinese-informal`、`cjk-ideographic`、`disclosure-open`、`disclosure-closed`，或一个字符串；简写还可带位置 | 每个 `display: list-item` 盒子都按其颜色和字体画出标记，序号从 `ol` 的 `start`、`reversed` 和各 `li` 的 `value` 算起；这里没有的计数样式按 `decimal` 绘制并警告 |
 | 列表 | `list-style-position` | `outside`、`inside` | `outside` 把标记挂在首行旁、列表项边框之外；`inside` 把标记放在行首，列表项以盒子而非文字开头时警告并改画在外侧 |
 | 列表 | `list-style-image` | `none` | 图片产生警告，改画类型对应的标记 |
@@ -95,8 +99,7 @@ HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面�
 未列入上表的 CSS 属性全部不实现。对已实现属性使用未列出的取值，结果相同：声明被忽略并
 产生 `unsupported-declaration`。以下是常见的不支持项：
 
-- 布局：`float`、`clear`、`order`、`grid-template-areas`、
-  `grid-auto-columns`、`grid-auto-rows`、`grid-auto-flow`、`table-layout`。
+- 布局：`float`、`clear`、`order`、`grid-template-areas`、`grid-auto-flow`、`table-layout`。
 - 定位和效果：`position: fixed`、`position: sticky`、`opacity`、`filter`、`box-shadow`、
   `text-shadow`、`mix-blend-mode`、`background-repeat`、`background-size`。
 - 文本：`font-variant`、`text-indent`、`word-spacing`、`text-transform`、`hyphens`。
@@ -176,7 +179,13 @@ SVG 支持 `fill`、`stroke`、`stroke-width`、`stroke-dasharray`、`stroke-das
 
 `img src` 支持 HTTP/HTTPS URL 和相对路径。`.png`、`.jpg`、`.jpeg` 按位图读取，`.svg` 按
 外部 SVG 绘图读取。相对路径始终以页面资源映射为准，HTTP 服务不会读取客户端路径或服务端
-当前目录中的任意文件。HTTP 服务只从公网拉取 URL，不会访问自身所在机器或所在局域网；命令行不受此限。
+当前目录中的任意文件。HTTP 服务只从公网拉取 URL，不会访问自身所在机器或所在局域网；命令行不受此限。以 URL
+引用的 SVG 同样受此限制。HTTP 服务直连目标、不走系统代理，只能经代理访问的图片不会被绘制；
+它也拒绝 198.18.0.0/15，即代理 fake-IP DNS 分配的地址段，在这种 DNS 下它拉不到任何 URL。
+读不到、拉不到或解不开的图片留下空白框并给出 `unresolved-image` 警告。
+
+`<img>` 和内联 `<svg>` 与其他盒子一样：padding、背景和边框绘制在图片四周，`border-radius`
+会把图片裁成圆角，`border-radius: 50%` 即为圆形头像。
 
 `<img>` 中的 SVG 按替换型图片处理：页面 CSS 只控制图片盒的尺寸和裁剪，不进入 SVG 文档参与
 级联；已支持的 SVG 绘制属性和 viewport 保留。页面 CSS 在该图片上声明 SVG 绘画属性时产生

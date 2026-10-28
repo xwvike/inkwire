@@ -378,7 +378,8 @@ A failure is retried three times, two seconds apart. The command reports an
 error after all attempts fail.
 
 Silence between advertising windows is normal. A missed scan does not confirm
-the tag is absent.
+the tag is absent. The command line and `inkwire serve` both scan up to three
+times before reporting that no tag is in range.
 
 ## Running the HTTP service
 
@@ -506,7 +507,10 @@ Defaults: scan 15 s, reply 5 s, retry interval 2 s, three attempts.
 HTML references images through `img src`. `src` may be an HTTP/HTTPS URL or a
 relative path. `.png`, `.jpg` and `.jpeg` are bitmaps; `.svg` is an external
 drawing. `inkwire serve` fetches a URL only from the public internet, never from
-its own machine or local network; the command line fetches from anywhere. A
+its own machine or local network, an SVG named by URL included; the command line
+fetches from anywhere. The service connects directly, not through the system
+proxy, and refuses 198.18.0.0/15, the addresses a proxy's fake-IP DNS hands
+out, so a picture reachable only through a proxy is not drawn by it. A
 picture that cannot be read, fetched or decoded leaves an empty box and an
 `unresolved-image` warning, and the rest of the page is drawn, as in a browser.
 
