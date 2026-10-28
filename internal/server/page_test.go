@@ -142,11 +142,15 @@ func TestAPageCannotReadAnImageFromTheServerWorkingDirectory(t *testing.T) {
 			"stylesheet": `.page { display: flex; width: 16px; height: 16px; background: white; }
 			               img { display: block; width: 8px; height: 8px; }`,
 		}, nil))
-	if response.Code != http.StatusUnprocessableEntity {
+	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 	if !strings.Contains(response.Body.String(), "local image sources are not allowed") {
-		t.Fatalf("error does not identify the rejected local image: %s", response.Body.String())
+		t.Fatalf("the warning does not identify the rejected local image: %s", response.Body.String())
+	}
+	frame, _ := decodeRenderResponse(t, response)
+	if red, green, blue, _ := frame.At(0, 0).RGBA(); red == 0xffff && green == 0 && blue == 0 {
+		t.Fatal("the server read the picture from its working directory")
 	}
 }
 

@@ -149,6 +149,21 @@ type Decoder struct {
 	// stops waiting for its pictures too. Nil waits for the fetch's own
 	// timeout.
 	Context context.Context
+
+	// said collects what Decode has to say about a document it can still
+	// draw, for the document's Warnings.
+	said *[]compose.Warning
+}
+
+// say records a warning for the document being decoded, and reports whether
+// there was one to record it in: decoding a node outside Decode has nowhere
+// to put it, and fails instead.
+func (d Decoder) say(path, code, message string) bool {
+	if d.said == nil {
+		return false
+	}
+	*d.said = append(*d.said, compose.Warning{Path: strings.TrimPrefix(path, "document."), Code: code, Message: message})
+	return true
 }
 
 // imageKey names a decoded picture by where it came from and what it was.
@@ -205,10 +220,12 @@ func (d Decoder) Decode(reader io.Reader) (compose.Document, error) {
 		document.Background = compose.Ink(ink)
 	}
 	if len(source.Root) != 0 && string(source.Root) != "null" {
+		d.said = &[]compose.Warning{}
 		document.Root, err = d.decodeNode(source.Root, "document.root")
 		if err != nil {
 			return compose.Document{}, err
 		}
+		document.Warnings = *d.said
 	}
 	return document, nil
 }
@@ -1464,10 +1481,6 @@ type imageOverridesJSON struct {
 }
 
 func (d Decoder) decodeImage(value imageJSON, path string) (compose.Node, error) {
-	source, err := d.loadImage(value.Source)
-	if err != nil {
-		return nil, fmt.Errorf("%s.source: %w", path, err)
-	}
 	processing := compose.ImageManual
 	switch value.Processing {
 	case "", "manual":
@@ -1487,6 +1500,18 @@ func (d Decoder) decodeImage(value imageJSON, path string) (compose.Node, error)
 	var contrast *compose.Contrast
 	if value.Contrast != nil {
 		contrast = &compose.Contrast{Radius: value.Contrast.Radius, Amount: value.Contrast.Amount}
+	}
+	source, err := d.loadImage(value.Source)
+	if err != nil {
+		// A picture that cannot be had is a hole in the page, as a broken
+		// image is in a browser, and the page round it is still drawn: one
+		// unreachable address took the whole page down with it. What is
+		// wrong with how the picture is written still fails, above; this is
+		// only the picture itself.
+		if d.say(path, "unresolved-image", fmt.Sprintf("%q was not drawn: %v", value.Source, err)) {
+			return compose.Spacer{Size: value.Size.point()}, nil
+		}
+		return nil, fmt.Errorf("%s.source: %w", path, err)
 	}
 	return compose.Image{Size: value.Size.point(), Source: source, Processing: processing, Options: options, Overrides: overrides, Contrast: contrast}, nil
 }

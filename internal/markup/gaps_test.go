@@ -166,12 +166,15 @@ func TestAnImageThatIsNotThereIsReportedByName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = (scene.Decoder{BaseDir: t.TempDir()}).Decode(bytes.NewReader(page.JSON))
-	if err == nil {
-		t.Fatal("a page naming a picture that is not there compiled and decoded")
+	// It is a hole in the page, as a broken image is in a browser, and the
+	// rest of the page is still drawn.
+	document, err := (scene.Decoder{BaseDir: t.TempDir()}).Decode(bytes.NewReader(page.JSON))
+	if err != nil {
+		t.Fatalf("a page naming a picture that is not there was not drawn: %v", err)
 	}
-	if !strings.Contains(err.Error(), "photo.png") {
-		t.Errorf("the missing picture was not named: %v", err)
+	if len(document.Warnings) != 1 || document.Warnings[0].Code != "unresolved-image" ||
+		!strings.Contains(document.Warnings[0].Message, "photo.png") {
+		t.Errorf("the missing picture was not named: %v", document.Warnings)
 	}
 }
 

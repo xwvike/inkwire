@@ -78,7 +78,10 @@ func TestHTTPAssetRootRejectsTraversalAndAbsolutePaths(t *testing.T) {
 	for _, source := range []string{"../outside.png", outside, "file://" + outside} {
 		body := `{"version":1,"root":{"type":"image","source":` + quote(source) + `,"size":{"width":10,"height":10}}}`
 		response := request(t, handler, "/v1/render?size=10x10", body)
-		if response.Code != http.StatusUnprocessableEntity {
+		// Refused before it is opened, and said why. The page is drawn round
+		// the hole it leaves, as a browser draws round a broken image.
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "unresolved-image") ||
+			!strings.Contains(response.Body.String(), "escapes") && !strings.Contains(response.Body.String(), "absolute image paths are not allowed") {
 			t.Fatalf("source %q status = %d: %s", source, response.Code, response.Body.String())
 		}
 	}

@@ -150,10 +150,28 @@ func TestResourcesOnlyRejectsLocalImages(t *testing.T) {
 		t.Fatal(err)
 	}
 	value := `{"version":1,"size":{"width":8,"height":8},"root":{"type":"image","source":"photo.png","size":{"width":1,"height":1}}}`
-	_, err := (Decoder{BaseDir: root, RestrictFiles: true, ResourcesOnly: true}).Render(strings.NewReader(value))
-	if err == nil || !strings.Contains(err.Error(), "local image sources are not allowed") {
-		t.Fatalf("local image error = %v", err)
+	notDrawn(t, Decoder{BaseDir: root, RestrictFiles: true, ResourcesOnly: true}, value, "local image sources are not allowed")
+}
+
+// notDrawn decodes and draws a document whose one picture is refused, and
+// checks that the page is drawn round it and says why the picture is not: a
+// refused picture is a hole in the page, as a broken image is in a browser,
+// rather than the end of it.
+func notDrawn(t *testing.T, decoder Decoder, value, why string) {
+	t.Helper()
+	result, err := decoder.Render(strings.NewReader(value))
+	if err != nil {
+		t.Fatalf("a page with a picture that cannot be had was not drawn: %v", err)
 	}
+	if got, _ := result.Frame.InkAt(0, 0); got != display.InkWhite {
+		t.Errorf("the refused picture was drawn: pixel = %v", got)
+	}
+	for _, warning := range result.Report.Warnings {
+		if warning.Code == "unresolved-image" && strings.Contains(warning.Message, why) {
+			return
+		}
+	}
+	t.Errorf("nothing said %q: %v", why, result.Report.Warnings)
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -227,10 +245,7 @@ func TestHTTPFileRestrictionsConfineSymlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	value := `{"version":1,"size":{"width":8,"height":8},"root":{"type":"image","source":"linked.png","size":{"width":1,"height":1}}}`
-	_, err := (Decoder{BaseDir: root, RestrictFiles: true}).Render(strings.NewReader(value))
-	if err == nil || !strings.Contains(err.Error(), "escapes") {
-		t.Fatalf("error = %v", err)
-	}
+	notDrawn(t, Decoder{BaseDir: root, RestrictFiles: true}, value, "escapes")
 }
 
 func TestInMemoryResourcePrecedesFilesystemAndDataURLRules(t *testing.T) {
@@ -263,11 +278,8 @@ func TestDecoderRejectsOversizedImageBeforeDecodingPixels(t *testing.T) {
 	binary.BigEndian.PutUint32(data[29:33], crc32.ChecksumIEEE(data[12:29]))
 
 	source := "data:image/png;base64," + base64.StdEncoding.EncodeToString(data)
-	value := `{"version":1,"root":{"type":"image","source":"` + source + `"}}`
-	_, err := (Decoder{}).Render(strings.NewReader(value))
-	if err == nil || !strings.Contains(err.Error(), "pixel limit") {
-		t.Fatalf("error = %v", err)
-	}
+	value := `{"version":1,"size":{"width":8,"height":8},"root":{"type":"image","source":"` + source + `"}}`
+	notDrawn(t, Decoder{}, value, "pixel limit")
 }
 
 // A decoder told to fetch only from the public internet will not fetch from
@@ -287,10 +299,7 @@ func TestAPublicOnlyDecoderDoesNotFetchFromThisMachine(t *testing.T) {
 	for _, address := range []string{served.URL, local} {
 		value := `{"version":1,"size":{"width":8,"height":8},"root":{"type":"image","source":"` + address +
 			`/image.png","size":{"width":1,"height":1}}}`
-		if _, err := (Decoder{PublicImagesOnly: true}).Render(strings.NewReader(value)); err == nil ||
-			!strings.Contains(err.Error(), "not on the public internet") {
-			t.Errorf("%s: fetched, or refused for another reason: %v", address, err)
-		}
+		notDrawn(t, Decoder{PublicImagesOnly: true}, value, "not on the public internet")
 		result, err := (Decoder{}).Render(strings.NewReader(value))
 		if err != nil {
 			t.Fatalf("%s: %v", address, err)

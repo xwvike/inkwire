@@ -21,6 +21,9 @@ type Document struct {
 	Size       image.Point
 	Background *display.Ink
 	Root       Node
+	// Warnings are what was found wrong before the document got here — a
+	// picture that could not be had — and they lead the report.
+	Warnings []Warning
 	// Prepared remembers the work an image needs before it can be drawn:
 	// profiling it, mapping its tones, enhancing its contrast, and choosing
 	// how to dither it. All of that happens at the picture's own resolution
@@ -312,6 +315,7 @@ func (c *Compiler) Compile(document Document) (*CompiledDocument, Report, error)
 	}
 
 	ctx := &compileContext{compiler: c, prepared: document.Prepared}
+	ctx.report.Warnings = append(ctx.report.Warnings, document.Warnings...)
 	pageBounds := page.Bounds()
 	list := &display.DisplayList{}
 	list.ClipRect(pageBounds)
