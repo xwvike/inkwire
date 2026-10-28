@@ -49,6 +49,11 @@ func TestAGreyIsBlackAtTheNearestSixteenth(t *testing.T) {
 		"hsl(0.16666667turn 100% 50%)": display.InkYellow,
 		"hsl(66.666667grad 100% 50%)":  display.InkYellow,
 		"hsl(1.0471976rad 100% 50%)":   display.InkYellow,
+		// An ink written to fewer places lands a level or two off it, and is
+		// still that ink.
+		"oklch(0.63 0.26 29)": display.InkRed,
+		"#fe0001":             display.InkRed,
+		"rgb(2 1 0)":          display.InkBlack,
 	} {
 		var said []string
 		got, ok := parseInk(value, "background", func(message string) { said = append(said, message) })
@@ -57,7 +62,7 @@ func TestAGreyIsBlackAtTheNearestSixteenth(t *testing.T) {
 		}
 	}
 	// A colour that is not a grey is still not approximated.
-	for _, value := range []string{"#d97757", "pink", "rgb(217, 119, 87)", "rgb(1 2)", "rgb(a b c)",
+	for _, value := range []string{"#d97757", "pink", "#fb2c36", "#fc0000", "rgb(217, 119, 87)", "rgb(1 2)", "rgb(a b c)",
 		"oklch(62.3% 0.214 259.815)", "hsl(200 80% 50%)", "oklch(50% 0 0deg 0)", "lab(50 0 0)", "color-mix(in srgb, black, white)"} {
 		var said []string
 		if got, ok := parseInk(value, "background", func(message string) { said = append(said, message) }); ok || len(said) != 1 {

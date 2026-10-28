@@ -2883,7 +2883,7 @@ func readInk(value, property string, report func(string)) (ink display.Ink, tint
 			{display.InkBlack, 0, 0, 0}, {display.InkWhite, 255, 255, 255},
 			{display.InkRed, 255, 0, 0}, {display.InkYellow, 255, 255, 0},
 		} {
-			if red == named.red && green == named.green && blue == named.blue {
+			if near(red, named.red) && near(green, named.green) && near(blue, named.blue) {
 				return named.ink, false, true
 			}
 		}
@@ -2912,6 +2912,16 @@ func readInk(value, property string, report func(string)) (ink display.Ink, tint
 // slate-500 in version 4, oklch(55.4% 0.046 257.417) — while a muted colour
 // such as #d97757 is well outside.
 const tintedGreySpread = 48
+
+// inkSlack is how far each channel of a colour may be from an ink's and still
+// be that ink. A colour function lands an ink only to as many places as it
+// was written to: oklch(0.63 0.26 29) is red to anyone who wrote it, and
+// comes out at 255, 0, 1. Two levels in 255 is past what any eye or panel
+// tells apart, and well short of a red that is meant to differ, as
+// Tailwind's #fb2c36 does.
+const inkSlack = 2
+
+func near(channel, ink int) bool { return abs(channel-ink) <= inkSlack }
 
 // greyNames are CSS's named greys, by the level of their red, green and blue.
 var greyNames = map[string]int{
