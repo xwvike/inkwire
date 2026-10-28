@@ -320,6 +320,10 @@ func measureFlow(ctx *compileContext, maximum, preferred image.Point, gap int, g
 		return image.Point{}, fmt.Errorf("%s: size must not be negative, got %v", path, preferred)
 	}
 	main, cross := 0, 0
+	// narrower is whether a child starts out narrower than it measured — a
+	// flex: 1 starts from nothing — and so may be laid out narrower, and
+	// taller, than it measured, however much room the line has.
+	narrower := false
 	for index, child := range children {
 		nodePath := childPath(path, "children", index)
 		if nilNode(child.Node) {
@@ -336,7 +340,9 @@ func measureFlow(ctx *compileContext, maximum, preferred image.Point, gap int, g
 		if derived, ok := child.ratioMain(mainOf(maximum, !horizontal), horizontal, crossAlign); ok {
 			childMain = derived
 		}
+		measured := childMain
 		childMain = child.intrinsicMain(childMain)
+		narrower = narrower || childMain < measured
 		main += childMain + measuredMargin(child.Margin, horizontal, maximum.X)
 		cross = max(cross, childCross+measuredMargin(child.Margin, !horizontal, maximum.X))
 	}
@@ -347,7 +353,7 @@ func measureFlow(ctx *compileContext, maximum, preferred image.Point, gap int, g
 	// what it holds is then laid out narrower: a paragraph wraps onto more
 	// lines and the row is as tall as that, not as the one long line it
 	// would be with room for it.
-	if available := maximum.X; horizontal && available < unboundedMeasure && main > available {
+	if available := maximum.X; horizontal && available < unboundedMeasure && (main > available || narrower) {
 		if preferred.X > 0 {
 			available = min(available, preferred.X)
 		}
@@ -400,19 +406,21 @@ func flexLine(ctx *compileContext, box image.Point, gap int, crossAlign CrossAli
 	}
 	baseMain += gap * max(0, len(children)-1)
 	// The least each child may shrink to, worked out only where it can
-	// matter: on a line that has to shrink, or for a child that starts out
-	// smaller than its content.
+	// matter: for a child that starts out smaller than its content, and then,
+	// if the line has to shrink once those are raised to it, for every child.
+	// Asking the second question before the first left a line that only had
+	// to shrink because of the raising with nothing to hold its other
+	// children up, and the overflow was taken out of them.
 	floors := make([]int, len(children))
-	for index, child := range children {
-		base := mainOf(sizes[index], horizontal)
-		if !child.MinContent || (baseMain <= availableMain && base >= measuredMains[index]) {
-			continue
-		}
+	floored := make([]bool, len(children))
+	holdUp := func(index int) error {
+		child := children[index]
+		floored[index] = true
 		floor := measuredMains[index]
 		if horizontal {
 			width, err := itemMinContent(ctx, child.Node, childPath(path, "children", first+index))
 			if err != nil {
-				return nil, nil, err
+				return err
 			}
 			floor = width
 		}
@@ -422,8 +430,26 @@ func flexLine(ctx *compileContext, box image.Point, gap int, crossAlign CrossAli
 			floor = min(floor, stated)
 		}
 		floors[index] = floor
-		if base < floor {
+		if base := mainOf(sizes[index], horizontal); base < floor {
 			setMain(&sizes[index], horizontal, floor)
+			baseMain += floor - base
+		}
+		return nil
+	}
+	for index, child := range children {
+		if child.MinContent && mainOf(sizes[index], horizontal) < measuredMains[index] {
+			if err := holdUp(index); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+	if baseMain > availableMain {
+		for index, child := range children {
+			if child.MinContent && !floored[index] {
+				if err := holdUp(index); err != nil {
+					return nil, nil, err
+				}
+			}
 		}
 	}
 	resolved := resolveFlexMainSizes(children, sizes, max(0, availableMain-marginMain), gap, horizontal, floors)

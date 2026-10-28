@@ -147,6 +147,50 @@ func TestARowIsMeasuredAtTheWidthsItWillHave(t *testing.T) {
 	}
 }
 
+// An item raised from nothing to its longest word can be what makes the line
+// too long. The word beside it keeps its width all the same, as in a
+// browser, and the line overflows rather than cut it.
+func TestRaisingOneItemToItsWordDoesNotShrinkAnotherBelowItsOwn(t *testing.T) {
+	compiler, err := NewDefaultCompiler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	character := monacoWidth(t, compiler, 1)
+	word := LayoutChild{Node: monacoText("Temperature"), Shrink: 1, MinContent: true}
+	rest := LayoutChild{Node: monacoText("abc def"), Grow: 1, Shrink: 1, MinContent: true, Basis: Pixels(0)}
+	sizes := lineSizes(t, image.Pt(13*character, 400), true, word, rest)
+	if sizes[0].X != 11*character || sizes[1].X != 3*character {
+		t.Errorf("the items were given %dpx and %dpx; want %dpx and %dpx", sizes[0].X, sizes[1].X, 11*character, 3*character)
+	}
+}
+
+// A row with room for every basis is still measured at the widths it lays
+// its items out at: a flex: 1 that starts from nothing and grows to less
+// than its line wraps, and the row is as tall as that.
+func TestARowIsAsTallAsAnItemThatGrewToLessThanItsLine(t *testing.T) {
+	compiler, err := NewDefaultCompiler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	character := monacoWidth(t, compiler, 1)
+	row := Row{Children: []LayoutChild{
+		{Node: monacoText("Temperature"), Shrink: 1, MinContent: true},
+		{Node: monacoText("abc def ghi"), Grow: 1, Shrink: 1, MinContent: true, Basis: Pixels(0)},
+	}}
+	ctx := &compileContext{compiler: compiler}
+	size, err := row.measure(ctx, image.Pt(15*character, unboundedMeasure), "row")
+	if err != nil {
+		t.Fatal(err)
+	}
+	line, err := monacoText("x").measure(ctx, image.Pt(unboundedMeasure, unboundedMeasure), "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if size.Y < 3*line.Y {
+		t.Fatalf("the row measured %dpx tall, one line is %dpx; its last item is four characters wide and wraps onto three", size.Y, line.Y)
+	}
+}
+
 // A wrapping row breaks its lines at the width it states, not at the room
 // around it, and is as wide as its longest line when it states none.
 func TestAWrappingRowBreaksAtTheWidthItStates(t *testing.T) {
