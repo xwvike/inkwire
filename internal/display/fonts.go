@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"sync"
 )
 
 const (
@@ -146,6 +147,31 @@ func BuiltinFontSizes(family string) []int {
 	sort.Ints(sizes)
 	return slices.Compact(sizes)
 }
+
+// BuiltinFontLine is how one of the built-in families sets a line at a size:
+// its metrics, and the advance of a space in it. Something placed beside a
+// line of text that is laid out elsewhere — a list's bullet, against the first
+// line of its item — needs both to line up with it, and asking for them should
+// not mean loading the fonts again.
+func BuiltinFontLine(family string, size int) (FontMetrics, int, bool) {
+	registry, err := sharedBuiltinFonts()
+	if err != nil {
+		return FontMetrics{}, 0, false
+	}
+	set, ok := registry.Match(family, size)
+	if !ok {
+		return FontMetrics{}, 0, false
+	}
+	space := 0
+	if glyph, ok := set.Resolve(' '); ok {
+		space = glyph.Glyph.Advance
+	}
+	return set.Metrics(), space, true
+}
+
+// sharedBuiltinFonts is one registry for the questions above. Nothing in a
+// registry changes once it is built, so it can be read from anywhere at once.
+var sharedBuiltinFonts = sync.OnceValues(NewBuiltinFontRegistry)
 
 // enlargements are the whole-number factors the bundled strikes are offered at.
 // Three is the practical limit: a 16 pixel strike at 3x is 48 pixels, which is

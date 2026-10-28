@@ -122,10 +122,17 @@ func roundRectPoints(rect image.Rectangle, radius int) []image.Point {
 	return points
 }
 
+// maxArcSteps bounds the samples an arc is drawn from. A full turn of this many
+// chords is within a pixel of its circle up to a radius of some 800,000 pixels.
+const maxArcSteps = 1 << 16
+
 func sampleArc(oval Oval, startDegrees, sweepDegrees float64) []image.Point {
 	radiusX, radiusY := oval.radii()
-	length := math.Abs(sweepDegrees) * math.Pi / 180 * max(radiusX, radiusY)
-	steps := max(1, int(math.Ceil(length)))
+	length := float64(math.Abs(sweepDegrees) * math.Pi / 180 * max(radiusX, radiusY))
+	// A sample a pixel along the arc keeps every pixel of it; past maxArcSteps
+	// the samples are farther apart, but a chord between them strays from an
+	// arc that large by well under a pixel.
+	steps := min(maxArcSteps, max(1, int(math.Ceil(length))))
 	points := make([]image.Point, 0, steps+1)
 	for step := 0; step <= steps; step++ {
 		x, y := oval.at(startDegrees + sweepDegrees*float64(step)/float64(steps))

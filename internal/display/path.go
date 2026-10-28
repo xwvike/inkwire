@@ -211,9 +211,9 @@ func (c *Canvas) StrokePath(path Path, stroke StrokeStyle) {
 	}
 	// Nesting is resolved together under the even-odd rule, so a contour inside
 	// another strokes into the ring between them rather than across the hole.
-	c.strokeInward(contourBounds(closed), func(x, y int) bool {
-		return pointInPath(image.Pt(x, y), closed)
-	}, outlines, stroke)
+	bounds := contourBounds(closed)
+	region := newPolygonRegion(outlines, strokeMaskBounds(bounds, c.logicalClip(), inwardDepth(bounds, stroke.Width)))
+	c.strokeInward(bounds, region.contains, outlines, stroke)
 }
 
 // FillPath fills all contours together using the even-odd rule. Open contours
@@ -223,8 +223,10 @@ func (c *Canvas) FillPath(path Path, ink Ink) {
 		return
 	}
 	contours := path.flatten()
-	c.fillWhere(contourBounds(contours), func(x, y int) (Ink, bool) {
-		return ink, pointInPath(image.Pt(x, y), contours)
+	bounds := contourBounds(contours)
+	region := newPolygonRegion(contourPoints(contours), bounds.Intersect(c.logicalClip()))
+	c.fillWhere(bounds, func(x, y int) (Ink, bool) {
+		return ink, region.contains(x, y)
 	})
 }
 
@@ -235,8 +237,8 @@ func flattenQuadratic(from, control, to image.Point) []image.Point {
 		t := float64(step) / float64(steps)
 		u := 1 - t
 		point := image.Pt(
-			int(math.Round(u*u*float64(from.X)+2*u*t*float64(control.X)+t*t*float64(to.X))),
-			int(math.Round(u*u*float64(from.Y)+2*u*t*float64(control.Y)+t*t*float64(to.Y))),
+			int(math.Round(float64(u*u*float64(from.X))+float64(2*u*t*float64(control.X))+float64(t*t*float64(to.X)))),
+			int(math.Round(float64(u*u*float64(from.Y))+float64(2*u*t*float64(control.Y))+float64(t*t*float64(to.Y)))),
 		)
 		points = appendDistinctPoint(points, point)
 	}
@@ -250,8 +252,8 @@ func flattenCubic(from, control1, control2, to image.Point) []image.Point {
 		t := float64(step) / float64(steps)
 		u := 1 - t
 		point := image.Pt(
-			int(math.Round(u*u*u*float64(from.X)+3*u*u*t*float64(control1.X)+3*u*t*t*float64(control2.X)+t*t*t*float64(to.X))),
-			int(math.Round(u*u*u*float64(from.Y)+3*u*u*t*float64(control1.Y)+3*u*t*t*float64(control2.Y)+t*t*t*float64(to.Y))),
+			int(math.Round(float64(u*u*u*float64(from.X))+float64(3*u*u*t*float64(control1.X))+float64(3*u*t*t*float64(control2.X))+float64(t*t*t*float64(to.X)))),
+			int(math.Round(float64(u*u*u*float64(from.Y))+float64(3*u*u*t*float64(control1.Y))+float64(3*u*t*t*float64(control2.Y))+float64(t*t*t*float64(to.Y)))),
 		)
 		points = appendDistinctPoint(points, point)
 	}
@@ -287,19 +289,10 @@ func contourBounds(contours []pathContour) image.Rectangle {
 	return bounds
 }
 
-func pointInPath(point image.Point, contours []pathContour) bool {
-	inside := false
-	for _, contour := range contours {
-		if len(contour.points) < 3 {
-			continue
-		}
-		inContour, boundary := classifyPointInPolygon(point, contour.points)
-		if boundary {
-			return true
-		}
-		if inContour {
-			inside = !inside
-		}
+func contourPoints(contours []pathContour) [][]image.Point {
+	points := make([][]image.Point, len(contours))
+	for index, contour := range contours {
+		points[index] = contour.points
 	}
-	return inside
+	return points
 }

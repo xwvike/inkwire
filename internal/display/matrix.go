@@ -50,8 +50,8 @@ func Rotate(degrees float64, aboutX, aboutY float64) Matrix {
 	return Matrix{
 		A: cosine, B: sine,
 		C: -sine, D: cosine,
-		E: aboutX - aboutX*cosine + aboutY*sine,
-		F: aboutY - aboutX*sine - aboutY*cosine,
+		E: aboutX - float64(aboutX*cosine) + float64(aboutY*sine),
+		F: aboutY - float64(aboutX*sine) - float64(aboutY*cosine),
 	}
 }
 
@@ -59,8 +59,8 @@ func Rotate(degrees float64, aboutX, aboutY float64) Matrix {
 func Scale(byX, byY float64, aboutX, aboutY float64) Matrix {
 	return Matrix{
 		A: byX, D: byY,
-		E: aboutX - aboutX*byX,
-		F: aboutY - aboutY*byY,
+		E: aboutX - float64(aboutX*byX),
+		F: aboutY - float64(aboutY*byY),
 	}
 }
 
@@ -68,18 +68,18 @@ func Scale(byX, byY float64, aboutX, aboutY float64) Matrix {
 // which is the order a nested transform is read in.
 func (m Matrix) Then(next Matrix) Matrix {
 	return Matrix{
-		A: m.A*next.A + m.B*next.C,
-		B: m.A*next.B + m.B*next.D,
-		C: m.C*next.A + m.D*next.C,
-		D: m.C*next.B + m.D*next.D,
-		E: m.E*next.A + m.F*next.C + next.E,
-		F: m.E*next.B + m.F*next.D + next.F,
+		A: float64(m.A*next.A) + float64(m.B*next.C),
+		B: float64(m.A*next.B) + float64(m.B*next.D),
+		C: float64(m.C*next.A) + float64(m.D*next.C),
+		D: float64(m.C*next.B) + float64(m.D*next.D),
+		E: float64(m.E*next.A) + float64(m.F*next.C) + next.E,
+		F: float64(m.E*next.B) + float64(m.F*next.D) + next.F,
 	}
 }
 
 // Apply moves one point.
 func (m Matrix) Apply(x, y float64) (float64, float64) {
-	return m.A*x + m.C*y + m.E, m.B*x + m.D*y + m.F
+	return float64(m.A*x) + float64(m.C*y) + m.E, float64(m.B*x) + float64(m.D*y) + m.F
 }
 
 // ApplyPoint moves a pixel, sampling at its centre.
@@ -94,7 +94,7 @@ func (m Matrix) ApplyPoint(point image.Point) image.Point {
 
 // Determinant is zero when the transform flattens the plane onto a line, which
 // is the one case that cannot be undone.
-func (m Matrix) Determinant() float64 { return m.A*m.D - m.B*m.C }
+func (m Matrix) Determinant() float64 { return float64(m.A*m.D) - float64(m.B*m.C) }
 
 // Invert undoes the transform, reporting false when there is nothing to undo
 // it to.
@@ -108,8 +108,8 @@ func (m Matrix) Invert() (Matrix, bool) {
 		B: -m.B / determinant,
 		C: -m.C / determinant,
 		D: m.A / determinant,
-		E: (m.C*m.F - m.D*m.E) / determinant,
-		F: (m.B*m.E - m.A*m.F) / determinant,
+		E: (float64(m.C*m.F) - float64(m.D*m.E)) / determinant,
+		F: (float64(m.B*m.E) - float64(m.A*m.F)) / determinant,
 	}, true
 }
 

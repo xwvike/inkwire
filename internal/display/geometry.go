@@ -82,38 +82,6 @@ func polygonBounds(points []image.Point) image.Rectangle {
 	return image.Rect(minPoint.X, minPoint.Y, maxPoint.X+1, maxPoint.Y+1)
 }
 
-func pointInPolygon(point image.Point, points []image.Point) bool {
-	inside, boundary := classifyPointInPolygon(point, points)
-	return inside || boundary
-}
-
-func classifyPointInPolygon(point image.Point, points []image.Point) (inside, boundary bool) {
-	previous := points[len(points)-1]
-	for _, current := range points {
-		if pointOnSegment(point, previous, current) {
-			return false, true
-		}
-		if (current.Y > point.Y) != (previous.Y > point.Y) {
-			left := int64(point.X-current.X) * int64(previous.Y-current.Y)
-			right := int64(previous.X-current.X) * int64(point.Y-current.Y)
-			if (previous.Y > current.Y && left < right) || (previous.Y < current.Y && left > right) {
-				inside = !inside
-			}
-		}
-		previous = current
-	}
-	return inside, false
-}
-
-func pointOnSegment(point, from, to image.Point) bool {
-	cross := int64(point.X-from.X)*int64(to.Y-from.Y) - int64(point.Y-from.Y)*int64(to.X-from.X)
-	if cross != 0 {
-		return false
-	}
-	return point.X >= min(from.X, to.X) && point.X <= max(from.X, to.X) &&
-		point.Y >= min(from.Y, to.Y) && point.Y <= max(from.Y, to.Y)
-}
-
 func abs(value int) int {
 	if value < 0 {
 		return -value

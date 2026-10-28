@@ -28,7 +28,14 @@ type WrapMode uint8
 
 const (
 	NoWrap WrapMode = iota
+	// WrapRunes ends a line at whichever character would not fit, which is
+	// CSS's word-break: break-all.
 	WrapRunes
+	// WrapWords ends a line where BreakBetween allows, as a browser wraps
+	// ordinary text. A word wider than the whole line is broken where it
+	// stops fitting, as overflow-wrap: break-word does, rather than run out of
+	// its box. Spaces at the end of a line hang past it and are not counted.
+	WrapWords
 )
 
 type TextStyle struct {
@@ -36,7 +43,24 @@ type TextStyle struct {
 	Fallback []string
 	Size     int
 	Ink      Ink
+	// Bold draws each glyph a second time a pixel to its right, which is
+	// how a bitmap face with no bold strike is made heavier. Every glyph is
+	// then a pixel wider and a pixel further on.
+	Bold bool
+	// LetterSpacing is added to the advance of every character, and may be
+	// negative.
+	LetterSpacing int
+	Decoration    TextDecoration
 }
+
+// TextDecoration is the lines drawn with text: under it, through it, or both.
+type TextDecoration uint8
+
+const (
+	Underline TextDecoration = 1 << iota
+	LineThrough
+	Overline
+)
 
 type TextRun struct {
 	Text  string
@@ -50,14 +74,22 @@ type TextBox struct {
 	VerticalAlign VerticalAlign
 	Wrap          WrapMode
 	LineHeight    int
+	// Ellipsis ends a line too long for the box with "…" where it stops
+	// fitting, as text-overflow: ellipsis does, instead of cutting it off.
+	Ellipsis bool
 }
 
 type glyphPlacement struct {
-	glyph   Glyph
-	metrics FontMetrics
-	ink     Ink
-	r       rune
-	missing bool
+	glyph      Glyph
+	metrics    FontMetrics
+	ink        Ink
+	r          rune
+	missing    bool
+	decoration TextDecoration
+	// style and set are what the glyph was found with, so that an ellipsis
+	// put in its place is drawn in the same face.
+	style TextStyle
+	set   *FontSet
 }
 
 type textLine struct {
@@ -125,6 +157,7 @@ func LayoutText(registry *FontRegistry, box TextBox) (*TextLayout, error) {
 
 	layout := &TextLayout{box: box}
 	current := textLine{}
+	var placeWord func(glyphPlacement)
 	lineHasContent := false
 	lastMetrics := FontMetrics{Ascent: 10, Descent: 2, LineGap: 2}
 
@@ -148,18 +181,49 @@ func LayoutText(registry *FontRegistry, box TextBox) (*TextLayout, error) {
 		lineHasContent = false
 	}
 
+	// Word wrapping keeps where the line could last have ended, so that a
+	// word that does not fit can be carried to the next line whole.
+	opening := 0
+	finishWords := func() {
+		current.glyphs = trimTrailingSpaces(current.glyphs)
+		measureLine(&current)
+		finishLine(false)
+		opening = 0
+	}
+	placeWord = func(placement glyphPlacement) {
+		if count := len(current.glyphs); count > 0 {
+			before := rune(0)
+			if count > 1 {
+				before = current.glyphs[count-2].r
+			}
+			if BreakBetween(before, current.glyphs[count-1].r, placement.r) {
+				opening = count
+			}
+		}
+		if !isSpace(placement.r) && lineHasContent && current.width+placement.glyph.Advance > box.Bounds.Dx() {
+			if opening > 0 {
+				carried := slices.Clone(current.glyphs[opening:])
+				current.glyphs = current.glyphs[:opening]
+				finishWords()
+				current.glyphs = carried
+				measureLine(&current)
+				lineHasContent = len(carried) > 0
+			}
+			// What is left is one word; if it still does not fit with this
+			// character on the end, the word is broken here.
+			if lineHasContent && current.width+placement.glyph.Advance > box.Bounds.Dx() {
+				finishWords()
+			}
+		}
+		current.glyphs = append(current.glyphs, placement)
+		measureLine(&current)
+		lineHasContent = true
+	}
+
+	bold := map[*byte]Glyph{}
 	appendRune := func(r rune, style TextStyle, set *FontSet) {
-		resolved, ok := set.Resolve(r)
-		placement := glyphPlacement{ink: style.Ink, r: r}
-		if ok {
-			placement.glyph = resolved.Glyph
-			placement.metrics = resolved.Metrics
-		} else {
-			metrics := set.Metrics()
-			size := max(1, metrics.Ascent+metrics.Descent)
-			placement.glyph = Glyph{Width: size, Height: size, Advance: size}
-			placement.metrics = metrics
-			placement.missing = true
+		placement, ok := place(r, style, set, bold)
+		if !ok {
 			layout.missing = append(layout.missing, r)
 			fontName := style.Font
 			if len(style.Fallback) != 0 {
@@ -172,6 +236,10 @@ func LayoutText(registry *FontRegistry, box TextBox) (*TextLayout, error) {
 		lastMetrics = placement.metrics
 		if box.Wrap == WrapRunes && lineHasContent && current.width+placement.glyph.Advance > box.Bounds.Dx() {
 			finishLine(false)
+		}
+		if box.Wrap == WrapWords {
+			placeWord(placement)
+			return
 		}
 		current.glyphs = append(current.glyphs, placement)
 		current.width += placement.glyph.Advance
@@ -209,6 +277,11 @@ func LayoutText(registry *FontRegistry, box TextBox) (*TextLayout, error) {
 		for _, r := range run.Text {
 			switch r {
 			case '\n':
+				if box.Wrap == WrapWords {
+					current.glyphs = trimTrailingSpaces(current.glyphs)
+					measureLine(&current)
+					opening = 0
+				}
 				finishLine(true)
 			case '\t':
 				for range 4 {
@@ -219,8 +292,125 @@ func LayoutText(registry *FontRegistry, box TextBox) (*TextLayout, error) {
 			}
 		}
 	}
-	finishLine(false)
+	if box.Wrap == WrapWords {
+		finishWords()
+	} else {
+		finishLine(false)
+	}
+	if box.Ellipsis {
+		layout.ellipsize(bold)
+	}
 	return layout, nil
+}
+
+// place finds the glyph for one character in the style it is written in, or
+// a placeholder the size of the face if the face has none, which is false.
+func place(r rune, style TextStyle, set *FontSet, bold map[*byte]Glyph) (glyphPlacement, bool) {
+	resolved, ok := set.Resolve(r)
+	placement := glyphPlacement{ink: style.Ink, r: r, decoration: style.Decoration, style: style, set: set}
+	if ok {
+		placement.glyph = resolved.Glyph
+		placement.metrics = resolved.Metrics
+		if style.Bold {
+			placement.glyph = emboldened(placement.glyph, bold)
+		}
+	} else {
+		metrics := set.Metrics()
+		size := max(1, metrics.Ascent+metrics.Descent)
+		placement.glyph = Glyph{Width: size, Height: size, Advance: size}
+		placement.metrics = metrics
+		placement.missing = true
+	}
+	placement.glyph.Advance = max(0, placement.glyph.Advance+style.LetterSpacing)
+	return placement, ok
+}
+
+// emboldened is a glyph drawn over itself a pixel to the right. Each one is
+// made once a layout, however often it is used.
+func emboldened(glyph Glyph, made map[*byte]Glyph) Glyph {
+	if len(glyph.Data) == 0 {
+		glyph.Advance++
+		return glyph
+	}
+	if heavier, ok := made[&glyph.Data[0]]; ok {
+		return heavier
+	}
+	heavier := Glyph{Width: glyph.Width + 1, Height: glyph.Height, Advance: glyph.Advance + 1}
+	heavier.RowBytes = (heavier.Width + 7) / 8
+	heavier.Data = make([]byte, heavier.RowBytes*heavier.Height)
+	for y := 0; y < glyph.Height; y++ {
+		for x := 0; x < heavier.Width; x++ {
+			if glyph.On(x, y) || glyph.On(x-1, y) {
+				heavier.Data[y*heavier.RowBytes+x/8] |= 0x80 >> uint(x%8)
+			}
+		}
+	}
+	made[&glyph.Data[0]] = heavier
+	return heavier
+}
+
+// ellipsize ends every line too long for the box with an ellipsis, taking
+// off as many characters as it needs to fit one. The ellipsis is drawn in
+// the face of the last character kept, or as three full stops where that
+// face has no "…". A box too narrow for even the ellipsis keeps as much of
+// it as fits, as a browser does.
+func (l *TextLayout) ellipsize(bold map[*byte]Glyph) {
+	available := l.box.Bounds.Dx()
+	l.width = 0
+	for index := range l.lines {
+		line := &l.lines[index]
+		if line.width > available && len(line.glyphs) > 0 {
+			last := line.glyphs[len(line.glyphs)-1]
+			mark := []glyphPlacement{}
+			if dots, ok := place('…', last.style, last.set, bold); ok {
+				mark = append(mark, dots)
+			} else {
+				dot, _ := place('.', last.style, last.set, bold)
+				mark = append(mark, dot, dot, dot)
+			}
+			markWidth := 0
+			for _, placement := range mark {
+				markWidth += placement.glyph.Advance
+			}
+			kept := line.glyphs
+			for len(kept) > 0 && widthOf(kept)+markWidth > available {
+				kept = kept[:len(kept)-1]
+			}
+			kept = trimTrailingSpaces(kept)
+			line.glyphs = append(slices.Clone(kept), mark...)
+			measureLine(line)
+		}
+		l.width = max(l.width, line.width)
+	}
+}
+
+func widthOf(glyphs []glyphPlacement) int {
+	width := 0
+	for _, placement := range glyphs {
+		width += placement.glyph.Advance
+	}
+	return width
+}
+
+// measureLine works a line's width and extent out from the glyphs on it, for
+// a line that has had glyphs taken off the end.
+func measureLine(line *textLine) {
+	line.width, line.ascent, line.descent, line.lineGap = 0, 0, 0, 0
+	for _, placement := range line.glyphs {
+		line.width += placement.glyph.Advance
+		line.ascent = max(line.ascent, placement.metrics.Ascent)
+		line.descent = max(line.descent, placement.metrics.Descent)
+		line.lineGap = max(line.lineGap, placement.metrics.LineGap)
+	}
+}
+
+// trimTrailingSpaces takes the spaces off the end of a line, which hang past
+// its edge in CSS and so are neither drawn nor counted towards its width.
+func trimTrailingSpaces(glyphs []glyphPlacement) []glyphPlacement {
+	for len(glyphs) > 0 && isSpace(glyphs[len(glyphs)-1].r) {
+		glyphs = glyphs[:len(glyphs)-1]
+	}
+	return glyphs
 }
 
 func (l *TextLayout) Size() image.Point {
@@ -398,7 +588,34 @@ func (l *TextLayout) Draw(canvas *Canvas) {
 		} else {
 			drawGlyph(clipped, at.Min, placement.glyph, placement.ink)
 		}
+		if placement.decoration != 0 {
+			drawDecoration(clipped, at, placement)
+		}
 	})
+}
+
+// drawDecoration draws a glyph's share of the lines its text is decorated
+// with, across the whole of its advance so that the shares join up. An
+// underline sits a pixel below the baseline when the face leaves room there,
+// a line through sits across the middle of a lower-case letter, and a line
+// over sits along the top of the line's ascent. Each is a pixel thick for
+// every sixteen of the face's height, and never less than one.
+func drawDecoration(canvas *Canvas, at image.Rectangle, placement glyphPlacement) {
+	metrics := placement.metrics
+	baseline := at.Min.Y + metrics.Ascent
+	thickness := max(1, (metrics.Ascent+metrics.Descent)/16)
+	span := func(top int) {
+		canvas.FillRect(image.Rect(at.Min.X, top, at.Min.X+placement.glyph.Advance, top+thickness), placement.ink)
+	}
+	if placement.decoration&Underline != 0 {
+		span(baseline + min(1, max(0, metrics.Descent-thickness)))
+	}
+	if placement.decoration&LineThrough != 0 {
+		span(baseline - (metrics.Ascent*3+5)/10 - thickness/2)
+	}
+	if placement.decoration&Overline != 0 {
+		span(at.Min.Y)
+	}
 }
 
 func (c *Canvas) DrawTextBox(registry *FontRegistry, box TextBox) (*TextLayout, error) {
@@ -448,4 +665,52 @@ func joinSizes(sizes []int) string {
 		parts[index] = strconv.Itoa(size)
 	}
 	return strings.Join(parts, ", ")
+}
+
+// MinContentWidth is the narrowest box's text can be laid out in without a
+// line running past it: its widest stretch that no line may end inside, as
+// CSS has it for min-content. A word too long for its line is broken when it
+// is laid out, but it is not broken here; that is the last resort, and a box
+// asking how narrow it can go should not count on it.
+func MinContentWidth(registry *FontRegistry, box TextBox) (int, error) {
+	wrap := box.Wrap
+	box.Wrap, box.Bounds, box.Ellipsis = NoWrap, image.Rect(0, 0, 1, 1), false
+	layout, err := LayoutText(registry, box)
+	if err != nil {
+		return 0, err
+	}
+	widest := 0
+	for _, line := range layout.lines {
+		if wrap == NoWrap {
+			widest = max(widest, line.width)
+			continue
+		}
+		// The stretch since the last place a line could end, and the spaces
+		// at its end, which hang and so take no room.
+		stretch, hanging := 0, 0
+		for index, placement := range line.glyphs {
+			if index > 0 {
+				before := rune(0)
+				if index > 1 {
+					before = line.glyphs[index-2].r
+				}
+				previous := line.glyphs[index-1].r
+				opening := BreakBetween(before, previous, placement.r)
+				if wrap == WrapRunes {
+					opening = !isSpace(placement.r)
+				}
+				if opening {
+					stretch, hanging = 0, 0
+				}
+			}
+			stretch += placement.glyph.Advance
+			if isSpace(placement.r) {
+				hanging += placement.glyph.Advance
+			} else {
+				hanging = 0
+			}
+			widest = max(widest, stretch-hanging)
+		}
+	}
+	return widest, nil
 }

@@ -3,7 +3,9 @@ package display
 import (
 	"image"
 	"math"
+	"math/bits"
 	"slices"
+	"sort"
 )
 
 // StrokeStyle describes an opaque, integer-aligned outline. Dash alternates
@@ -65,8 +67,9 @@ func (s StrokeStyle) valid() bool {
 func (c *Canvas) fillBrush(center image.Point, stroke StrokeStyle) {
 	offset := stroke.Width / 2
 	minPoint := center.Sub(image.Pt(offset, offset))
-	for y := minPoint.Y; y < minPoint.Y+stroke.Width; y++ {
-		for x := minPoint.X; x < minPoint.X+stroke.Width; x++ {
+	brush := image.Rectangle{Min: minPoint, Max: minPoint.Add(image.Pt(stroke.Width, stroke.Width))}.Intersect(c.state.clip)
+	for y := brush.Min.Y; y < brush.Max.Y; y++ {
+		for x := brush.Min.X; x < brush.Max.X; x++ {
 			c.setDevice(image.Pt(x, y), stroke.Ink)
 		}
 	}
@@ -129,7 +132,7 @@ func (c *Canvas) mappedStroke(stroke StrokeStyle) StrokeStyle {
 		if value == 0 {
 			return 0
 		}
-		mapped := int(math.Round(float64(value) * scale))
+		mapped := int(math.Round(float64(float64(value) * scale)))
 		if minimum && mapped < 1 {
 			return 1
 		}
@@ -150,6 +153,10 @@ func (c *Canvas) mappedStroke(stroke StrokeStyle) StrokeStyle {
 // zero-value path intact is important for borders and scene documents written
 // before cap/join were added.
 func (c *Canvas) strokePointsLegacy(points []image.Point, closed bool, stroke StrokeStyle) {
+	// A brush wider than any panel covers the panel from wherever it is near
+	// it; past maxBrushWidth the only difference more width could make is to
+	// reach the frame from farther off, which is not a line any more.
+	stroke.Width = min(stroke.Width, maxBrushWidth)
 	pattern := newDashPattern(stroke)
 	if len(points) == 1 {
 		if pattern == nil || pattern.on(0) {
@@ -164,12 +171,14 @@ func (c *Canvas) strokePointsLegacy(points []image.Point, closed bool, stroke St
 	if closed {
 		segmentCount++
 	}
+	visible := c.state.clip.Inset(-(stroke.Width + 2))
+	brush := c.newBrush(stroke)
 	for segment := 0; segment < segmentCount; segment++ {
 		from := points[segment%len(points)]
 		to := points[(segment+1)%len(points)]
 		// The first point of a segment repeats the previous segment's last one.
 		skipShared := segment > 0
-		drawBresenham(from, to, func(point image.Point) {
+		draw := func(point image.Point) {
 			if skipShared {
 				skipShared = false
 				return
@@ -177,10 +186,176 @@ func (c *Canvas) strokePointsLegacy(points []image.Point, closed bool, stroke St
 			travelled += math.Hypot(float64(point.X-previous.X), float64(point.Y-previous.Y))
 			previous = point
 			if pattern == nil || pattern.on(travelled) {
-				c.fillBrush(point, stroke)
+				brush.stamp(point)
+			} else {
+				brush.lift()
 			}
-		})
+		}
+		steps := max(abs(to.X-from.X), abs(to.Y-from.Y))
+		if steps <= longSegment {
+			drawBresenham(from, to, draw)
+			brush.lift()
+			continue
+		}
+		// A long segment is walked only where it can reach the clip. The steps
+		// either side of that are counted rather than taken, so a dash still
+		// falls where walking them would have put it.
+		first, last, seen := visibleSteps(from, to, steps, visible)
+		if !seen {
+			travelled += bresenhamTravel(from, to, steps, steps)
+			previous = to
+			continue
+		}
+		if first > 0 {
+			travelled += bresenhamTravel(from, to, steps, first)
+			previous, skipShared = bresenhamStep(from, to, first), false
+		}
+		for step := first; step <= last; step++ {
+			draw(bresenhamStep(from, to, step))
+		}
+		brush.lift()
+		if last < steps {
+			travelled += bresenhamTravel(from, to, steps, steps) - bresenhamTravel(from, to, steps, last)
+			previous = to
+		}
 	}
+}
+
+// maxBrushWidth bounds the square brush a line is drawn with.
+const maxBrushWidth = 4096
+
+// brush stamps the square brush along a line. A narrow brush is stamped at
+// each point as it comes. A wide one would paint nearly the same pixels again
+// at every step, so the points of each unbroken stroke are kept and their
+// brushes are painted together, a row at a time: along one segment the points
+// only ever move one way across and one way down, so the brushes that reach a
+// row are those of a run of consecutive points, and together they cover one
+// unbroken span of it, from the first of them to the last. That is the same
+// pixels for the cost of the rows instead of the cost of the brush times the
+// steps.
+type brush struct {
+	canvas *Canvas
+	stroke StrokeStyle
+	wide   bool
+	run    []image.Point
+}
+
+func (c *Canvas) newBrush(stroke StrokeStyle) *brush {
+	return &brush{canvas: c, stroke: stroke, wide: stroke.Width > 8}
+}
+
+// stamp adds the next point of an unbroken stroke.
+func (b *brush) stamp(point image.Point) {
+	if !b.wide {
+		b.canvas.fillBrush(point, b.stroke)
+		return
+	}
+	b.run = append(b.run, point)
+}
+
+// lift ends the stroke being stamped — at a gap in a dash or the end of a
+// segment — and paints it.
+func (b *brush) lift() {
+	run := b.run
+	b.run = b.run[:0]
+	if len(run) == 0 {
+		return
+	}
+	width := b.stroke.Width
+	offset := width / 2
+	clip := b.canvas.state.clip
+	low, high := run[0].Y, run[len(run)-1].Y
+	rising := high < low
+	if rising {
+		low, high = high, low
+	}
+	rows := image.Rect(clip.Min.X, low-offset, clip.Max.X, high-offset+width).Intersect(clip)
+	for y := rows.Min.Y; y < rows.Max.Y; y++ {
+		// The brush at a point covers the rows from its y-offset to
+		// y-offset+width-1, so the points reaching row y are those with y in
+		// [y+offset-width+1, y+offset].
+		bottom, top := y+offset-width+1, y+offset
+		var first, last int
+		if rising {
+			first = sort.Search(len(run), func(i int) bool { return run[i].Y <= top })
+			last = sort.Search(len(run), func(i int) bool { return run[i].Y < bottom }) - 1
+		} else {
+			first = sort.Search(len(run), func(i int) bool { return run[i].Y >= bottom })
+			last = sort.Search(len(run), func(i int) bool { return run[i].Y > top }) - 1
+		}
+		if first > last {
+			continue
+		}
+		left := min(run[first].X, run[last].X) - offset
+		right := max(run[first].X, run[last].X) - offset + width
+		for x := max(left, clip.Min.X); x < min(right, clip.Max.X); x++ {
+			b.canvas.setDevice(image.Pt(x, y), b.stroke.Ink)
+		}
+	}
+}
+
+// longSegment is the length past which a segment is walked only where it can
+// be seen. Every segment of an ordinary drawing is shorter, so it is walked
+// whole and draws exactly what it always drew.
+const longSegment = 4096
+
+// visibleSteps is the range of Bresenham steps along a segment that can land
+// in area, padded by a step either side.
+func visibleSteps(from, to image.Point, steps int, area image.Rectangle) (first, last int, seen bool) {
+	low, high, ok := clipSegment(
+		floatPoint{float64(from.X), float64(from.Y)}, floatPoint{float64(to.X), float64(to.Y)}, area)
+	if !ok {
+		return 0, 0, false
+	}
+	first = max(0, int(math.Floor(float64(low*float64(steps))))-1)
+	last = min(steps, int(math.Ceil(float64(high*float64(steps))))+1)
+	return first, last, first <= last
+}
+
+// bresenhamStep is the pixel drawBresenham reaches after step steps.
+//
+// Along a line that is longer across than down, every step moves across and
+// the steps down are the across count times the slope, rounded half up — which
+// is what the error term of drawBresenham works out one step at a time, written
+// down at once. A line longer down than across is the same with the axes
+// swapped.
+func bresenhamStep(from, to image.Point, step int) image.Point {
+	across, down := abs(to.X-from.X), abs(to.Y-from.Y)
+	var x, y int
+	if across >= down {
+		x, y = step, roundedShare(step, down, across)
+	} else {
+		x, y = roundedShare(step, across, down), step
+	}
+	if to.X < from.X {
+		x = -x
+	}
+	if to.Y < from.Y {
+		y = -y
+	}
+	return from.Add(image.Pt(x, y))
+}
+
+// roundedShare is floor((2*step*part + whole) / (2*whole)), worked in 128 bits
+// so that a segment of any length cannot overflow it.
+func roundedShare(step, part, whole int) int {
+	if part == 0 {
+		return 0
+	}
+	high, low := bits.Mul64(uint64(2*step), uint64(part))
+	low, carry := bits.Add64(low, uint64(whole), 0)
+	high += carry
+	quotient, _ := bits.Div64(high, low, uint64(2*whole))
+	return int(quotient)
+}
+
+// bresenhamTravel is the distance the first step steps of a Bresenham walk
+// cover: one pixel for a straight step and the diagonal for a slanted one,
+// and a step is slanted exactly when the shorter axis moves.
+func bresenhamTravel(from, to image.Point, steps, step int) float64 {
+	across, down := abs(to.X-from.X), abs(to.Y-from.Y)
+	slanted := roundedShare(step, min(across, down), steps)
+	return float64(step-slanted) + float64(float64(slanted)*math.Sqrt2)
 }
 
 // strokePointsStyled rasterizes an explicitly styled stroke from its geometric
@@ -198,7 +373,7 @@ func (c *Canvas) strokePointsStyled(points []image.Point, closed bool, stroke St
 		}
 		if stroke.Cap == StrokeCapRound {
 			bounds := strokeCircleBounds(points[0], stroke.Width).Intersect(c.state.clip)
-			radiusSquared := strokeRadius(stroke.Width) * strokeRadius(stroke.Width)
+			radiusSquared := float64(strokeRadius(stroke.Width) * strokeRadius(stroke.Width))
 			for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 				for x := bounds.Min.X; x < bounds.Max.X; x++ {
 					if strokeDistanceSquared(float64(x), float64(y), float64(points[0].X), float64(points[0].Y)) <= radiusSquared {
@@ -220,98 +395,212 @@ func (c *Canvas) strokePointsStyled(points []image.Point, closed bool, stroke St
 	margin := int(math.Ceil(radius)) + 2
 	bounds := polygonBounds(points).Inset(-margin)
 	bounds = bounds.Intersect(c.state.clip)
+	if bounds.Empty() {
+		return
+	}
 	pattern := newDashPattern(stroke)
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			px, py := float64(x), float64(y)
-			paint := false
-			for _, segment := range segments {
-				distance, along, projection := distanceToFloatSegment(px, py, segment.from, segment.to)
+
+	// The stroke is every pixel some part of it covers — a segment's body, a
+	// cap, a dash's end, a join — so each part paints the pixels it covers,
+	// looking only where it can reach. A pixel is painted once whichever parts
+	// cover it, and the cost follows the parts rather than the area times the
+	// number of them.
+	painted := newMask(bounds)
+	paint := func(x, y int) {
+		painted.set(x, y, true)
+		c.setDevice(image.Pt(x, y), stroke.Ink)
+	}
+	cover := func(box image.Rectangle, covers func(px, py float64) bool) {
+		box = box.Intersect(bounds)
+		for y := box.Min.Y; y < box.Max.Y; y++ {
+			for x := box.Min.X; x < box.Max.X; x++ {
+				if !painted.at(x, y) && covers(float64(x), float64(y)) {
+					paint(x, y)
+				}
+			}
+		}
+	}
+
+	for _, segment := range segments {
+		box := segmentBox(segment.from, segment.to, margin).Intersect(bounds)
+		for y := box.Min.Y; y < box.Max.Y; y++ {
+			low, high := bodyRow(segment, radius, y)
+			for x := max(low, box.Min.X); x <= min(high, box.Max.X-1); x++ {
+				if painted.at(x, y) {
+					continue
+				}
+				distance, along, projection := distanceToFloatSegment(float64(x), float64(y), segment.from, segment.to)
 				if distance > radius || projection < 0 || projection > 1 {
 					continue
 				}
 				if pattern == nil || pattern.on(segment.start+along) {
-					paint = true
-					break
+					paint(x, y)
 				}
-			}
-			if !paint && !closed {
-				if pattern == nil {
-					paint = styledCapContains(px, py, points[0], segments[0].to, radius, stroke.Cap, nil, 0)
-					if !paint {
-						last := len(points) - 1
-						paint = styledCapContains(px, py, points[last], segments[len(segments)-1].from, radius, stroke.Cap, nil, total)
-					}
-				}
-			}
-			if !paint && pattern != nil && stroke.Cap != StrokeCapButt {
-				for _, run := range dashRuns(total, pattern) {
-					if dashCapContains(px, py, segments, run.start, radius, stroke.Cap, true) ||
-						dashCapContains(px, py, segments, run.end, radius, stroke.Cap, false) {
-						paint = true
-						break
-					}
-				}
-			}
-			if !paint {
-				start := 1
-				end := len(points) - 1
-				if closed {
-					start = 0
-					end = len(points)
-				}
-				for index := start; index < end; index++ {
-					if pattern != nil && !pattern.on(strokeVertexDistance(segments, index, closed)) {
-						continue
-					}
-					if styledJoinContains(px, py, points[index%len(points)], points[(index+len(points)-1)%len(points)], points[(index+1)%len(points)], radius, stroke.Join) {
-						paint = true
-						break
-					}
-				}
-			}
-			if paint {
-				c.setDevice(image.Pt(x, y), stroke.Ink)
 			}
 		}
 	}
+	// A square cap reaches the diagonal of its half-width from where it ends.
+	capReach := int(math.Ceil(float64(radius*math.Sqrt2))) + 2
+	if !closed && pattern == nil {
+		last := len(points) - 1
+		cover(pointBox(points[0], capReach), func(px, py float64) bool {
+			return styledCapContains(px, py, points[0], segments[0].to, radius, stroke.Cap, nil, 0)
+		})
+		cover(pointBox(points[last], capReach), func(px, py float64) bool {
+			return styledCapContains(px, py, points[last], segments[len(segments)-1].from, radius, stroke.Cap, nil, total)
+		})
+	}
+	if pattern != nil && stroke.Cap != StrokeCapButt {
+		for _, end := range nearbyDashEnds(segments, total, pattern, bounds.Inset(-capReach)) {
+			center, direction, ok := strokePointAt(segments, end.position)
+			if !ok {
+				continue
+			}
+			cover(pointBox(end.at, capReach), func(px, py float64) bool {
+				return dashCapCovers(px, py, center, direction, radius, stroke.Cap, end.start)
+			})
+		}
+	}
+	joinStart, joinEnd := 1, len(points)-1
+	if closed {
+		joinStart, joinEnd = 0, len(points)
+	}
+	// A miter is drawn only while its tip is within four half-widths.
+	joinReach := int(math.Ceil(float64(radius*4))) + 2
+	for index := joinStart; index < joinEnd; index++ {
+		if pattern != nil && !pattern.on(strokeVertexDistance(segments, index, closed)) {
+			continue
+		}
+		center := points[index%len(points)]
+		previous := points[(index+len(points)-1)%len(points)]
+		next := points[(index+1)%len(points)]
+		cover(pointBox(center, joinReach), func(px, py float64) bool {
+			return styledJoinContains(px, py, center, previous, next, radius, stroke.Join)
+		})
+	}
 }
 
-type dashRun struct{ start, end float64 }
-
-func dashRuns(total float64, pattern *dashPattern) []dashRun {
-	if pattern == nil || total <= 0 {
-		return nil
+// bodyRow is a range of pixels in row y holding every pixel within radius of
+// the segment whose nearest point is inside it: the row's slice of the
+// segment swept sideways by radius, padded by a pixel.
+func bodyRow(segment strokeSegment, radius float64, y int) (low, high int) {
+	dx := float64(segment.to.X-segment.from.X) / segment.length
+	dy := float64(segment.to.Y-segment.from.Y) / segment.length
+	normalX, normalY := float64(-dy*radius), float64(dx*radius)
+	corners := [4]floatPoint{
+		{float64(segment.from.X) + normalX, float64(segment.from.Y) + normalY},
+		{float64(segment.to.X) + normalX, float64(segment.to.Y) + normalY},
+		{float64(segment.to.X) - normalX, float64(segment.to.Y) - normalY},
+		{float64(segment.from.X) - normalX, float64(segment.from.Y) - normalY},
 	}
+	row := float64(y)
+	left, right := math.Inf(1), math.Inf(-1)
+	for index, from := range corners {
+		to := corners[(index+1)%4]
+		if (from.y-row)*(to.y-row) > 0 {
+			continue
+		}
+		x := from.x
+		if from.y != to.y {
+			x = from.x + (to.x-from.x)*(row-from.y)/(to.y-from.y)
+		} else {
+			left, right = math.Min(left, math.Min(from.x, to.x)), math.Max(right, math.Max(from.x, to.x))
+		}
+		left, right = math.Min(left, x), math.Max(right, x)
+	}
+	if left > right {
+		// The row passes within a pixel of a corner without crossing an edge.
+		left, right = math.Inf(1), math.Inf(-1)
+		for _, corner := range corners {
+			if math.Abs(corner.y-row) <= 1 {
+				left, right = math.Min(left, corner.x), math.Max(right, corner.x)
+			}
+		}
+		if left > right {
+			return 1, 0
+		}
+	}
+	return int(math.Floor(left)) - 1, int(math.Ceil(right)) + 1
+}
+
+// dashEnd is one end of an on-run: where along the stroke it is, which end of
+// the run it is, and roughly where it lands, for filing it.
+type dashEnd struct {
+	position float64
+	start    bool
+	at       image.Point
+}
+
+// nearbyDashEnds lists the ends of the stroke's on-runs that land in area.
+//
+// The runs are those of walking the pattern from the start of the stroke: the
+// first piece is what is left of the pattern after its offset, and from the
+// second on the pieces repeat every period. The walk is therefore taken up a
+// whole number of periods short of each segment's part in area rather than
+// from the start, which is what keeps a stroke far longer than the frame from
+// costing a run for every dash along it.
+func nearbyDashEnds(segments []strokeSegment, total float64, pattern *dashPattern, area image.Rectangle) []dashEnd {
+	lengths := pattern.lengths
 	phase := float64(pattern.offset)
-	index := 0
-	for phase >= float64(pattern.lengths[index]) && pattern.lengths[index] > 0 {
-		phase -= float64(pattern.lengths[index])
-		index = (index + 1) % len(pattern.lengths)
+	first := 0
+	for phase >= float64(lengths[first]) && lengths[first] > 0 {
+		phase -= float64(lengths[first])
+		first = (first + 1) % len(lengths)
 	}
-	remaining := float64(pattern.lengths[index]) - phase
-	position := 0.0
-	var runs []dashRun
-	for position < total {
-		end := math.Min(total, position+remaining)
-		if index%2 == 0 && end > position {
-			runs = append(runs, dashRun{start: position, end: end})
+	head := float64(lengths[first]) - phase
+	period := float64(pattern.total)
+
+	var found []dashEnd
+	note := func(position float64, start bool, segment strokeSegment, low, high float64) {
+		if position < low || position > high {
+			return
 		}
-		position = end
-		index = (index + 1) % len(pattern.lengths)
-		remaining = float64(pattern.lengths[index])
+		t := (position - segment.start) / segment.length
+		found = append(found, dashEnd{position: position, start: start, at: image.Pt(
+			int(math.Round(float64(segment.from.X)+float64(t*float64(segment.to.X-segment.from.X)))),
+			int(math.Round(float64(segment.from.Y)+float64(t*float64(segment.to.Y-segment.from.Y)))),
+		)})
 	}
-	return runs
+	piece := func(position, length float64, index int, segment strokeSegment, low, high float64) {
+		if index%2 != 0 {
+			return
+		}
+		end := math.Min(total, position+length)
+		if end > position {
+			note(position, true, segment, low, high)
+			note(end, false, segment, low, high)
+		}
+	}
+	for _, segment := range segments {
+		from := floatPoint{float64(segment.from.X), float64(segment.from.Y)}
+		to := floatPoint{float64(segment.to.X), float64(segment.to.Y)}
+		lowT, highT, ok := clipSegment(from, to, area)
+		if !ok {
+			continue
+		}
+		low := segment.start + float64(lowT*segment.length) - 1
+		high := segment.start + float64(highT*segment.length) + 1
+		piece(0, head, first, segment, low, high)
+		position := head
+		index := (first + 1) % len(lengths)
+		if skip := math.Floor((low-head)/period) - 1; skip > 0 {
+			position += float64(skip * period)
+		}
+		for position < total && position <= high {
+			piece(position, float64(lengths[index]), index, segment, low, high)
+			position += float64(lengths[index])
+			index = (index + 1) % len(lengths)
+		}
+	}
+	return found
 }
 
-func dashCapContains(x, y float64, segments []strokeSegment, position, radius float64, cap StrokeCap, start bool) bool {
-	center, direction, ok := strokePointAt(segments, position)
-	if !ok {
-		return false
-	}
+// dashCapCovers is whether the cap at a dash's end, centred at center and
+// facing along direction, covers a pixel.
+func dashCapCovers(x, y float64, center, direction floatPoint, radius float64, cap StrokeCap, start bool) bool {
 	dx, dy := x-center.x, y-center.y
 	if cap == StrokeCapRound {
-		return dx*dx+dy*dy <= radius*radius
+		return float64(dx*dx)+float64(dy*dy) <= radius*radius
 	}
 	if cap != StrokeCapSquare {
 		return false
@@ -319,13 +608,15 @@ func dashCapContains(x, y float64, segments []strokeSegment, position, radius fl
 	if start {
 		direction.x, direction.y = -direction.x, -direction.y
 	}
-	projection := dx*direction.x + dy*direction.y
+	projection := float64(dx*direction.x) + float64(dy*direction.y)
 	if projection < 0 || projection > radius {
 		return false
 	}
-	return math.Abs(dx*direction.y-dy*direction.x) <= radius
+	return math.Abs(float64(dx*direction.y)-float64(dy*direction.x)) <= radius
 }
 
+// strokePointAt is the point a distance along the stroke and the direction it
+// is heading there. A distance where two segments meet belongs to the first.
 func strokePointAt(segments []strokeSegment, position float64) (floatPoint, floatPoint, bool) {
 	if len(segments) == 0 {
 		return floatPoint{}, floatPoint{}, false
@@ -337,20 +628,23 @@ func strokePointAt(segments []strokeSegment, position float64) (floatPoint, floa
 	if position > last.start+last.length {
 		position = last.start + last.length
 	}
-	for _, segment := range segments {
-		if position > segment.start+segment.length && segment != last {
-			continue
+	// Each segment starts where the one before it ends, so their ends rise
+	// and the first that reaches the distance is found by halving.
+	index, _ := slices.BinarySearchFunc(segments, position, func(segment strokeSegment, position float64) int {
+		if segment.start+segment.length < position {
+			return -1
 		}
-		t := (position - segment.start) / segment.length
-		return floatPoint{
-			x: float64(segment.from.X) + t*float64(segment.to.X-segment.from.X),
-			y: float64(segment.from.Y) + t*float64(segment.to.Y-segment.from.Y),
-		}, floatPoint{
-			x: float64(segment.to.X-segment.from.X) / segment.length,
-			y: float64(segment.to.Y-segment.from.Y) / segment.length,
-		}, true
-	}
-	return floatPoint{}, floatPoint{}, false
+		return 1
+	})
+	segment := segments[min(index, len(segments)-1)]
+	t := (position - segment.start) / segment.length
+	return floatPoint{
+		x: float64(segment.from.X) + float64(t*float64(segment.to.X-segment.from.X)),
+		y: float64(segment.from.Y) + float64(t*float64(segment.to.Y-segment.from.Y)),
+	}, floatPoint{
+		x: float64(segment.to.X-segment.from.X) / segment.length,
+		y: float64(segment.to.Y-segment.from.Y) / segment.length,
+	}, true
 }
 
 type strokeSegment struct {
@@ -400,21 +694,21 @@ func strokeCircleBounds(center image.Point, width int) image.Rectangle {
 
 func strokeDistanceSquared(x, y, centerX, centerY float64) float64 {
 	dx, dy := x-centerX, y-centerY
-	return dx*dx + dy*dy
+	return float64(dx*dx) + float64(dy*dy)
 }
 
 func distanceToFloatSegment(x, y float64, from, to image.Point) (distance, along, projection float64) {
 	dx := float64(to.X - from.X)
 	dy := float64(to.Y - from.Y)
-	lengthSquared := dx*dx + dy*dy
+	lengthSquared := float64(dx*dx) + float64(dy*dy)
 	if lengthSquared == 0 {
 		return math.Hypot(x-float64(from.X), y-float64(from.Y)), 0, 0
 	}
-	projection = ((x-float64(from.X))*dx + (y-float64(from.Y))*dy) / lengthSquared
+	projection = (float64((x-float64(from.X))*dx) + float64((y-float64(from.Y))*dy)) / lengthSquared
 	clamped := math.Min(1, math.Max(0, projection))
-	closestX := float64(from.X) + clamped*dx
-	closestY := float64(from.Y) + clamped*dy
-	return math.Hypot(x-closestX, y-closestY), clamped * math.Sqrt(lengthSquared), projection
+	closestX := float64(from.X) + float64(clamped*dx)
+	closestY := float64(from.Y) + float64(clamped*dy)
+	return math.Hypot(x-closestX, y-closestY), float64(clamped * math.Sqrt(lengthSquared)), projection
 }
 
 func styledCapContains(x, y float64, endpoint, inside image.Point, radius float64, cap StrokeCap, pattern *dashPattern, position float64) bool {
@@ -433,11 +727,11 @@ func styledCapContains(x, y float64, endpoint, inside image.Point, radius float6
 		return strokeDistanceSquared(x, y, float64(endpoint.X), float64(endpoint.Y)) <= radius*radius
 	}
 	// Square caps extend the segment by one half-width in its direction.
-	projection := ((x-float64(endpoint.X))*dx + (y-float64(endpoint.Y))*dy) / length
+	projection := (float64((x-float64(endpoint.X))*dx) + float64((y-float64(endpoint.Y))*dy)) / length
 	if projection < 0 || projection > radius {
 		return false
 	}
-	perpendicular := math.Abs((x-float64(endpoint.X))*dy-(y-float64(endpoint.Y))*dx) / length
+	perpendicular := math.Abs(float64((x-float64(endpoint.X))*dy)-float64((y-float64(endpoint.Y))*dx)) / length
 	return perpendicular <= radius
 }
 
@@ -463,13 +757,13 @@ func styledJoinContains(x, y float64, center, previous, next image.Point, radius
 	}
 	prevDX, prevDY = prevDX/prevLength, prevDY/prevLength
 	nextDX, nextDY = nextDX/nextLength, nextDY/nextLength
-	prevNX, prevNY := -prevDY*radius, prevDX*radius
-	nextNX, nextNY := -nextDY*radius, nextDX*radius
+	prevNX, prevNY := float64(-prevDY*radius), float64(prevDX*radius)
+	nextNX, nextNY := float64(-nextDY*radius), float64(nextDX*radius)
 	for _, side := range []float64{-1, 1} {
 		// The incoming segment points toward the vertex, so its offset normal
 		// is opposite to the normal of center-to-previous used above.
-		first := floatPoint{float64(center.X) - side*prevNX, float64(center.Y) - side*prevNY}
-		second := floatPoint{float64(center.X) + side*nextNX, float64(center.Y) + side*nextNY}
+		first := floatPoint{float64(center.X) - float64(side*prevNX), float64(center.Y) - float64(side*prevNY)}
+		second := floatPoint{float64(center.X) + float64(side*nextNX), float64(center.Y) + float64(side*nextNY)}
 		if join == StrokeJoinBevel {
 			if pointInFloatPolygon(x, y, []floatPoint{{float64(center.X), float64(center.Y)}, first, second}) {
 				return true
@@ -494,13 +788,13 @@ func styledJoinContains(x, y float64, center, previous, next image.Point, radius
 type floatPoint struct{ x, y float64 }
 
 func lineIntersection(first floatPoint, firstDX, firstDY float64, second floatPoint, secondDX, secondDY float64) (floatPoint, bool) {
-	denominator := firstDX*secondDY - firstDY*secondDX
+	denominator := float64(firstDX*secondDY) - float64(firstDY*secondDX)
 	if math.Abs(denominator) < 1e-9 {
 		return floatPoint{}, false
 	}
 	dx, dy := second.x-first.x, second.y-first.y
-	t := (dx*secondDY - dy*secondDX) / denominator
-	return floatPoint{x: first.x + t*firstDX, y: first.y + t*firstDY}, true
+	t := (float64(dx*secondDY) - float64(dy*secondDX)) / denominator
+	return floatPoint{x: first.x + float64(t*firstDX), y: first.y + float64(t*firstDY)}, true
 }
 
 func pointInFloatPolygon(x, y float64, polygon []floatPoint) bool {

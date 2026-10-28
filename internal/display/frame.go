@@ -253,8 +253,10 @@ func (c *Canvas) ClipPath(path Path) {
 		return
 	}
 	bounds := c.deviceRect(contourBounds(contours)).Intersect(c.state.clip)
+	inside := newPolygonRegion(contourPoints(contours), inverse.MapRect(bounds))
 	region := rasterizeMask(bounds, func(x, y int) bool {
-		return pointInPath(inverse.ApplyPoint(image.Pt(x, y)), contours)
+		from := inverse.ApplyPoint(image.Pt(x, y))
+		return inside.contains(from.X, from.Y)
 	})
 	c.state.clip = bounds
 	if c.state.mask == nil {
@@ -384,7 +386,7 @@ func (c *Canvas) paintWhere(bounds image.Rectangle, paint func(x, y int) (Ink, b
 		return
 	}
 	inverse, invertible := c.state.matrix.Invert()
-	if invertible == false || bounds.Empty() {
+	if !invertible || bounds.Empty() {
 		return
 	}
 	device := c.deviceRect(bounds).Intersect(c.state.clip)

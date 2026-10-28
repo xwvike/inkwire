@@ -147,12 +147,12 @@ func (g *Gradient) at(rect image.Rectangle, ink Ink, x, y int) Ink {
 			share = coverage(to.Ink)
 			if span := to.At - from.At; span > 0 {
 				blend := (place - from.At) / span
-				share = coverage(from.Ink) + (coverage(to.Ink)-coverage(from.Ink))*blend
+				share = coverage(from.Ink) + float64((coverage(to.Ink)-coverage(from.Ink))*blend)
 			}
 			break
 		}
 	}
-	return Tone(ink, int(math.Round(share*ToneSteps)))
+	return Tone(ink, int(math.Round(float64(share*ToneSteps))))
 }
 
 // FillGradient fills a rectangle, rounded when radius is positive, with a

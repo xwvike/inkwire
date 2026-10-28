@@ -3,6 +3,7 @@ package display
 import (
 	"image"
 	"math"
+	"math/bits"
 )
 
 // Oval is an ellipse: the box it would fit in square to the page, and how far
@@ -75,13 +76,13 @@ func (o Oval) at(degrees float64) (float64, float64) {
 	centreX, centreY := o.centre()
 	radiusX, radiusY := o.radii()
 	sine, cosine := math.Sincos(degrees * math.Pi / 180)
-	alongX, alongY := radiusX*cosine, radiusY*sine
+	alongX, alongY := float64(radiusX*cosine), float64(radiusY*sine)
 	if !o.turned() {
 		return centreX + alongX, centreY + alongY
 	}
 	turnSine, turnCosine := o.turn()
-	return centreX + alongX*turnCosine - alongY*turnSine,
-		centreY + alongX*turnSine + alongY*turnCosine
+	return centreX + float64(alongX*turnCosine) - float64(alongY*turnSine),
+		centreY + float64(alongX*turnSine) + float64(alongY*turnCosine)
 }
 
 // contains reports whether a pixel is inside the ellipse.
@@ -104,13 +105,34 @@ func (o Oval) contains(x, y int) bool {
 		if !image.Pt(x, y).In(o.Bounds) {
 			return false
 		}
-		return fromX*fromX*spanY*spanY+fromY*fromY*spanX*spanX <= spanX*spanX*spanY*spanY
+		return withinEllipse(fromX, fromY, spanX, spanY)
 	}
 	sine, cosine := o.turn()
-	alongX := float64(fromX)*cosine + float64(fromY)*sine
-	alongY := -float64(fromX)*sine + float64(fromY)*cosine
+	alongX := float64(float64(fromX)*cosine) + float64(float64(fromY)*sine)
+	alongY := float64(-float64(fromX)*sine) + float64(float64(fromY)*cosine)
 	spanXf, spanYf := float64(spanX), float64(spanY)
-	return alongX*alongX*spanYf*spanYf+alongY*alongY*spanXf*spanXf <= spanXf*spanXf*spanYf*spanYf
+	return float64(alongX*alongX*spanYf*spanYf)+float64(alongY*alongY*spanXf*spanXf) <= spanXf*spanXf*spanYf*spanYf
+}
+
+// withinEllipse is fromX²·spanY² + fromY²·spanX² <= spanX²·spanY², the upright
+// test, for offsets no larger than their spans. Those products pass the range
+// of an int64 once a box is some 55,000 pixels across, so they are worked in
+// 128 bits whenever they could.
+func withinEllipse(fromX, fromY, spanX, spanY int64) bool {
+	if spanX < 1<<15 && spanY < 1<<15 {
+		return fromX*fromX*spanY*spanY+fromY*fromY*spanX*spanX <= spanX*spanX*spanY*spanY
+	}
+	if spanX >= 1<<31 || spanY >= 1<<31 {
+		x, y, sx, sy := float64(fromX), float64(fromY), float64(spanX), float64(spanY)
+		return float64(x*x*sy*sy)+float64(y*y*sx*sx) <= sx*sx*sy*sy
+	}
+	square := func(value int64) uint64 { return uint64(value * value) }
+	xHigh, xLow := bits.Mul64(square(fromX), square(spanY))
+	yHigh, yLow := bits.Mul64(square(fromY), square(spanX))
+	sumLow, carry := bits.Add64(xLow, yLow, 0)
+	sumHigh, _ := bits.Add64(xHigh, yHigh, carry)
+	limitHigh, limitLow := bits.Mul64(square(spanX), square(spanY))
+	return sumHigh < limitHigh || (sumHigh == limitHigh && sumLow <= limitLow)
 }
 
 // Extent is the smallest box square to the page that holds the whole ellipse,
@@ -126,8 +148,8 @@ func (o Oval) Extent() image.Rectangle {
 	centreX, centreY := o.centre()
 	radiusX, radiusY := o.radii()
 	sine, cosine := o.turn()
-	halfWidth := math.Hypot(radiusX*cosine, radiusY*sine)
-	halfHeight := math.Hypot(radiusX*sine, radiusY*cosine)
+	halfWidth := math.Hypot(float64(radiusX*cosine), float64(radiusY*sine))
+	halfHeight := math.Hypot(float64(radiusX*sine), float64(radiusY*cosine))
 	return image.Rect(
 		int(math.Floor(centreX-halfWidth)),
 		int(math.Floor(centreY-halfHeight)),

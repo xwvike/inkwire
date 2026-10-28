@@ -124,8 +124,11 @@ func (c *Canvas) DrawFrame(source *Frame, at image.Point, transform Transform, c
 	}
 	normal := transform.normalised()
 	size := normal.Apply(image.Pt(source.Width(), source.Height()))
-	for y := 0; y < size.Y; y++ {
-		for x := 0; x < size.X; x++ {
+	// Only what can land inside the clip is visited: a small frame scaled
+	// up a long way is mostly off the panel, and Set would drop it anyway.
+	area := image.Rectangle{Max: size}.Intersect(c.logicalClip().Sub(at))
+	for y := area.Min.Y; y < area.Max.Y; y++ {
+		for x := area.Min.X; x < area.Max.X; x++ {
 			from := normal.source(image.Pt(x, y), source.Width(), source.Height())
 			if !covered.At(from.X, from.Y) {
 				continue

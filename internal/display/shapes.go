@@ -51,9 +51,9 @@ func (c *Canvas) StrokePolygon(points []image.Point, stroke StrokeStyle) {
 	if !stroke.valid() || len(points) < 3 {
 		return
 	}
-	c.strokeInward(polygonBounds(points), func(x, y int) bool {
-		return pointInPolygon(image.Pt(x, y), points)
-	}, [][]image.Point{points}, stroke)
+	bounds := polygonBounds(points)
+	region := newPolygonRegion([][]image.Point{points}, strokeMaskBounds(bounds, c.logicalClip(), inwardDepth(bounds, stroke.Width)))
+	c.strokeInward(bounds, region.contains, [][]image.Point{points}, stroke)
 }
 
 // FillPolygon fills a simple polygon using the even-odd rule.
@@ -61,8 +61,10 @@ func (c *Canvas) FillPolygon(points []image.Point, ink Ink) {
 	if !ink.valid() || len(points) < 3 {
 		return
 	}
-	c.fillWhere(polygonBounds(points), func(x, y int) (Ink, bool) {
-		return ink, pointInPolygon(image.Pt(x, y), points)
+	bounds := polygonBounds(points)
+	region := newPolygonRegion([][]image.Point{points}, bounds.Intersect(c.logicalClip()))
+	c.fillWhere(bounds, func(x, y int) (Ink, bool) {
+		return ink, region.contains(x, y)
 	})
 }
 
@@ -93,7 +95,7 @@ func (c *Canvas) StrokeCircle(center image.Point, radius int, stroke StrokeStyle
 	c.strokeBand(bounds, func(x, y int) bool {
 		return pointInCircle(x, y, center, radius) &&
 			(innerRadius < 0 || !pointInCircle(x, y, center, innerRadius))
-	}, closedOutline(Upright(bounds)), stroke)
+	}, func() [][]image.Point { return closedOutline(Upright(bounds)) }, stroke)
 }
 
 // FillEllipse fills the pixels whose centers lie inside bounds' ellipse.
@@ -126,7 +128,7 @@ func (c *Canvas) StrokeEllipse(oval Oval, stroke StrokeStyle) {
 	inner := Oval{Bounds: insetRect(oval.Bounds, stroke.Width), Rotation: oval.Rotation}
 	c.strokeBand(oval.Extent(), func(x, y int) bool {
 		return oval.contains(x, y) && (inner.Bounds.Empty() || !inner.contains(x, y))
-	}, closedOutline(oval), stroke)
+	}, func() [][]image.Point { return closedOutline(oval) }, stroke)
 }
 
 // FillRoundRect fills rect with radius applied to all four corners.
@@ -150,7 +152,7 @@ func (c *Canvas) StrokeRoundRect(rect image.Rectangle, radius int, stroke Stroke
 	innerRadius := max(0, radius-stroke.Width)
 	c.strokeBand(rect, func(x, y int) bool {
 		return pointInRoundRect(x, y, rect, radius) && (inner.Empty() || !pointInRoundRect(x, y, inner, innerRadius))
-	}, [][]image.Point{roundRectPoints(rect, radius)}, stroke)
+	}, func() [][]image.Point { return [][]image.Point{roundRectPoints(rect, radius)} }, stroke)
 }
 
 // closedOutline is the perimeter of an ellipse as a polyline, used only to

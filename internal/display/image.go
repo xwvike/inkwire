@@ -217,16 +217,30 @@ func (c *Canvas) DrawImage(source image.Image, destination image.Rectangle, opti
 
 	luminance := make([]float64, drawRect.Dx()*drawRect.Dy())
 	redPixels := make([]bool, len(luminance))
+	// A picture made smaller has more than one of its pixels behind each one
+	// drawn, and two or four of them chosen at a point stand in for all of
+	// them badly: a fine pattern comes out as a coarse false one, and a thin
+	// line comes and goes. Smoothing averages everything behind the pixel.
+	var area *areaSampler
+	if stepX, stepY := window.sourceWidth/float64(window.target.Dx()), window.sourceHeight/float64(window.target.Dy()); options.Sampling == SampleBilinear && (stepX > 1 || stepY > 1) {
+		area = newAreaSampler(source, window, drawRect)
+	}
 	for y := drawRect.Min.Y; y < drawRect.Max.Y; y++ {
 		for x := drawRect.Min.X; x < drawRect.Max.X; x++ {
-			sourceX := window.sourceX + (float64(x-window.target.Min.X)+0.5)*window.sourceWidth/float64(window.target.Dx()) - 0.5
-			sourceY := window.sourceY + (float64(y-window.target.Min.Y)+0.5)*window.sourceHeight/float64(window.target.Dy()) - 0.5
-			sample := sampleImage(source, sourceX, sourceY, options.Sampling)
+			var sample sampledColor
+			if area != nil {
+				sample = area.at(x-drawRect.Min.X, y-drawRect.Min.Y)
+			} else {
+				sourceX := window.sourceX + (float64(x-window.target.Min.X)+0.5)*window.sourceWidth/float64(window.target.Dx()) - 0.5
+				sourceY := window.sourceY + (float64(y-window.target.Min.Y)+0.5)*window.sourceHeight/float64(window.target.Dy()) - 0.5
+				sample = sampleImage(source, sourceX, sourceY, options.Sampling)
+			}
 			point := c.devicePoint(image.Pt(x, y))
 			ink, _ := c.frame.InkAt(point.X, point.Y)
 			sample = compositeOverInk(sample, ink)
 			index := (y-drawRect.Min.Y)*drawRect.Dx() + x - drawRect.Min.X
-			luminance[index] = 0.2126*sample.r + 0.7152*sample.g + 0.0722*sample.b
+			// Each product is rounded on its own, as in newAreaSampler.
+			luminance[index] = float64(0.2126*sample.r) + float64(0.7152*sample.g) + float64(0.0722*sample.b)
 			redPixels[index] = !options.DisableRed &&
 				sample.r > float64(options.RedThreshold) && sample.g < float64(options.RedMaxGreen)
 		}
@@ -241,7 +255,7 @@ func (c *Canvas) DrawImage(source image.Image, destination image.Rectangle, opti
 	var quantized []Ink
 	switch options.Dither {
 	case DitherThreshold:
-		quantized = thresholdImage(drawRect, luminance, redPixels, float64(options.Threshold))
+		quantized = thresholdImage(luminance, redPixels, float64(options.Threshold))
 	case DitherFloydSteinberg:
 		quantized = floydSteinbergImage(drawRect, luminance, redPixels, float64(options.Threshold))
 	case DitherOrdered:
@@ -292,8 +306,8 @@ func fitImage(source, destination image.Rectangle, fit ImageFit) imageWindow {
 	switch fit {
 	case FitContain:
 		scale := math.Min(float64(destination.Dx())/float64(source.Dx()), float64(destination.Dy())/float64(source.Dy()))
-		width := max(1, int(math.Round(float64(source.Dx())*scale)))
-		height := max(1, int(math.Round(float64(source.Dy())*scale)))
+		width := max(1, int(math.Round(float64(float64(source.Dx())*scale))))
+		height := max(1, int(math.Round(float64(float64(source.Dy())*scale))))
 		x := destination.Min.X + (destination.Dx()-width)/2
 		y := destination.Min.Y + (destination.Dy()-height)/2
 		window.target = image.Rect(x, y, x+width, y+height)
@@ -301,7 +315,7 @@ func fitImage(source, destination image.Rectangle, fit ImageFit) imageWindow {
 		sourceRatio := float64(source.Dx()) / float64(source.Dy())
 		targetRatio := float64(destination.Dx()) / float64(destination.Dy())
 		if sourceRatio > targetRatio {
-			width := float64(source.Dy()) * targetRatio
+			width := float64(float64(source.Dy()) * targetRatio)
 			window.sourceX += (float64(source.Dx()) - width) / 2
 			window.sourceWidth = width
 		} else {
@@ -330,6 +344,110 @@ func sampleImage(source image.Image, x, y float64, mode SamplingMode) sampledCol
 	}
 }
 
+// areaSampler averages the source over the part of it behind each pixel
+// drawn: a box as wide as the step between two drawn pixels, or one source
+// pixel where the step is smaller, which along that axis is the same blend
+// as bilinear. The weights along each axis are worked out once.
+type areaSampler struct {
+	source  premultipliedSource
+	columns [][]areaWeight
+	rows    [][]areaWeight
+}
+
+type areaWeight struct {
+	at     int
+	weight float64
+}
+
+func newAreaSampler(source image.Image, window imageWindow, drawRect image.Rectangle) *areaSampler {
+	bounds := source.Bounds()
+	axis := func(start, extent float64, target, from, to, low, high int) [][]areaWeight {
+		step := extent / float64(target)
+		width := max(1, step)
+		spans := make([][]areaWeight, to-from)
+		for index := range spans {
+			// Each product is rounded on its own (the conversions say so),
+			// so that no machine fuses it into the add after it: arm64 does
+			// and WebAssembly does not, and the editor's preview has to be
+			// the panel's picture to the bit.
+			centre := start + float64((float64(from+index)+0.5)*step)
+			// Past the edge of the picture there is nothing to average, so a
+			// box that reaches over it averages the part that is there.
+			left, right := max(centre-width/2, float64(low)), min(centre+width/2, float64(high))
+			total := right - left
+			for cell := int(math.Floor(left)); float64(cell) < right; cell++ {
+				covered := min(right, float64(cell+1)) - max(left, float64(cell))
+				spans[index] = append(spans[index], areaWeight{at: cell, weight: covered / total})
+			}
+		}
+		return spans
+	}
+	return &areaSampler{
+		source: premultipliedOf(source),
+		columns: axis(window.sourceX, window.sourceWidth, window.target.Dx(),
+			drawRect.Min.X-window.target.Min.X, drawRect.Max.X-window.target.Min.X, bounds.Min.X, bounds.Max.X),
+		rows: axis(window.sourceY, window.sourceHeight, window.target.Dy(),
+			drawRect.Min.Y-window.target.Min.Y, drawRect.Max.Y-window.target.Min.Y, bounds.Min.Y, bounds.Max.Y),
+	}
+}
+
+// at is the average behind the drawn pixel at column x and row y of the
+// area being drawn. Colours are averaged with their alpha multiplied in, so
+// that a transparent pixel's colour, which nobody sees, does not tint the
+// pixels beside it.
+func (s *areaSampler) at(x, y int) sampledColor {
+	var r, g, b, a float64
+	for _, row := range s.rows[y] {
+		for _, column := range s.columns[x] {
+			pr, pg, pb, pa := s.source(column.at, row.at)
+			weight := float64(row.weight * column.weight)
+			// Rounded before it is added, as in newAreaSampler.
+			r, g, b, a = r+float64(pr*weight), g+float64(pg*weight), b+float64(pb*weight), a+float64(pa*weight)
+		}
+	}
+	if a <= 0 {
+		return sampledColor{}
+	}
+	return sampledColor{r: float64(r / a * 255), g: float64(g / a * 255), b: float64(b / a * 255), a: min(1, a/255)}
+}
+
+// premultipliedSource reads one pixel as red, green, blue and alpha from 0
+// to 255, the colours multiplied by the alpha.
+type premultipliedSource func(x, y int) (r, g, b, a float64)
+
+// premultipliedOf reads the pixel layouts the PNG and JPEG decoders make
+// straight from their bytes. Going through At boxes every pixel into an
+// interface, and averaging touches every pixel of a picture.
+func premultipliedOf(source image.Image) premultipliedSource {
+	switch source := source.(type) {
+	case *image.RGBA:
+		return func(x, y int) (float64, float64, float64, float64) {
+			pixel := source.Pix[source.PixOffset(x, y):]
+			return float64(pixel[0]), float64(pixel[1]), float64(pixel[2]), float64(pixel[3])
+		}
+	case *image.NRGBA:
+		return func(x, y int) (float64, float64, float64, float64) {
+			pixel := source.Pix[source.PixOffset(x, y):]
+			alpha := float64(pixel[3]) / 255
+			return float64(float64(pixel[0]) * alpha), float64(float64(pixel[1]) * alpha), float64(float64(pixel[2]) * alpha), float64(pixel[3])
+		}
+	case *image.Gray:
+		return func(x, y int) (float64, float64, float64, float64) {
+			value := float64(source.Pix[source.PixOffset(x, y)])
+			return value, value, value, 255
+		}
+	case *image.YCbCr:
+		return func(x, y int) (float64, float64, float64, float64) {
+			red, green, blue := color.YCbCrToRGB(source.Y[source.YOffset(x, y)], source.Cb[source.COffset(x, y)], source.Cr[source.COffset(x, y)])
+			return float64(red), float64(green), float64(blue), 255
+		}
+	}
+	return func(x, y int) (float64, float64, float64, float64) {
+		red, green, blue, alpha := source.At(x, y).RGBA()
+		return float64(red >> 8), float64(green >> 8), float64(blue >> 8), float64(alpha >> 8)
+	}
+}
+
 func colorAt(source image.Image, x, y int) sampledColor {
 	bounds := source.Bounds()
 	x = min(max(x, bounds.Min.X), bounds.Max.X-1)
@@ -341,20 +459,20 @@ func colorAt(source image.Image, x, y int) sampledColor {
 func compositeOverInk(source sampledColor, destination Ink) sampledColor {
 	background := destination.RGBA()
 	return sampledColor{
-		r: source.r*source.a + float64(background.R)*(1-source.a),
-		g: source.g*source.a + float64(background.G)*(1-source.a),
-		b: source.b*source.a + float64(background.B)*(1-source.a),
+		r: float64(source.r*source.a) + float64(float64(background.R)*(1-source.a)),
+		g: float64(source.g*source.a) + float64(float64(background.G)*(1-source.a)),
+		b: float64(source.b*source.a) + float64(float64(background.B)*(1-source.a)),
 		a: 1,
 	}
 }
 
 func bilerp(c00, c10, c01, c11, tx, ty float64) float64 {
-	top := c00 + (c10-c00)*tx
-	bottom := c01 + (c11-c01)*tx
-	return top + (bottom-top)*ty
+	top := c00 + float64((c10-c00)*tx)
+	bottom := c01 + float64((c11-c01)*tx)
+	return top + float64((bottom-top)*ty)
 }
 
-func thresholdImage(rect image.Rectangle, values []float64, red []bool, threshold float64) []Ink {
+func thresholdImage(values []float64, red []bool, threshold float64) []Ink {
 	inks := make([]Ink, len(values))
 	for index, value := range values {
 		inks[index] = quantizedInk(value, red[index], threshold)

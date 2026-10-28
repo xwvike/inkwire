@@ -104,21 +104,91 @@ func (m *mask) intersect(other *mask) {
 // Pixels outside the mask count as clear, so a shape that runs past the mask
 // is eroded from that edge too; strokeMaskBounds is what keeps that from
 // happening inside the visible area.
+//
+// A pixel's disc is all set exactly when the nearest clear pixel is farther
+// than the radius, so this measures that distance for every pixel at once —
+// Meijster's exact Euclidean distance transform, a pass down each column and
+// one along each row — rather than testing the disc at every pixel, which
+// would cost the disc's area for each one.
 func (m *mask) erode(radius int) *mask {
 	if radius <= 0 || m.empty() {
 		return m.clone()
 	}
-	offsets := discOffsets(radius)
+	width, height := m.bounds.Dx(), m.bounds.Dy()
+	// down[i] is how far pixel i is from the nearest clear pixel in its own
+	// column, counting the rows just outside the mask as clear.
+	down := make([]int, width*height)
+	for x := 0; x < width; x++ {
+		distance := 0
+		for y := 0; y < height; y++ {
+			distance = (distance + 1) * boolInt(m.bits[y*width+x])
+			down[y*width+x] = distance
+		}
+		distance = 0
+		for y := height - 1; y >= 0; y-- {
+			distance = (distance + 1) * boolInt(m.bits[y*width+x])
+			down[y*width+x] = min(down[y*width+x], distance)
+		}
+	}
+	// Along each row, the nearest clear pixel is the lowest of the parabolas
+	// (x-u)² + down(u)², over the columns u of the row and the clear columns
+	// just outside it. The parabolas that are lowest somewhere are kept in
+	// order with where each takes over.
+	limit := radius * radius
 	eroded := newMask(m.bounds)
-	m.each(func(x, y int) {
-		for _, offset := range offsets {
-			if !m.at(x+offset.X, y+offset.Y) {
-				return
+	count := width + 2
+	column := make([]int, count)
+	takesOver := make([]int, count)
+	lift := make([]int, count)
+	for y := 0; y < height; y++ {
+		for u := 1; u <= width; u++ {
+			lift[u] = down[y*width+u-1] * down[y*width+u-1]
+		}
+		lift[0], lift[count-1] = 0, 0
+		at := func(x, u int) int { return (x-u)*(x-u) + lift[u] }
+		top := 0
+		column[0], takesOver[0] = 0, 0
+		for u := 1; u < count; u++ {
+			for top >= 0 && at(takesOver[top], column[top]) > at(takesOver[top], u) {
+				top--
+			}
+			if top < 0 {
+				top = 0
+				column[0] = u
+				continue
+			}
+			from := column[top]
+			over := 1 + floorDivide(u*u-from*from+lift[u]-lift[from], 2*(u-from))
+			if over < count {
+				top++
+				column[top], takesOver[top] = u, over
 			}
 		}
-		eroded.set(x, y, true)
-	})
+		for u := count - 1; u >= 0; u-- {
+			if u >= 1 && u <= width && at(u, column[top]) > limit {
+				eroded.bits[y*width+u-1] = true
+			}
+			if u == takesOver[top] {
+				top--
+			}
+		}
+	}
 	return eroded
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func floorDivide(numerator, denominator int) int {
+	quotient := numerator / denominator
+	if numerator%denominator != 0 && (numerator < 0) != (denominator < 0) {
+		quotient--
+	}
+	return quotient
 }
 
 // innerBand is the inward stroke of the shape this mask describes: everything
@@ -134,16 +204,4 @@ func (m *mask) clone() *mask {
 	clone := &mask{bounds: m.bounds}
 	clone.bits = append([]bool(nil), m.bits...)
 	return clone
-}
-
-func discOffsets(radius int) []image.Point {
-	offsets := make([]image.Point, 0, (2*radius+1)*(2*radius+1))
-	for dy := -radius; dy <= radius; dy++ {
-		for dx := -radius; dx <= radius; dx++ {
-			if dx*dx+dy*dy <= radius*radius {
-				offsets = append(offsets, image.Pt(dx, dy))
-			}
-		}
-	}
-	return offsets
 }
