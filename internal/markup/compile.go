@@ -76,6 +76,9 @@ type compiler struct {
 	// states. Both are known once the root has been computed.
 	rootFontSize int
 	viewport     stdimage.Point
+	// wrapper is the one element a body drawn as the page holds, when it
+	// holds one. See pageRoot.
+	wrapper *html.Node
 	// clips are the clipPath elements the document being compiled defines.
 	// Inline SVGs share one fragment namespace; an external SVG image gets a
 	// fresh compiler and therefore a separate one.
@@ -151,7 +154,7 @@ func (options Compiler) Compile(markup, css string) (Document, error) {
 	if body == nil {
 		return Document{Warnings: c.warnings}, fmt.Errorf("markup has no body")
 	}
-	element := firstElement(body)
+	element := c.pageRoot(body)
 	if element == nil {
 		return Document{Warnings: c.warnings}, fmt.Errorf("body has no element to render")
 	}
@@ -160,10 +163,17 @@ func (options Compiler) Compile(markup, css string) (Document, error) {
 		return Document{Warnings: c.warnings},
 			fmt.Errorf("the root element resolved to nothing to draw")
 	}
+	// A body drawn as the page round one wrapper still takes the page's
+	// orientation and size from the wrapper, where a page written as one
+	// says them.
+	stated := element
+	if c.wrapper != nil && attribute(element, "orientation") == "" && c.pageSize(element) == (stdimage.Point{}) {
+		stated = c.wrapper
+	}
 	written, err := json.MarshalIndent(document{
 		Version:     scene.Version,
-		Orientation: c.orientation(element),
-		Size:        sizeOf(c.pageSize(element)),
+		Orientation: c.orientation(stated),
+		Size:        sizeOf(c.pageSize(stated)),
 		Root:        tree,
 	}, "", " ")
 	if err != nil {
@@ -474,6 +484,9 @@ func (c *compiler) computed(node *html.Node, parent style, path string) style {
 		c.rootFontSize = current.fontSize
 		c.viewport = statedSize(current)
 	}
+	if node == c.wrapper && c.viewport == (stdimage.Point{}) {
+		c.viewport = statedSize(current)
+	}
 	// A line-height written as a number is a ratio, and the font size it is a
 	// ratio of is only settled now that every declaration is in. Working it
 	// out as each declaration arrived made the answer depend on the order the
@@ -698,14 +711,19 @@ func (c *compiler) element(node *html.Node, parent style, path string, containin
 			// underneath it is hidden.
 			return sized(&emitted{Type: "spacer"}, current), current
 		}
-		return relatively(sized(transformed(shaped(drawing, current), current), current), current), current
+		if current.hidden {
+			current.background, current.gradient, current.border = nil, nil, nil
+		}
+		return relatively(sized(transformed(shaped(boxLayers(padded(drawing, current), roundedReplaced(current)), current), current), current), current), current
 	}
 	if node.Data == "img" {
 		// An image is content rather than a container, but it is still an
 		// element: clipping and transforming apply to it exactly as they do
 		// to anything else, and returning here without them made a circular
-		// portrait come out square without a word about it.
-		return relatively(sized(transformed(shaped(c.image(node, current, path), current), current), current), current), current
+		// portrait come out square without a word about it. So do its
+		// padding, background and border, which the box it was sized as
+		// counted and which went undrawn, the picture stretched over them.
+		return relatively(sized(transformed(shaped(boxLayers(padded(c.image(node, current, path), current), roundedReplaced(current)), current), current), current), current), current
 	}
 	// The element's own paint goes even though its children are still walked,
 	// because one of them may say visible.
@@ -739,6 +757,24 @@ func (c *compiler) element(node *html.Node, parent style, path string, containin
 		inner = &emitted{Type: "stack", Children: []*emitted{inner, marker.outside(c, current, path)}}
 	}
 
+	return relatively(sized(transformed(shaped(boxLayers(inner, current), current), current), current), current), current
+}
+
+// roundedReplaced is a picture's or a drawing's style for painting its box:
+// with rounded corners, it is clipped to them whatever its overflow says, as
+// CSS clips what a replaced element shows to its border radius. That is how
+// border-radius: 50% makes a round portrait.
+func roundedReplaced(current style) style {
+	if radius := radiusLengthOf(current); radius.pixels > 0 || radius.percent > 0 {
+		current.clip = true
+	}
+	return current
+}
+
+// boxLayers draws an element's box round what it holds: its background under
+// it, its border over the background, and what it holds confined by its
+// overflow. An element with neither paint is just what it holds.
+func boxLayers(inner *emitted, current style) *emitted {
 	// A background and a border are layers under the content, which is what a
 	// stack is for. An element with neither is just its content.
 	var layers []*emitted
@@ -779,12 +815,12 @@ func (c *compiler) element(node *html.Node, parent style, path string, containin
 		}
 	}
 	if len(layers) == 0 {
-		return relatively(sized(transformed(shaped(inner, current), current), current), current), current
+		return inner
 	}
 	if inner != nil {
 		layers = append(layers, inner)
 	}
-	return relatively(sized(transformed(shaped(&emitted{Type: "stack", Children: layers}, current), current), current), current), current
+	return &emitted{Type: "stack", Children: layers}
 }
 
 // shaped confines the whole element to its clip-path, background and border
@@ -2190,6 +2226,58 @@ func findBody(node *html.Node) *html.Node {
 		}
 	}
 	return nil
+}
+
+// pageRoot is the element the page is drawn from. A browser draws the body
+// and everything in it, and so does this — except for the page written as one
+// wrapper, <div class="page"> at the panel's size, which is drawn from the
+// wrapper as it always was here, so long as the page says nothing to the body
+// alone. Drawing only the body's first element dropped everything after it
+// without a word: a heading and the paragraphs under it drew as the heading.
+func (c *compiler) pageRoot(body *html.Node) *html.Node {
+	var only *html.Node
+	content := false
+	for child := body.FirstChild; child != nil; child = child.NextSibling {
+		switch {
+		case child.Type == html.TextNode:
+			if strings.TrimSpace(child.Data) != "" {
+				content = true
+				only = nil
+			}
+		case child.Type != html.ElementNode || notContent[child.Data]:
+		case !content && only == nil:
+			only = child
+			content = true
+		default:
+			only = nil
+		}
+	}
+	if !content {
+		return nil
+	}
+	if only == nil || c.saysToBody(body, only) {
+		c.wrapper = only
+		return body
+	}
+	return only
+}
+
+// saysToBody is whether anything the page writes is for the body and not for
+// the one element in it: a style attribute, or a rule that matches the body
+// and not its child. A rule for every element — the * of a reset — says
+// nothing about which of the two is the page.
+func (c *compiler) saysToBody(body, child *html.Node) bool {
+	if strings.TrimSpace(attribute(body, "style")) != "" {
+		return true
+	}
+	for _, rules := range [][]rule{c.sheet.rules, c.sheet.variables} {
+		for _, candidate := range rules {
+			if candidate.selector.Match(body) && !candidate.selector.Match(child) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func firstElement(node *html.Node) *html.Node {
