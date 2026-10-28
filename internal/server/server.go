@@ -67,12 +67,21 @@ const (
 // other. A connection held for less than this could be cut off in the middle
 // of a write that was going to succeed.
 func LongestRequest() time.Duration {
-	return ImageFetchTimeout + gicisky.DefaultScanTimeout + locateSlack +
+	return ImageFetchTimeout + locateBudget(gicisky.DefaultScanTimeout, DefaultAttempts) +
 		max(DefaultPushTimeout, DefaultNRFEPDPushTimeout)
 }
 
 // locateSlack is the time a scan is given past its own window to stop.
 const locateSlack = 5 * time.Second
+
+// locateBudget is how long finding a tag may take: a window for each attempt,
+// the pause between them, and the slack to stop the last. A tag is silent
+// between its bursts of advertising, and an EPD-nRF5 tag often for longer
+// than one window, so one window missed it about one time in two; the
+// command line has always listened again, and now so does this.
+func locateBudget(window time.Duration, attempts int) time.Duration {
+	return time.Duration(attempts)*window + time.Duration(attempts-1)*gicisky.DefaultRetryDelay + locateSlack
+}
 
 type Config struct {
 	Adapter *bluetooth.Adapter
@@ -474,7 +483,7 @@ func (h *Handler) servePush(writer http.ResponseWriter, request *http.Request) {
 	// first and gets its own budget. The write that follows is billed to the
 	// family that answered, which is the only point either budget was measured
 	// against.
-	locateCtx, done := context.WithTimeout(request.Context(), h.scanTimeout+locateSlack)
+	locateCtx, done := context.WithTimeout(request.Context(), locateBudget(h.scanTimeout, h.attempts))
 	found, err := h.locate(locateCtx, target, asserted)
 	locateFailed := locateCtx.Err()
 	done()
@@ -565,7 +574,7 @@ func (h *Handler) serveMode(writer http.ResponseWriter, request *http.Request) {
 	// nrfepd is asserted rather than discovered. A Gicisky tag has no mode to
 	// set — the whole route is a property of the other firmware — so being told
 	// that is more use than being told no EPD-nRF5 tag answered.
-	locateCtx, done := context.WithTimeout(request.Context(), h.scanTimeout+locateSlack)
+	locateCtx, done := context.WithTimeout(request.Context(), locateBudget(h.scanTimeout, h.attempts))
 	found, err := h.locate(locateCtx, target, tag.NRFEPD)
 	locateFailed := locateCtx.Err()
 	done()
@@ -619,15 +628,17 @@ func (h *Handler) setModeOn(ctx context.Context, target string, found nrfepd.Fou
 // from whatever the hooks supply in place of one.
 //
 // On the radio it stops listening as soon as the named tag has answered in
-// full, which is what the command line does: a tag nearby answers within a
-// second or two, and waiting out the rest of the window only kept the request
-// and the adapter for nothing.
+// full, and listens again if a window passes without it, which is what the
+// command line does: a tag nearby answers within a second or two of its next
+// burst, and waiting out the rest of the window only kept the request and the
+// adapter for nothing.
 func (h *Handler) locate(ctx context.Context, target, asserted string) (tag.Found, error) {
 	if !h.ownTransport {
 		if err := h.enableAdapter(); err != nil {
 			return tag.Found{}, err
 		}
-		return tag.Locate(ctx, h.adapter, h.scanTimeout, target, asserted)
+		return tag.LocateWithRetry(ctx, h.adapter, h.scanTimeout, target, asserted,
+			ble.Retry{Attempts: h.attempts, Delay: gicisky.DefaultRetryDelay, Logf: h.logf})
 	}
 	tags, others, err := h.scanRadio(ctx)
 	if err != nil {

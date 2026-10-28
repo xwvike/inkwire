@@ -62,9 +62,10 @@ func TestServeOnlyBindsLoopback(t *testing.T) {
 // transfer off partway and report a failure the tag never had.
 func TestServeTimeoutsCannotCutAPushShort(t *testing.T) {
 	httpServer := newHTTPServer("127.0.0.1:0", nil)
-	// A push first fetches its pictures and finds its tag, and only then
-	// writes; the write budget is what is left after both.
-	before := server.ImageFetchTimeout + gicisky.DefaultScanTimeout + 5*time.Second
+	// A push first fetches its pictures and finds its tag, listening as
+	// often as it may, and only then writes.
+	before := server.ImageFetchTimeout + time.Duration(server.DefaultAttempts)*gicisky.DefaultScanTimeout +
+		time.Duration(server.DefaultAttempts-1)*gicisky.DefaultRetryDelay + 5*time.Second
 	for family, budget := range map[string]time.Duration{
 		"gicisky": before + server.DefaultPushTimeout,
 		"nrfepd":  before + server.DefaultNRFEPDPushTimeout,
