@@ -10,6 +10,8 @@ import (
 	"image/png"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -265,5 +267,49 @@ func TestDecoderRejectsOversizedImageBeforeDecodingPixels(t *testing.T) {
 	_, err := (Decoder{}).Render(strings.NewReader(value))
 	if err == nil || !strings.Contains(err.Error(), "pixel limit") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+// A decoder told to fetch only from the public internet will not fetch from
+// this machine, by name or by number; one that is not told fetches anything.
+func TestAPublicOnlyDecoderDoesNotFetchFromThisMachine(t *testing.T) {
+	var encoded bytes.Buffer
+	source := image.NewNRGBA(image.Rect(0, 0, 1, 1))
+	source.SetNRGBA(0, 0, color.NRGBA{R: 0xff, A: 0xff})
+	if err := png.Encode(&encoded, source); err != nil {
+		t.Fatal(err)
+	}
+	served := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Write(encoded.Bytes())
+	}))
+	defer served.Close()
+	local := strings.Replace(served.URL, "127.0.0.1", "localhost", 1)
+	for _, address := range []string{served.URL, local} {
+		value := `{"version":1,"size":{"width":8,"height":8},"root":{"type":"image","source":"` + address +
+			`/image.png","size":{"width":1,"height":1}}}`
+		if _, err := (Decoder{PublicImagesOnly: true}).Render(strings.NewReader(value)); err == nil ||
+			!strings.Contains(err.Error(), "not on the public internet") {
+			t.Errorf("%s: fetched, or refused for another reason: %v", address, err)
+		}
+		result, err := (Decoder{}).Render(strings.NewReader(value))
+		if err != nil {
+			t.Fatalf("%s: %v", address, err)
+		}
+		if got, _ := result.Frame.InkAt(0, 0); got != display.InkRed {
+			t.Fatalf("%s: pixel = %v, want red", address, got)
+		}
+	}
+}
+
+func TestOnlyPublicAddressesArePublic(t *testing.T) {
+	for address, want := range map[string]bool{
+		"93.184.215.14": true, "2606:2800:21f:cb07:6820:80da:af6b:8b2c": true, "8.8.8.8": true,
+		"127.0.0.1": false, "::1": false, "10.1.2.3": false, "172.16.0.1": false, "192.168.1.10": false,
+		"169.254.169.254": false, "fe80::1": false, "fd00::1": false, "100.64.0.1": false, "0.0.0.0": false,
+		"::": false, "224.0.0.1": false, "255.255.255.255": false, "::ffff:192.168.1.1": false, "::ffff:8.8.8.8": true,
+	} {
+		if got := publicAddress(netip.MustParseAddr(address)); got != want {
+			t.Errorf("%s public = %v, want %v", address, got, want)
+		}
 	}
 }

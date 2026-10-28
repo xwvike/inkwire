@@ -24,6 +24,7 @@ package scene
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -32,12 +33,16 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"math"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/xwvike/inkwire/internal/compose"
@@ -49,6 +54,46 @@ const Version = 1
 const maxRemoteImageBytes = 32 << 20
 
 var remoteImageClient = &http.Client{Timeout: 15 * time.Second}
+
+// publicImageClient fetches only from the public internet. It is checked at
+// the moment of connecting, against the address actually dialled, so neither
+// a name that resolves to a private address nor a redirect to one gets past
+// it — a check of the URL's host beforehand would be fooled by both.
+var publicImageClient = &http.Client{
+	Timeout: 15 * time.Second,
+	Transport: &http.Transport{
+		Proxy: nil,
+		DialContext: (&net.Dialer{
+			Timeout: 10 * time.Second,
+			Control: func(network, address string, _ syscall.RawConn) error {
+				host, _, err := net.SplitHostPort(address)
+				if err != nil {
+					return err
+				}
+				ip, err := netip.ParseAddr(host)
+				if err != nil {
+					return fmt.Errorf("fetch image: cannot tell where %s is", address)
+				}
+				if !publicAddress(ip) {
+					return fmt.Errorf("fetch image: %s is not on the public internet, and this server fetches only from there", ip)
+				}
+				return nil
+			},
+		}).DialContext,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second,
+	},
+}
+
+// sharedAddressSpace is 100.64.0.0/10, the carrier-grade NAT range, which
+// netip does not count as private.
+var sharedAddressSpace = netip.MustParsePrefix("100.64.0.0/10")
+
+func publicAddress(ip netip.Addr) bool {
+	ip = ip.Unmap()
+	return ip.IsGlobalUnicast() && !ip.IsPrivate() && !ip.IsLoopback() &&
+		!ip.IsLinkLocalUnicast() && !sharedAddressSpace.Contains(ip)
+}
 
 type Decoder struct {
 	BaseDir       string
@@ -71,6 +116,16 @@ type Decoder struct {
 	// well as the name, so replacing a file under the same name is a different
 	// entry rather than a stale one.
 	Images map[string]image.Image
+	// PublicImagesOnly refuses to fetch a picture from anywhere but the public
+	// internet: not this machine, not the network it is on. A server that
+	// draws what anyone sends it sets it, or a page could have the server
+	// fetch from its own network on the sender's behalf. A command run by
+	// the person who owns that network leaves it unset.
+	PublicImagesOnly bool
+	// Context bounds a picture's fetch, so a request that is given up on
+	// stops waiting for its pictures too. Nil waits for the fetch's own
+	// timeout.
+	Context context.Context
 }
 
 // imageKey names a decoded picture by where it came from and what it was.
@@ -99,8 +154,13 @@ func (d Decoder) Decode(reader io.Reader) (compose.Document, error) {
 	if reader == nil {
 		return compose.Document{}, fmt.Errorf("scene reader must not be nil")
 	}
+	written, err := io.ReadAll(reader)
+	if err != nil {
+		return compose.Document{}, fmt.Errorf("document: %w", err)
+	}
+	written = compacted(written)
 	var source documentJSON
-	if err := decodeStrict(reader, &source); err != nil {
+	if err := decodeStrictBytes(written, &source); err != nil {
 		return compose.Document{}, fmt.Errorf("document: %w", err)
 	}
 	if source.Version != Version {
@@ -221,25 +281,28 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 			if err != nil {
 				return nil, err
 			}
-			// ratio works out the cross size from the main one, so a stated
-			// cross size leaves it nothing to do.
-			if child.Ratio != 0 && child.Cross.length.IsSet() {
-				return nil, fmt.Errorf("%s: ratio works out the cross size and cross states it; give one or the other", childPath)
+			// ratio works out whichever of the two sizes was not stated, so
+			// stating both leaves it nothing to do.
+			if child.Ratio != 0 && child.Cross.length.IsSet() && child.Basis.length.IsSet() {
+				return nil, fmt.Errorf("%s: ratio works out basis from cross or cross from basis, and both are stated; give one or the other", childPath)
 			}
-			margin := [4]compose.Length{}
+			margin, autoMargin := [4]compose.Length{}, [4]bool{}
 			if child.Margin != nil {
-				margin = child.Margin.lengths()
+				margin, autoMargin = child.Margin.lengths(), child.Margin.autos()
 			}
 			children[index] = compose.LayoutChild{
 				Node: node, Basis: child.Basis.length, Cross: child.Cross.length,
 				Grow: child.Grow, Shrink: child.Shrink,
-				Margin:    margin,
-				MinMain:   child.MinMain.length,
-				MaxMain:   child.MaxMain.length,
-				MinCross:  child.MinCross.length,
-				MaxCross:  child.MaxCross.length,
-				AlignSelf: alignSelf,
-				Ratio:     child.Ratio,
+				Margin:     margin,
+				AutoMargin: autoMargin,
+				MinMain:    child.MinMain.length,
+				MinContent: child.MinMain.auto,
+				Stated:     child.Stated.length,
+				MaxMain:    child.MaxMain.length,
+				MinCross:   child.MinCross.length,
+				MaxCross:   child.MaxCross.length,
+				AlignSelf:  alignSelf,
+				Ratio:      child.Ratio,
 			}
 		}
 		mainAlign, err := parseMainAlign(value.MainAlign)
@@ -250,10 +313,21 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 		if err != nil {
 			return nil, fmt.Errorf("%s.crossAlign: %w", path, err)
 		}
-		if header.Type == "row" {
-			return compose.Row{Size: value.Size.point(), Gap: value.Gap, GapLength: value.GapLength.length, MainAlign: mainAlign, CrossAlign: crossAlign, Children: children}, nil
+		alignContent, err := optionalMainAlign(value.AlignContent)
+		if err != nil {
+			return nil, fmt.Errorf("%s.alignContent: %w", path, err)
 		}
-		return compose.Column{Size: value.Size.point(), Gap: value.Gap, GapLength: value.GapLength.length, MainAlign: mainAlign, CrossAlign: crossAlign, Children: children}, nil
+		if !value.Wrap && (value.CrossGap != 0 || value.CrossGapLength.length.IsSet() || value.AlignContent != "") {
+			return nil, fmt.Errorf("%s: crossGap and alignContent place the lines of a wrapped %s, and this one does not wrap; add \"wrap\": true", path, header.Type)
+		}
+		if value.CrossGap < 0 {
+			return nil, fmt.Errorf("%s.crossGap: a gap must not be negative", path)
+		}
+		wrap := compose.Wrapping{Wrap: value.Wrap, CrossGap: value.CrossGap, CrossGapLength: value.CrossGapLength.length, AlignContent: alignContent}
+		if header.Type == "row" {
+			return compose.Row{Size: value.Size.point(), Gap: value.Gap, GapLength: value.GapLength.length, MainAlign: mainAlign, CrossAlign: crossAlign, Children: children, Wrap: wrap}, nil
+		}
+		return compose.Column{Size: value.Size.point(), Gap: value.Gap, GapLength: value.GapLength.length, MainAlign: mainAlign, CrossAlign: crossAlign, Children: children, Wrap: wrap}, nil
 	case "grid":
 		var value gridJSON
 		if err := decodeStrictBytes(raw, &value); err != nil {
@@ -363,7 +437,7 @@ func (d Decoder) decodeNode(raw json.RawMessage, path string) (compose.Node, err
 		if err != nil {
 			return nil, err
 		}
-		return compose.Rectangle{Size: value.Size.point(), Radius: value.Radius, Fill: fill, Gradient: gradient, Stroke: stroke,
+		return compose.Rectangle{Size: value.Size.point(), Radius: value.Radius, RadiusLength: value.RadiusLength.length, Fill: fill, Gradient: gradient, Stroke: stroke,
 			StrokeTop: top, StrokeRight: right, StrokeBottom: bottom, StrokeLeft: left}, nil
 	case "line":
 		var value lineJSON
@@ -604,6 +678,12 @@ type flowJSON struct {
 	MainAlign  string            `json:"mainAlign,omitempty"`
 	CrossAlign string            `json:"crossAlign,omitempty"`
 	Children   []layoutChildJSON `json:"children,omitempty"`
+	// Wrap puts children that do not fit on further lines, crossGap apart,
+	// with alignContent sharing out the room the lines leave.
+	Wrap           bool       `json:"wrap,omitempty"`
+	CrossGap       int        `json:"crossGap,omitempty"`
+	CrossGapLength lengthJSON `json:"crossGapLength,omitempty"`
+	AlignContent   string     `json:"alignContent,omitempty"`
 }
 type layoutChildJSON struct {
 	Node      json.RawMessage   `json:"node"`
@@ -611,8 +691,9 @@ type layoutChildJSON struct {
 	Cross     lengthJSON        `json:"cross,omitempty"`
 	Grow      float64           `json:"grow,omitempty"`
 	Shrink    float64           `json:"shrink,omitempty"`
-	Margin    *lengthInsetsJSON `json:"margin,omitempty"`
-	MinMain   lengthJSON        `json:"minMain,omitempty"`
+	Margin    *marginInsetsJSON `json:"margin,omitempty"`
+	MinMain   minLengthJSON     `json:"minMain,omitempty"`
+	Stated    lengthJSON        `json:"stated,omitempty"`
 	MaxMain   lengthJSON        `json:"maxMain,omitempty"`
 	MinCross  lengthJSON        `json:"minCross,omitempty"`
 	MaxCross  lengthJSON        `json:"maxCross,omitempty"`
@@ -631,6 +712,8 @@ type gridJSON struct {
 	RowGapLength    lengthJSON      `json:"rowGapLength,omitempty"`
 	AlignItems      string          `json:"alignItems,omitempty"`
 	JustifyItems    string          `json:"justifyItems,omitempty"`
+	JustifyContent  string          `json:"justifyContent,omitempty"`
+	AlignContent    string          `json:"alignContent,omitempty"`
 	Children        []gridChildJSON `json:"children,omitempty"`
 }
 type gridChildJSON struct {
@@ -641,7 +724,7 @@ type gridChildJSON struct {
 	RowSpan     int               `json:"rowSpan,omitempty"`
 	AlignSelf   *string           `json:"alignSelf,omitempty"`
 	JustifySelf *string           `json:"justifySelf,omitempty"`
-	Margin      *lengthInsetsJSON `json:"margin,omitempty"`
+	Margin      *marginInsetsJSON `json:"margin,omitempty"`
 }
 
 // trackJSON accepts the three ways a grid track can be sized, spelled the way
@@ -704,14 +787,14 @@ func (d Decoder) decodeGrid(value gridJSON, path string) (compose.Node, error) {
 		if err != nil {
 			return nil, err
 		}
-		margin := [4]compose.Length{}
+		margin, autoMargin := [4]compose.Length{}, [4]bool{}
 		if child.Margin != nil {
-			margin = child.Margin.lengths()
+			margin, autoMargin = child.Margin.lengths(), child.Margin.autos()
 		}
 		children[index] = compose.GridChild{
 			Node: node, Column: child.Column, Row: child.Row,
 			ColumnSpan: child.ColumnSpan, RowSpan: child.RowSpan,
-			Margin:    margin,
+			Margin: margin, AutoMargin: autoMargin,
 			AlignSelf: alignSelf, JustifySelf: justifySelf,
 		}
 	}
@@ -723,7 +806,16 @@ func (d Decoder) decodeGrid(value gridJSON, path string) (compose.Node, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s.justifyItems: %w", path, err)
 	}
+	justifyContent, err := optionalMainAlign(value.JustifyContent)
+	if err != nil {
+		return nil, fmt.Errorf("%s.justifyContent: %w", path, err)
+	}
+	alignContent, err := optionalMainAlign(value.AlignContent)
+	if err != nil {
+		return nil, fmt.Errorf("%s.alignContent: %w", path, err)
+	}
 	return compose.Grid{
+		JustifyContent: justifyContent, AlignContent: alignContent,
 		Size:            value.Size.point(),
 		Columns:         tracks(value.Columns),
 		Rows:            tracks(value.Rows),
@@ -951,6 +1043,22 @@ func (o *offsetJSON) UnmarshalJSON(data []byte) error {
 
 func (l *lengthJSON) UnmarshalJSON(data []byte) error { return l.unmarshal(data, false) }
 
+// minLengthJSON is a least size, which may also be "auto": no less than the
+// content, as min-width: auto is on a flex item.
+type minLengthJSON struct {
+	lengthJSON
+	auto bool
+}
+
+func (m *minLengthJSON) UnmarshalJSON(data []byte) error {
+	var text string
+	if json.Unmarshal(data, &text) == nil && strings.TrimSpace(text) == "auto" {
+		m.auto = true
+		return nil
+	}
+	return m.lengthJSON.unmarshal(data, false)
+}
+
 func (l *lengthJSON) unmarshal(data []byte, signed bool) error {
 	var pixels int
 	if err := json.Unmarshal(data, &pixels); err == nil {
@@ -971,7 +1079,7 @@ func (l *lengthJSON) unmarshal(data []byte, signed bool) error {
 		if !closed {
 			return fmt.Errorf("%q is missing its closing bracket", text)
 		}
-		length, err := parseCalc(body, signed)
+		length, err := parseCalc(body)
 		if err != nil {
 			return fmt.Errorf("%q: %w", text, err)
 		}
@@ -994,7 +1102,7 @@ func (l *lengthJSON) unmarshal(data []byte, signed bool) error {
 // there may be negative and "100%-10px" would be ambiguous; neither term here
 // may be, so the first sign after the opening term is always the operator and
 // there is nothing to be careful about.
-func parseCalc(body string, signed bool) (compose.Length, error) {
+func parseCalc(body string) (compose.Length, error) {
 	packed := strings.Join(strings.Fields(body), "")
 	at := strings.IndexAny(packed[1:], "+-") + 1
 	if at < 1 {
@@ -1007,18 +1115,20 @@ func parseCalc(body string, signed bool) (compose.Length, error) {
 	}
 
 	percentText, pixelText := packed[:at], packed[at+1:]
-	// Either order reads naturally, and both mean the same sum.
+	// Either order reads naturally, and both mean the same sum. A sum can come
+	// out below zero either way, as a CSS calc() can; where the length is a
+	// size it is held at zero when it is worked out, which is also what CSS
+	// does with it.
+	percentSign := 1
 	if strings.HasSuffix(percentText, "px") {
 		percentText, pixelText = pixelText, percentText
-		if sign < 0 {
-			return compose.Length{}, fmt.Errorf(
-				"a fixed number of pixels minus a share of the container is not a length here")
-		}
+		percentSign, sign = sign, 1
 	}
-	percent, err := parsePercent(percentText, signed)
+	percent, err := parsePercent(percentText, true)
 	if err != nil {
 		return compose.Length{}, fmt.Errorf("%q is not a percentage", percentText)
 	}
+	percent *= percentSign
 	digits, isPixels := strings.CutSuffix(pixelText, "px")
 	if !isPixels {
 		return compose.Length{}, fmt.Errorf("%q is not a number of pixels", pixelText)
@@ -1072,6 +1182,38 @@ func (i lengthInsetsJSON) lengths() [4]compose.Length {
 	return [4]compose.Length{i.Top.length, i.Right.length, i.Bottom.length, i.Left.length}
 }
 
+// marginInsetsJSON is a margin, which may be negative: a box pulled up over
+// the one before it, or out past its container's edge, as CSS allows. A side
+// may also be "auto", which a row, a column or a grid places the child by.
+type marginInsetsJSON struct {
+	Top    marginJSON `json:"top"`
+	Right  marginJSON `json:"right"`
+	Bottom marginJSON `json:"bottom"`
+	Left   marginJSON `json:"left"`
+}
+
+func (i marginInsetsJSON) lengths() [4]compose.Length {
+	return [4]compose.Length{i.Top.length, i.Right.length, i.Bottom.length, i.Left.length}
+}
+
+func (i marginInsetsJSON) autos() [4]bool {
+	return [4]bool{i.Top.auto, i.Right.auto, i.Bottom.auto, i.Left.auto}
+}
+
+type marginJSON struct {
+	offsetJSON
+	auto bool
+}
+
+func (m *marginJSON) UnmarshalJSON(data []byte) error {
+	var text string
+	if json.Unmarshal(data, &text) == nil && strings.TrimSpace(text) == "auto" {
+		m.auto = true
+		return nil
+	}
+	return m.offsetJSON.UnmarshalJSON(data)
+}
+
 type textJSON struct {
 	Type          string    `json:"type"`
 	Size          sizeJSON  `json:"size,omitempty"`
@@ -1080,6 +1222,7 @@ type textJSON struct {
 	VerticalAlign string    `json:"verticalAlign,omitempty"`
 	Wrap          string    `json:"wrap,omitempty"`
 	LineHeight    int       `json:"lineHeight,omitempty"`
+	Ellipsis      bool      `json:"ellipsis,omitempty"`
 }
 
 type inlineJSON struct {
@@ -1098,7 +1241,7 @@ type inlineItemJSON struct {
 	Padding       insetsJSON        `json:"padding,omitempty"`
 	Margin        insetsJSON        `json:"margin,omitempty"`
 	PaddingLength *lengthInsetsJSON `json:"paddingLength,omitempty"`
-	MarginLength  *lengthInsetsJSON `json:"marginLength,omitempty"`
+	MarginLength  *marginInsetsJSON `json:"marginLength,omitempty"`
 	Background    *string           `json:"background,omitempty"`
 	Gradient      *gradientJSON     `json:"gradient,omitempty"`
 	Border        *strokeJSON       `json:"border,omitempty"`
@@ -1107,6 +1250,7 @@ type inlineItemJSON struct {
 	BorderBottom  *strokeJSON       `json:"borderBottom,omitempty"`
 	BorderLeft    *strokeJSON       `json:"borderLeft,omitempty"`
 	Radius        int               `json:"radius,omitempty"`
+	RadiusLength  lengthJSON        `json:"radiusLength,omitempty"`
 	LineHeight    int               `json:"lineHeight,omitempty"`
 	VerticalAlign string            `json:"verticalAlign,omitempty"`
 	Wrap          string            `json:"wrap,omitempty"`
@@ -1130,12 +1274,10 @@ func (d Decoder) decodeInline(value inlineJSON, path string) (compose.Node, erro
 		itemPath := fmt.Sprintf("%s.items[%d]", path, index)
 		runs := make([]display.TextRun, len(source.Runs))
 		for runIndex, run := range source.Runs {
-			ink, err := parseInk(run.Ink)
-			if err != nil {
-				return nil, fmt.Errorf("%s.runs[%d].ink: %w", itemPath, runIndex, err)
+			var err error
+			if runs[runIndex], err = run.run(fmt.Sprintf("%s.runs[%d]", itemPath, runIndex)); err != nil {
+				return nil, err
 			}
-			runs[runIndex] = display.TextRun{Text: run.Text,
-				Style: display.TextStyle{Font: run.Font, Fallback: run.Fallback, Size: run.Size, Ink: ink}}
 		}
 		var node compose.Node
 		if len(source.Node) != 0 && string(source.Node) != "null" {
@@ -1192,8 +1334,9 @@ func (d Decoder) decodeInline(value inlineJSON, path string) (compose.Node, erro
 			PaddingLengths: paddingLengths, MarginLengths: marginLengths,
 			Background: background, Gradient: gradient, Border: border,
 			BorderTop: top, BorderRight: right, BorderBottom: bottom, BorderLeft: left,
-			Radius:     source.Radius,
-			LineHeight: source.LineHeight, VerticalAlign: vertical, Wrap: itemWrap,
+			Radius:       source.Radius,
+			RadiusLength: source.RadiusLength.length,
+			LineHeight:   source.LineHeight, VerticalAlign: vertical, Wrap: itemWrap,
 			Top: source.Top.length, Right: source.Right.length,
 			Bottom: source.Bottom.length, Left: source.Left.length,
 		}
@@ -1202,21 +1345,48 @@ func (d Decoder) decodeInline(value inlineJSON, path string) (compose.Node, erro
 }
 
 type runJSON struct {
-	Text     string   `json:"text"`
-	Font     string   `json:"font,omitempty"`
-	Fallback []string `json:"fallback,omitempty"`
-	Size     int      `json:"size,omitempty"`
-	Ink      string   `json:"ink,omitempty"`
+	Text          string   `json:"text"`
+	Font          string   `json:"font,omitempty"`
+	Fallback      []string `json:"fallback,omitempty"`
+	Size          int      `json:"size,omitempty"`
+	Ink           string   `json:"ink,omitempty"`
+	Bold          bool     `json:"bold,omitempty"`
+	LetterSpacing int      `json:"letterSpacing,omitempty"`
+	// Decoration is the lines drawn with the text, written as CSS writes
+	// them: "underline", "line-through", "overline", or more than one.
+	Decoration string `json:"decoration,omitempty"`
+}
+
+// run is the text and style a run describes.
+func (r runJSON) run(path string) (display.TextRun, error) {
+	ink, err := parseInk(r.Ink)
+	if err != nil {
+		return display.TextRun{}, fmt.Errorf("%s.ink: %w", path, err)
+	}
+	var decoration display.TextDecoration
+	for _, line := range strings.Fields(r.Decoration) {
+		switch line {
+		case "underline":
+			decoration |= display.Underline
+		case "line-through":
+			decoration |= display.LineThrough
+		case "overline":
+			decoration |= display.Overline
+		default:
+			return display.TextRun{}, fmt.Errorf("%s.decoration: %q is not underline, line-through or overline", path, line)
+		}
+	}
+	return display.TextRun{Text: r.Text, Style: display.TextStyle{Font: r.Font, Fallback: r.Fallback, Size: r.Size, Ink: ink,
+		Bold: r.Bold, LetterSpacing: r.LetterSpacing, Decoration: decoration}}, nil
 }
 
 func (t textJSON) node(path string) (compose.Node, error) {
 	runs := make([]display.TextRun, len(t.Runs))
 	for index, run := range t.Runs {
-		ink, err := parseInk(run.Ink)
-		if err != nil {
-			return nil, fmt.Errorf("%s.runs[%d].ink: %w", path, index, err)
+		var err error
+		if runs[index], err = run.run(fmt.Sprintf("%s.runs[%d]", path, index)); err != nil {
+			return nil, err
 		}
-		runs[index] = display.TextRun{Text: run.Text, Style: display.TextStyle{Font: run.Font, Fallback: run.Fallback, Size: run.Size, Ink: ink}}
 	}
 	align, err := parseHorizontalAlign(t.Align)
 	if err != nil {
@@ -1230,7 +1400,8 @@ func (t textJSON) node(path string) (compose.Node, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s.wrap: %w", path, err)
 	}
-	return compose.Text{Size: t.Size.point(), Runs: runs, Align: align, VerticalAlign: vertical, Wrap: wrap, LineHeight: t.LineHeight}, nil
+	return compose.Text{Size: t.Size.point(), Runs: runs, Align: align, VerticalAlign: vertical, Wrap: wrap,
+		LineHeight: t.LineHeight, Ellipsis: t.Ellipsis}, nil
 }
 
 type imageJSON struct {
@@ -1326,7 +1497,7 @@ func (d Decoder) loadImage(source string) (image.Image, error) {
 			return nil, fmt.Errorf("invalid source: %w", err)
 		}
 		if parsed.Scheme == "http" || parsed.Scheme == "https" {
-			content, err := fetchRemoteImage(source)
+			content, err := d.fetchRemoteImage(source)
 			if err != nil {
 				return nil, err
 			}
@@ -1391,8 +1562,20 @@ func (d Decoder) loadImage(source string) (image.Image, error) {
 	return decoded, nil
 }
 
-func fetchRemoteImage(source string) ([]byte, error) {
-	response, err := remoteImageClient.Get(source)
+func (d Decoder) fetchRemoteImage(source string) ([]byte, error) {
+	ctx := d.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil)
+	if err != nil {
+		return nil, fmt.Errorf("fetch image: %w", err)
+	}
+	client := remoteImageClient
+	if d.PublicImagesOnly {
+		client = publicImageClient
+	}
+	response, err := client.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("fetch image: %w", err)
 	}
@@ -1448,6 +1631,7 @@ type rectangleJSON struct {
 	Type         string        `json:"type"`
 	Size         sizeJSON      `json:"size,omitempty"`
 	Radius       int           `json:"radius,omitempty"`
+	RadiusLength lengthJSON    `json:"radiusLength,omitempty"`
 	Fill         *string       `json:"fill,omitempty"`
 	Gradient     *gradientJSON `json:"gradient,omitempty"`
 	Stroke       *strokeJSON   `json:"stroke,omitempty"`
@@ -1856,9 +2040,24 @@ func parseWrap(value string) (display.WrapMode, error) {
 		return display.NoWrap, nil
 	case "runes":
 		return display.WrapRunes, nil
+	case "words":
+		return display.WrapWords, nil
 	default:
-		return 0, enumError(value, "none", "runes")
+		return 0, enumError(value, "none", "words", "runes")
 	}
+}
+
+// optionalMainAlign reads a grid's content alignment, where absent means
+// stretch and so is not the same as start.
+func optionalMainAlign(value string) (*compose.MainAlignment, error) {
+	if value == "" || value == "stretch" {
+		return nil, nil
+	}
+	align, err := parseMainAlign(value)
+	if err != nil {
+		return nil, err
+	}
+	return &align, nil
 }
 
 func parseMainAlign(value string) (compose.MainAlignment, error) {
@@ -1869,8 +2068,14 @@ func parseMainAlign(value string) (compose.MainAlignment, error) {
 		return compose.MainCenter, nil
 	case "end":
 		return compose.MainEnd, nil
+	case "space-between":
+		return compose.MainSpaceBetween, nil
+	case "space-around":
+		return compose.MainSpaceAround, nil
+	case "space-evenly":
+		return compose.MainSpaceEvenly, nil
 	default:
-		return 0, enumError(value, "start", "center", "end")
+		return 0, enumError(value, "start", "center", "end", "space-between", "space-around", "space-evenly")
 	}
 }
 
@@ -1946,5 +2151,87 @@ func nodeError(path string, err error) error { return fmt.Errorf("%s: %w", path,
 // DecodeNode decodes a single node, for a host that embeds one description
 // inside another.
 func (d Decoder) DecodeNode(source []byte) (compose.Node, error) {
-	return d.decodeNode(json.RawMessage(source), "node")
+	return d.decodeNode(json.RawMessage(compacted(source)), "node")
+}
+
+// compacted is a document without the whitespace between its tokens, and
+// with every number held within ±maxMagnitude.
+//
+// Each node is read from its own slice of the document, and that slice is
+// read again at every level above it, so a document is read once for each
+// level it is nested. Indentation grows with nesting too, and together they
+// make a deep document cost the cube of its depth; without the indentation it
+// is the square, and a few hundred levels is nothing.
+//
+// No panel is within a thousandth of maxMagnitude pixels across, so a number
+// past it describes nothing that can be seen, and holding it there keeps every
+// sum, product and turn worked from it inside the integers. A document that is
+// not a single JSON value is left alone, so it is refused with the error it
+// would have had.
+func compacted(written []byte) []byte {
+	decoder := json.NewDecoder(bytes.NewReader(written))
+	decoder.UseNumber()
+	var out bytes.Buffer
+	type level struct {
+		object bool
+		count  int
+	}
+	var stack []level
+	values := 0
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF && len(stack) == 0 {
+			break
+		}
+		if err != nil {
+			return written
+		}
+		if delim, ok := token.(json.Delim); ok && (delim == '}' || delim == ']') {
+			out.WriteByte(byte(delim))
+			stack = stack[:len(stack)-1]
+			continue
+		}
+		if len(stack) == 0 {
+			if values++; values > 1 {
+				return written
+			}
+		} else {
+			top := &stack[len(stack)-1]
+			switch {
+			case top.object && top.count%2 == 1:
+				out.WriteByte(':')
+			case top.count > 0:
+				out.WriteByte(',')
+			}
+			top.count++
+		}
+		switch value := token.(type) {
+		case json.Delim:
+			out.WriteByte(byte(value))
+			stack = append(stack, level{object: value == '{'})
+		case json.Number:
+			out.WriteString(heldNumber(value))
+		default:
+			encoded, err := json.Marshal(value)
+			if err != nil {
+				return written
+			}
+			out.Write(encoded)
+		}
+	}
+	return out.Bytes()
+}
+
+// maxMagnitude bounds every number a document holds.
+const maxMagnitude = 1 << 28
+
+func heldNumber(number json.Number) string {
+	value, err := number.Float64()
+	if err != nil || math.Abs(value) <= maxMagnitude {
+		return number.String()
+	}
+	if value < 0 {
+		return strconv.Itoa(-maxMagnitude)
+	}
+	return strconv.Itoa(maxMagnitude)
 }

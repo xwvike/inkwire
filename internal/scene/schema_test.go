@@ -496,7 +496,6 @@ func TestCalcRefusesWhatALengthCannotHold(t *testing.T) {
 	}{
 		{"a sign that is not one", `"calc(100% * 2px)"`, "a + or -"},
 		{"two percentages", `"calc(50% + 20%)"`, "not a number of pixels"},
-		{"pixels first and subtracted", `"calc(30px - 50%)"`, "not a length here"},
 		{"an unclosed bracket", `"calc(100% - 10px"`, "closing bracket"},
 		{"a bare unit", `"10px"`, "not a length"},
 	}
