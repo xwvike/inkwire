@@ -451,3 +451,19 @@ func TestTheContainingBlockIsTheNearestPositionedPaddingBox(t *testing.T) {
 		t.Errorf("the pin is at %v, want (11,11)", pin.Min)
 	}
 }
+
+// The rows and columns a grid adds past the ones it states are as tall and as
+// wide as grid-auto-rows and grid-auto-columns say, taking their sizes in
+// turn.
+func TestAGridSizesTheTracksItAddsAsItIsTold(t *testing.T) {
+	got := boxes(t, `<div class="g"><i class="a"></i><i class="b"></i><i class="a"></i></div>`,
+		`.g { display: grid; grid-auto-rows: 10px 5px; width: 100px; } i { display: block; }
+		 .a { background: black; } .b { background: red; }`)
+	expect(t, got, display.InkRed, image.Rect(0, 10, 100, 15), "the second row, the second size")
+	expect(t, got, display.InkBlack, image.Rect(0, 0, 100, 25), "the first and third rows, the first size")
+
+	got = boxes(t, `<div class="g"><i class="b"></i></div>`,
+		`.g { display: grid; grid-template-columns: 20px; grid-auto-columns: 30px; } i { display: block; height: 5px; }
+		 .b { background: red; grid-column: 3; }`)
+	expect(t, got, display.InkRed, image.Rect(50, 0, 80, 5), "the third column, after one stated and one added")
+}

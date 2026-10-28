@@ -33,6 +33,7 @@ syntax only for the subproperties listed here.
 | Alignment | `place-items`, `place-self` | `stretch`, `flex-start`, `start`, `center`, `flex-end`, `end`; `place-self` also accepts `auto` | The `align-*` value, then the `justify-*` value; one value sets both |
 | Alignment | `place-content` | `flex-start`, `start`, `normal`, `stretch`, `center`, `flex-end`, `end`, `space-between`, `space-around`, `space-evenly` | `align-content`, then `justify-content`; one value sets both |
 | Grid | `grid-template-columns`, `grid-template-rows` | `px`, `%`, `calc()`, positive `fr`, `auto`, `min-content`, `max-content`, `repeat()` | `repeat()` is limited to 400 tracks |
+| Grid | `grid-auto-columns`, `grid-auto-rows` | `px`, `%`, `calc()`, positive `fr`, `auto`, `min-content`, `max-content`; one size or several | Sizes the tracks a grid adds past the ones it states, taking several sizes in turn, as in a browser |
 | Grid | `grid-column`, `grid-row` | `auto`, a line number, `span N`, `N / M`, `N / span M` | Line numbers and spans are positive integers |
 | Position | `position` | `static`, `relative`, `absolute` | `fixed` and `sticky` are not implemented |
 | Position | `top`, `right`, `bottom`, `left`, `inset` | `px`, `%`, `calc()`, `auto` | Percentages resolve against the positioned containing block |

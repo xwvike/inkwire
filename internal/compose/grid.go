@@ -63,8 +63,12 @@ func (c GridChild) rowSpan() int    { return max(1, c.RowSpan) }
 // column should be; each measures its own and they come out ragged. A grid
 // measures the column once, across every row that uses it.
 type Grid struct {
-	Size                          image.Point
-	Columns, Rows                 []Track
+	Size          image.Point
+	Columns, Rows []Track
+	// AutoColumns and AutoRows size the tracks the grid adds past the ones
+	// it states, taking them in turn, as grid-auto-columns and
+	// grid-auto-rows do. Absent, an added track is sized by what is in it.
+	AutoColumns, AutoRows         []Track
 	ColumnGap, RowGap             int
 	ColumnGapLength, RowGapLength Length
 	// AlignItems places children across their row, JustifyItems along it.
@@ -252,9 +256,9 @@ func (g Grid) place(ctx *compileContext, maximum image.Point, path string) (plac
 		if child.Column > 0 {
 			requiredColumns = child.Column - 1 + at.columnSpan
 		}
-		columns = ensureTracks(columns, requiredColumns)
+		columns = g.ensureColumns(columns, requiredColumns)
 		if child.Row > 0 {
-			rows = ensureTracks(rows, child.Row-1+at.rowSpan)
+			rows = g.ensureRows(rows, child.Row-1+at.rowSpan)
 		}
 	}
 
@@ -279,7 +283,7 @@ func (g Grid) place(ctx *compileContext, maximum image.Point, path string) (plac
 		at := result.cells[index]
 		at.row = child.Row - 1
 		for column := 0; ; column++ {
-			columns = ensureTracks(columns, column+at.columnSpan)
+			columns = g.ensureColumns(columns, column+at.columnSpan)
 			if free(taken, column, at.row, at.columnSpan, at.rowSpan) {
 				at.column = column
 				break
@@ -287,7 +291,7 @@ func (g Grid) place(ctx *compileContext, maximum image.Point, path string) (plac
 		}
 		result.cells[index] = at
 		occupy(taken, at)
-		rows = ensureTracks(rows, at.row+at.rowSpan)
+		rows = g.ensureRows(rows, at.row+at.rowSpan)
 	}
 
 	// The remaining items stay in document order and use one sparse row-major
@@ -325,7 +329,7 @@ func (g Grid) place(ctx *compileContext, maximum image.Point, path string) (plac
 		}
 		result.cells[index] = at
 		occupy(taken, at)
-		rows = ensureTracks(rows, at.row+at.rowSpan)
+		rows = g.ensureRows(rows, at.row+at.rowSpan)
 	}
 
 	result.columnContent = make([]int, len(columns))
@@ -348,11 +352,29 @@ func (g Grid) place(ctx *compileContext, maximum image.Point, path string) (plac
 	return result, columns, rows, nil
 }
 
-func ensureTracks(tracks []Track, count int) []Track {
+func (g Grid) ensureColumns(tracks []Track, count int) []Track {
+	return ensureTracks(tracks, count, len(g.Columns), g.AutoColumns)
+}
+
+func (g Grid) ensureRows(tracks []Track, count int) []Track {
+	return ensureTracks(tracks, count, len(g.Rows), g.AutoRows)
+}
+
+// ensureTracks adds the tracks past the stated ones that count needs, each
+// the next of the implicit sizes in turn.
+func ensureTracks(tracks []Track, count, stated int, implicit []Track) []Track {
 	for len(tracks) < count {
-		tracks = append(tracks, autoTrack())
+		tracks = append(tracks, implicitTrack(implicit, len(tracks)-stated))
 	}
 	return tracks
+}
+
+// implicitTrack is the size of the index-th track added past the stated ones.
+func implicitTrack(implicit []Track, index int) Track {
+	if len(implicit) == 0 {
+		return autoTrack()
+	}
+	return implicit[index%len(implicit)]
 }
 
 func free(taken map[[2]int]bool, column, row, columns, rows int) bool {
@@ -482,16 +504,18 @@ func stretchAutomatic(tracks []Track, sizes []int, remaining int) []int {
 	return sizes
 }
 
+// columnsOrOne are the stated columns, or the one a grid that states none
+// has, which is already one of the added ones.
 func (g Grid) columnsOrOne() []Track {
 	if len(g.Columns) == 0 {
-		return []Track{autoTrack()}
+		return []Track{implicitTrack(g.AutoColumns, 0)}
 	}
 	return g.Columns
 }
 
 func (g Grid) rowsOrOne() []Track {
 	if len(g.Rows) == 0 {
-		return []Track{autoTrack()}
+		return []Track{implicitTrack(g.AutoRows, 0)}
 	}
 	return g.Rows
 }
@@ -506,7 +530,7 @@ func (g Grid) validate(path string) error {
 	if !g.ColumnGapLength.valid() || !g.RowGapLength.valid() {
 		return fmt.Errorf("%s: gaps must not be negative", path)
 	}
-	if !tracksValid(g.Columns) || !tracksValid(g.Rows) {
+	if !tracksValid(g.Columns) || !tracksValid(g.Rows) || !tracksValid(g.AutoColumns) || !tracksValid(g.AutoRows) {
 		return fmt.Errorf("%s: track sizes must not be negative", path)
 	}
 	return nil

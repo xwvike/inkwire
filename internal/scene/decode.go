@@ -706,6 +706,8 @@ type gridJSON struct {
 	Size            sizeJSON        `json:"size,omitempty"`
 	Columns         []trackJSON     `json:"columns,omitempty"`
 	Rows            []trackJSON     `json:"rows,omitempty"`
+	AutoColumns     []trackJSON     `json:"autoColumns,omitempty"`
+	AutoRows        []trackJSON     `json:"autoRows,omitempty"`
 	ColumnGap       int             `json:"columnGap,omitempty"`
 	RowGap          int             `json:"rowGap,omitempty"`
 	ColumnGapLength lengthJSON      `json:"columnGapLength,omitempty"`
@@ -819,6 +821,8 @@ func (d Decoder) decodeGrid(value gridJSON, path string) (compose.Node, error) {
 		Size:            value.Size.point(),
 		Columns:         tracks(value.Columns),
 		Rows:            tracks(value.Rows),
+		AutoColumns:     tracks(value.AutoColumns),
+		AutoRows:        tracks(value.AutoRows),
 		ColumnGap:       value.ColumnGap,
 		RowGap:          value.RowGap,
 		ColumnGapLength: value.ColumnGapLength.length,

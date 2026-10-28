@@ -121,6 +121,8 @@ type emitted struct {
 
 	Columns         []any  `json:"columns,omitempty"`
 	Rows            []any  `json:"rows,omitempty"`
+	AutoColumns     []any  `json:"autoColumns,omitempty"`
+	AutoRows        []any  `json:"autoRows,omitempty"`
 	ColumnGap       int    `json:"columnGap,omitempty"`
 	RowGap          int    `json:"rowGap,omitempty"`
 	ColumnGapLength any    `json:"columnGapLength,omitempty"`

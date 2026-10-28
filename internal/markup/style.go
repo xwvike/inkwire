@@ -174,6 +174,8 @@ type style struct {
 	intrinsicRatio     float64
 	columns            []compose.Track
 	rows               []compose.Track
+	autoColumns        []compose.Track
+	autoRows           []compose.Track
 	rowGap             int
 	columnGap          int
 	rowGapLength       length
@@ -552,6 +554,10 @@ func (s *style) apply(property, value string, parent style, report func(string))
 		s.columns = parseTracks(value, property, report)
 	case "grid-template-rows":
 		s.rows = parseTracks(value, property, report)
+	case "grid-auto-columns":
+		s.autoColumns = parseTracks(value, property, report)
+	case "grid-auto-rows":
+		s.autoRows = parseTracks(value, property, report)
 	case "grid-column":
 		s.cellColumn = parseGridLine(value, property, report)
 	case "grid-row":
@@ -1656,6 +1662,10 @@ func (s *style) inheritOne(property string, parent style, report func(string)) {
 		s.columns = parent.columns
 	case "grid-template-rows":
 		s.rows = parent.rows
+	case "grid-auto-columns":
+		s.autoColumns = parent.autoColumns
+	case "grid-auto-rows":
+		s.autoRows = parent.autoRows
 	case "grid-column":
 		s.cellColumn = parent.cellColumn
 	case "grid-row":
@@ -1907,6 +1917,10 @@ func (s *style) reset(property string, report func(string)) {
 		s.columns = nil
 	case "grid-template-rows":
 		s.rows = nil
+	case "grid-auto-columns":
+		s.autoColumns = nil
+	case "grid-auto-rows":
+		s.autoRows = nil
 	case "grid-column":
 		s.cellColumn = fresh.cellColumn
 	case "grid-row":

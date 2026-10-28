@@ -1220,6 +1220,7 @@ func (c *compiler) children(node *html.Node, current style, path string, contain
 		}
 		return flow(&emitted{Type: "grid",
 			Columns: tracksOf(current.columns), Rows: tracksOf(current.rows),
+			AutoColumns: tracksOf(current.autoColumns), AutoRows: tracksOf(current.autoRows),
 			ColumnGap: current.columnGap, RowGap: current.rowGap,
 			ColumnGapLength: deferredLengthValue(lengthOf(current.columnGapLength)),
 			RowGapLength:    deferredLengthValue(lengthOf(current.rowGapLength)),

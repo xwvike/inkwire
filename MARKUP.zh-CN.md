@@ -32,6 +32,7 @@ HTTP `render` 必须指定 `size` 或 `panel`；`push` 从目标设备获取面�
 | 对齐 | `place-items`、`place-self` | `stretch`、`flex-start`、`start`、`center`、`flex-end`、`end`；`place-self` 另支持 `auto` | 先 `align-*` 值，后 `justify-*` 值；只写一个值时两者相同 |
 | 对齐 | `place-content` | `flex-start`、`start`、`normal`、`stretch`、`center`、`flex-end`、`end`、`space-between`、`space-around`、`space-evenly` | 先 `align-content`，后 `justify-content`；只写一个值时两者相同 |
 | Grid | `grid-template-columns`、`grid-template-rows` | `px`、`%`、`calc()`、正数 `fr`、`auto`、`min-content`、`max-content`、`repeat()` | `repeat()` 的轨道数上限为 400 |
+| Grid | `grid-auto-columns`、`grid-auto-rows` | `px`、`%`、`calc()`、正数 `fr`、`auto`、`min-content`、`max-content`；一个或多个尺寸 | 决定网格在声明轨道之外自动补出的行列尺寸；多个尺寸依次轮流使用，与浏览器一致 |
 | Grid | `grid-column`、`grid-row` | `auto`、行号、`span N`、`N / M`、`N / span M` | 行号和跨度必须为正整数 |
 | 定位 | `position` | `static`、`relative`、`absolute` | 不实现 `fixed` 和 `sticky` |
 | 定位 | `top`、`right`、`bottom`、`left`、`inset` | `px`、`%`、`calc()`、`auto` | 百分比按定位包含块解析 |
