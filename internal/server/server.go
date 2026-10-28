@@ -842,20 +842,6 @@ func (h *Handler) decodeRequest(writer http.ResponseWriter, incoming *http.Reque
 	}
 	sceneBytes := sent.scene
 	var warnings []compose.Warning
-	if sent.page != nil {
-		// A page compiles to a scene document and then goes the same way as
-		// one that arrived written. There is no second route through here:
-		// the limits, the resource map and the confinement below apply to a
-		// stylesheet's picture because they apply to every picture.
-		var compiled []byte
-		var err error
-		compiled, warnings, err = compilePage(sent)
-		if err != nil {
-			writeError(writer, http.StatusUnprocessableEntity, "invalid-page", err)
-			return compose.Document{}, warnings, false
-		}
-		sceneBytes = compiled
-	}
 	baseDir := h.baseDir
 	if sent.page != nil {
 		// A page sent over HTTP has no server-side directory. Relative image
@@ -865,16 +851,32 @@ func (h *Handler) decodeRequest(writer http.ResponseWriter, incoming *http.Reque
 	}
 	fetching, stop := context.WithTimeout(incoming.Context(), ImageFetchTimeout)
 	defer stop()
-	document, err := (scene.Decoder{
+	decoder := scene.Decoder{
 		BaseDir:       baseDir,
 		RestrictFiles: true,
 		Resources:     sent.resources,
 		ResourcesOnly: sent.page != nil,
 		// What arrives here can come from anyone who can reach the server,
-		// so it may not have the server fetch from the server's own network.
+		// so it may not have the server fetch from the server's own network:
+		// not for a picture, and not for a drawing the page names either.
 		PublicImagesOnly: true,
 		Context:          fetching,
-	}).Decode(bytes.NewReader(sceneBytes))
+	}
+	if sent.page != nil {
+		// A page compiles to a scene document and then goes the same way as
+		// one that arrived written. There is no second route through here:
+		// the limits, the resource map and the confinement below apply to a
+		// stylesheet's picture because they apply to every picture.
+		var compiled []byte
+		var err error
+		compiled, warnings, err = compilePage(sent, decoder.Fetch)
+		if err != nil {
+			writeError(writer, http.StatusUnprocessableEntity, "invalid-page", err)
+			return compose.Document{}, warnings, false
+		}
+		sceneBytes = compiled
+	}
+	document, err := decoder.Decode(bytes.NewReader(sceneBytes))
 	if err != nil {
 		writeError(writer, http.StatusUnprocessableEntity, "invalid-scene", err)
 		return compose.Document{}, warnings, false
@@ -895,7 +897,7 @@ type payload struct {
 // describes. A page reaches the parts sent with it and nothing else, which is
 // the same rule the decoder applies to a picture: local resources are uploaded
 // as binary parts, while HTTP URLs remain self-contained in src.
-func compilePage(sent payload) ([]byte, []compose.Warning, error) {
+func compilePage(sent payload, fetch func(string) ([]byte, error)) ([]byte, []compose.Warning, error) {
 	sent_ := func(name string) ([]byte, error) {
 		part, ok := sent.resources[name]
 		if !ok {
@@ -903,7 +905,7 @@ func compilePage(sent payload) ([]byte, []compose.Warning, error) {
 		}
 		return part, nil
 	}
-	compiler := markup.Compiler{Stylesheets: sent_, Drawings: sent_}
+	compiler := markup.Compiler{Stylesheets: sent_, Drawings: sent_, Fetch: fetch}
 	compiled, err := compiler.Compile(string(sent.page), string(sent.stylesheet))
 	warnings := make([]compose.Warning, 0, len(compiled.Warnings))
 	for _, warning := range compiled.Warnings {

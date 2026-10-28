@@ -189,3 +189,27 @@ func TestAPageCannotHaveTheServerFetchFromItsOwnNetwork(t *testing.T) {
 		t.Fatalf("code %d, and the answer does not say why: %s", response.Code, response.Body.String())
 	}
 }
+
+// Nor can it by naming a drawing instead: an svg is read while the page is
+// compiled, a step before its pictures, and is held to the same rule.
+func TestAPageCannotHaveTheServerFetchADrawingFromItsOwnNetwork(t *testing.T) {
+	fetched := false
+	local := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		fetched = true
+		writer.Write([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8"/></svg>`))
+	}))
+	defer local.Close()
+	handler := New(Config{Logf: func(string, ...any) {}})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, pageRequest(t, "/v1/render?size=16x16",
+		map[string]string{
+			"page":       `<div class="page"><img src="` + local.URL + `/secret.svg"></div>`,
+			"stylesheet": `.page { width: 16px; height: 16px; } img { width: 8px; height: 8px; }`,
+		}, nil))
+	if fetched {
+		t.Fatal("the server fetched a drawing from its own machine")
+	}
+	if !strings.Contains(response.Body.String(), "not on the public internet") {
+		t.Fatalf("code %d, and the answer does not say why: %s", response.Code, response.Body.String())
+	}
+}

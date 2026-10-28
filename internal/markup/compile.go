@@ -92,6 +92,7 @@ type compiler struct {
 	// recursing until the compiler stack is exhausted.
 	useStack map[string]bool
 	drawings func(string) ([]byte, error)
+	fetch    func(string) ([]byte, error)
 }
 
 // Compiler holds what compiling a page needs beyond the page itself.
@@ -109,6 +110,12 @@ type Compiler struct {
 	// Drawings reads the file an img element names when that file is an svg,
 	// on the same terms as the other two.
 	Drawings func(src string) ([]byte, error)
+	// Fetch reads an svg an img element names by URL. Nil fetches it from
+	// anywhere, which is what a command run by whoever owns the network
+	// wants. A server passes one that keeps to the public internet, as its
+	// pictures do: without it a page could have the server fetch from its
+	// own network by naming a drawing rather than a picture.
+	Fetch func(url string) ([]byte, error)
 }
 
 const maxRemoteDrawingBytes = 32 << 20
@@ -125,7 +132,7 @@ func (options Compiler) Compile(markup, css string) (Document, error) {
 	if err != nil {
 		return Document{}, fmt.Errorf("parse markup: %w", err)
 	}
-	c := &compiler{computedFor: map[*html.Node]style{}, elementSaid: map[any]bool{}, ordinals: map[*html.Node]int{}, escaped: map[*html.Node][2]int{}, drawings: options.Drawings}
+	c := &compiler{computedFor: map[*html.Node]style{}, elementSaid: map[any]bool{}, ordinals: map[*html.Node]int{}, escaped: map[*html.Node][2]int{}, drawings: options.Drawings, fetch: options.Fetch}
 	c.indexSVGReferences(root)
 	css, styled := c.gatherStyles(root, css, options.StylesheetName, options.Stylesheets)
 	if strings.TrimSpace(css) == "" && !styled {
@@ -1066,7 +1073,11 @@ func (c *compiler) externalDrawing(source string, current style, path string) *e
 	var read []byte
 	var err error
 	if isRemoteSource(source) {
-		read, err = fetchRemoteDrawing(source)
+		fetch := c.fetch
+		if fetch == nil {
+			fetch = fetchRemoteDrawing
+		}
+		read, err = fetch(source)
 	} else if c.drawings == nil {
 		c.warn(path, "unresolved-drawing", fmt.Sprintf(
 			"img src=%q was not drawn: this compiler was given no way to read one", source))

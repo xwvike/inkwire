@@ -85,14 +85,37 @@ var publicImageClient = &http.Client{
 	},
 }
 
-// sharedAddressSpace is 100.64.0.0/10, the carrier-grade NAT range, which
-// netip does not count as private.
-var sharedAddressSpace = netip.MustParsePrefix("100.64.0.0/10")
+// notPublic are the ranges netip counts as global that are not the public
+// internet. The one that matters most is 198.18.0.0/15: Surge and Clash hand
+// out addresses from it for every name in their fake-IP mode and connect to
+// the real host themselves, so a router.lan behind one of them would pass as
+// public. The NAT64 and 6to4 prefixes carry an IPv4 address inside them, so
+// one of those reaches whatever that address does.
+var notPublic = []netip.Prefix{
+	netip.MustParsePrefix("100.64.0.0/10"),   // carrier-grade NAT
+	netip.MustParsePrefix("192.0.0.0/24"),    // protocol assignments
+	netip.MustParsePrefix("192.0.2.0/24"),    // documentation
+	netip.MustParsePrefix("198.18.0.0/15"),   // benchmarking, and proxies' fake IPs
+	netip.MustParsePrefix("198.51.100.0/24"), // documentation
+	netip.MustParsePrefix("203.0.113.0/24"),  // documentation
+	netip.MustParsePrefix("240.0.0.0/4"),     // reserved
+	netip.MustParsePrefix("64:ff9b::/96"),    // NAT64
+	netip.MustParsePrefix("64:ff9b:1::/48"),  // local-use NAT64
+	netip.MustParsePrefix("2002::/16"),       // 6to4
+	netip.MustParsePrefix("2001:db8::/32"),   // documentation
+}
 
 func publicAddress(ip netip.Addr) bool {
 	ip = ip.Unmap()
-	return ip.IsGlobalUnicast() && !ip.IsPrivate() && !ip.IsLoopback() &&
-		!ip.IsLinkLocalUnicast() && !sharedAddressSpace.Contains(ip)
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+		return false
+	}
+	for _, prefix := range notPublic {
+		if prefix.Contains(ip) {
+			return false
+		}
+	}
+	return true
 }
 
 type Decoder struct {
@@ -1565,6 +1588,12 @@ func (d Decoder) loadImage(source string) (image.Image, error) {
 	}
 	return decoded, nil
 }
+
+// Fetch reads what a URL holds on the terms the decoder fetches pictures on:
+// from the public internet alone when PublicImagesOnly says so, and within
+// its Context. It is for what a page names besides pictures, such as an svg,
+// which has to be held to the same terms or it is a way round them.
+func (d Decoder) Fetch(source string) ([]byte, error) { return d.fetchRemoteImage(source) }
 
 func (d Decoder) fetchRemoteImage(source string) ([]byte, error) {
 	ctx := d.Context
