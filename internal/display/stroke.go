@@ -434,7 +434,8 @@ func (c *Canvas) strokePointsStyled(points []image.Point, closed bool, stroke St
 	for _, segment := range segments {
 		box := segmentBox(segment.from, segment.to, margin).Intersect(bounds)
 		for y := box.Min.Y; y < box.Max.Y; y++ {
-			low, high := bodyRow(segment, radius, y)
+			// Cull at the same sample height used by the coverage test.
+			low, high := bodyRow(segment, radius, float64(y)+bias)
 			for x := max(low, box.Min.X); x <= min(high, box.Max.X-1); x++ {
 				if painted.at(x, y) {
 					continue
@@ -490,10 +491,10 @@ func (c *Canvas) strokePointsStyled(points []image.Point, closed bool, stroke St
 	}
 }
 
-// bodyRow is a range of pixels in row y holding every pixel within radius of
-// the segment whose nearest point is inside it: the row's slice of the
-// segment swept sideways by radius, padded by a pixel.
-func bodyRow(segment strokeSegment, radius float64, y int) (low, high int) {
+// bodyRow bounds the pixels at the sample height whose nearest point lies
+// inside the segment and within radius: the row's slice of the segment swept
+// sideways by radius, padded by a pixel for the horizontal sample offset.
+func bodyRow(segment strokeSegment, radius, row float64) (low, high int) {
 	dx := float64(segment.to.X-segment.from.X) / segment.length
 	dy := float64(segment.to.Y-segment.from.Y) / segment.length
 	normalX, normalY := float64(-dy*radius), float64(dx*radius)
@@ -503,7 +504,6 @@ func bodyRow(segment strokeSegment, radius float64, y int) (low, high int) {
 		{float64(segment.to.X) - normalX, float64(segment.to.Y) - normalY},
 		{float64(segment.from.X) - normalX, float64(segment.from.Y) - normalY},
 	}
-	row := float64(y)
 	left, right := math.Inf(1), math.Inf(-1)
 	for index, from := range corners {
 		to := corners[(index+1)%4]

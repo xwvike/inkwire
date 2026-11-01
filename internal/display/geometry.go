@@ -12,6 +12,9 @@ func circleBounds(center image.Point, radius int) image.Rectangle {
 // at the end of each flat side, a nub sticking out of every circle and out of
 // both edges of every ring.
 func pointInCircle(x, y int, center image.Point, radius int) bool {
+	if radius == 0 {
+		return x == center.X && y == center.Y
+	}
 	xDistance := int64(x - center.X)
 	yDistance := int64(y - center.Y)
 	radius64 := int64(radius)

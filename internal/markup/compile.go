@@ -170,17 +170,22 @@ func (options Compiler) Compile(markup, css string) (Document, error) {
 		return Document{Warnings: c.warnings},
 			fmt.Errorf("the root element resolved to nothing to draw")
 	}
-	// A body drawn as the page round one wrapper still takes the page's
-	// orientation and size from the wrapper, where a page written as one
-	// says them.
-	stated := element
-	if c.wrapper != nil && attribute(element, "orientation") == "" && c.pageSize(element) == (stdimage.Point{}) {
-		stated = c.wrapper
+	// Size and orientation fall back independently: stating either on the
+	// body must not discard the other one supplied by its page wrapper.
+	oriented := element
+	pageSize := c.pageSize(element)
+	if c.wrapper != nil {
+		if attribute(element, "orientation") == "" {
+			oriented = c.wrapper
+		}
+		if pageSize == (stdimage.Point{}) {
+			pageSize = c.pageSize(c.wrapper)
+		}
 	}
 	written, err := json.MarshalIndent(document{
 		Version:     scene.Version,
-		Orientation: c.orientation(stated),
-		Size:        sizeOf(c.pageSize(stated)),
+		Orientation: c.orientation(oriented),
+		Size:        sizeOf(pageSize),
 		Root:        tree,
 	}, "", " ")
 	if err != nil {

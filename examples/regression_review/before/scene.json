@@ -1,0 +1,75 @@
+{
+ "version": 1,
+ "size": {
+  "width": 24,
+  "height": 40
+ },
+ "root": {
+  "type": "stack",
+  "size": {
+   "width": 24,
+   "height": 40
+  },
+  "children": [
+   {
+    "type": "column",
+    "children": [
+     {
+      "node": {
+       "type": "stack",
+       "size": {
+        "width": 24,
+        "height": 40
+       },
+       "children": [
+        {
+         "type": "column",
+         "children": [
+          {
+           "node": {
+            "type": "stack",
+            "size": {
+             "width": 0,
+             "height": 6
+            },
+            "children": [
+             {
+              "type": "rectangle",
+              "fill": "red"
+             }
+            ]
+           },
+           "basis": 6
+          }
+         ]
+        },
+        {
+         "type": "anchored",
+         "children": [
+          {
+           "node": {
+            "type": "stack",
+            "children": [
+             {
+              "type": "rectangle",
+              "fill": "black"
+             }
+            ]
+           },
+           "bottom": 0,
+           "left": 0,
+           "width": 6,
+           "height": 12
+          }
+         ]
+        }
+       ]
+      },
+      "basis": 40,
+      "cross": 24
+     }
+    ]
+   }
+  ]
+ }
+}

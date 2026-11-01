@@ -33,6 +33,12 @@ func TestABodyIsDrawnWholeAsABrowserDrawsIt(t *testing.T) {
 		{"one wrapper in a body the page styles",
 			`<body><div class="page" orientation="portrait-cw">words</div></body>`, `body { color: red; } .page { width: 300px; height: 400px; }`,
 			[]string{`"portraitClockwise"`, `"width": 300`, `"red"`}},
+		{"body size does not discard wrapper orientation",
+			`<body><div class="page" orientation="portrait-cw">words</div></body>`, `body { width: 300px; height: 400px; } .page { width: 300px; height: 400px; }`,
+			[]string{`"portraitClockwise"`, `"width": 300`}},
+		{"body orientation does not discard wrapper size",
+			`<body orientation="portrait-ccw" style="color: red"><div class="page">words</div></body>`, `.page { width: 300px; height: 400px; }`,
+			[]string{`"portraitCounterClockwise"`, `"width": 300`}},
 	} {
 		page, err := Compile(test.html, test.css)
 		if err != nil {

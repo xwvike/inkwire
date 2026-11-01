@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Inkwire 回归修复对比</title>
+<style>
+body { font: 16px/1.6 system-ui,sans-serif; max-width: 1080px; margin: 40px auto; padding: 0 20px; color: #222; background: #f6f7f8; }
+section { margin: 28px 0; padding: 24px; background: white; border: 1px solid #ddd; border-radius: 12px; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+figure { margin: 0; min-width: 0; }
+figcaption { font-weight: 600; margin-bottom: 12px; }
+img { display: block; max-width: 100%; height: auto; border: 1px solid #bbb; image-rendering: pixelated; }
+code { background: #eee; padding: 2px 5px; }
+.sample { position: relative; width: fit-content; }
+.pixel { position: absolute; left: 156px; top: 108px; width: 12px; height: 12px; outline: 2px solid #00a080; pointer-events: none; }
+@media(max-width:700px) { .pair {grid-template-columns:1fr;} .pixel {display:none;} }
+</style>
+<h1>同一组用例：修复前 / 修复后</h1>
+<p>由同一个 Go 程序调用真实渲染器生成，输入未变。图像以最近邻放大 12 倍；before 来自未修复的 bbddbfd，after 来自修复后的工作区。</p>
+<section>
+<h2>1. 偶数线宽斜线漏像素</h2>
+<p>线段 (10,10) → (17,11)，宽 2，butt 端点。绿色框标出原图像素 (13,9)：距线段约 0.99，应绘制为黑色。</p>
+<div class="pair">
+<figure><figcaption>修复前：目标像素缺失</figcaption><div class="sample"><img src="before/slope.png" alt="修复前斜线"><span class="pixel"></span></div></figure>
+<figure><figcaption>修复后：目标像素恢复</figcaption><div class="sample"><img src="after/slope.png" alt="修复后斜线"><span class="pixel"></span></div></figure>
+</div>
+</section>
+<section>
+<h2>2. 零半径圆与圆环中心</h2>
+<p>左侧应有一个半径为 0 的黑点；右侧是半径 1、宽 1 的圆环，中心应为空白。</p>
+<div class="pair">
+<figure><figcaption>修复前：左侧点消失，右侧中心填黑</figcaption><img src="before/circles.png" alt="缺少点，圆环中心填黑"></figure>
+<figure><figcaption>修复后：点恢复，圆环中心留白</figcaption><img src="after/circles.png" alt="点恢复，圆环中心留白"></figure>
+</div>
+</section>
+<section>
+<h2>3. body 尺寸不再覆盖 wrapper 的方向</h2>
+<p>body 与 .page 均为 24×40；.page 声明 <code>orientation="portrait-cw"</code>。方向是传给面板打包器的元数据，普通 PNG 不直接旋转，因此这里检查编译结果。</p>
+<div class="pair">
+<figure><figcaption>修复前：方向字段缺失 → landscape (0)</figcaption><a href="before/scene.json">查看原始 scene.json</a><img src="before/orientation.png" alt="方向丢失时的逻辑画布"></figure>
+<figure><figcaption>修复后：portraitClockwise (1)</figcaption><a href="after/scene.json">查看原始 scene.json</a><img src="after/orientation.png" alt="方向恢复后的逻辑画布"></figure>
+</div>
+</section>
+<p>原始观测值：<a href="before/result.json">before/result.json</a> · <a href="after/result.json">after/result.json</a>。全部为本地资源，可直接打开本文件查看。</p>
+</html>
