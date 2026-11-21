@@ -214,6 +214,13 @@ An `<img>` or inline `<svg>` is a box like any other: its padding, background an
 round the picture, and `border-radius` clips the picture to its corners, so `border-radius: 50%`
 makes a round portrait.
 
+Bitmaps are reduced automatically from their histogram: continuous-tone photographs are dithered
+with Floyd-Steinberg error diffusion, while flat artwork and line drawings are cut by an Otsu
+threshold. To use another halftone (such as ordered Bayer, Atkinson, or blue-noise dithering),
+prepare the bitmap at the exact rendered pixel size in pure panel inks (black, white, and red)
+beforehand — a bitmap with no mid-tones is thresholded rather than diffused and passes through
+pixel for pixel at 1:1.
+
 An SVG in `<img>` is a replaced image: page CSS sizes and clips its image box, but does not cascade
 into the SVG document. Its supported SVG paint and viewport are retained. Page CSS declarations for
 SVG paint properties on the image produce `unsupported-declaration` warnings. Inline `<svg>` remains

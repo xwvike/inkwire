@@ -189,6 +189,9 @@ SVG 支持 `fill`、`stroke`、`stroke-width`、`stroke-dasharray`、`stroke-das
 `<img>` 和内联 `<svg>` 与其他盒子一样：padding、背景和边框绘制在图片四周，`border-radius`
 会把图片裁成圆角，`border-radius: 50%` 即为圆形头像。
 
+位图会根据自身直方图自动降色：连续色调照片使用 Floyd-Steinberg 误差扩散抖动，扁平图形与线稿使用
+Otsu 阈值切分。若需要使用其他半调风格（例如有序 Bayer、Atkinson 或蓝噪声抖动），可提前将位图按实际渲染像素尺寸处理为纯面板墨水色（黑、白、红）后再通过 `<img>` 引入——不含中间灰阶的位图会走阈值切分而非二次扩散，1:1 尺寸下会逐像素原样保留。
+
 `<img>` 中的 SVG 按替换型图片处理：页面 CSS 只控制图片盒的尺寸和裁剪，不进入 SVG 文档参与
 级联；已支持的 SVG 绘制属性和 viewport 保留。页面 CSS 在该图片上声明 SVG 绘画属性时产生
 `unsupported-declaration` 警告。内联 `<svg>` 仍参与页面 CSS 级联。
