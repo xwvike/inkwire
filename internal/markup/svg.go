@@ -247,48 +247,54 @@ func (c *compiler) svgChildren(node *html.Node, box rect, inherited svgPaint, in
 			// here rather than once per child, since it was written once.
 			c.reportUnread(child, childPath)
 			paint := c.svgPaint(child, inherited, childStyle, childPath)
+			innerFrame := c.transformed(child, frame, childPath)
 			degrees, about, turned := c.turnOf(child, frame, childPath)
-			if !turned {
-				c.svgChildren(child, box, paint, childStyle, c.transformed(child, frame, childPath), childPath, into)
+			if !turned && !hasClipPath(child) {
+				c.svgChildren(child, box, paint, childStyle, innerFrame, childPath, into)
 				continue
 			}
-			// A turned group becomes a box of its own, turned. Its children
-			// keep the coordinates they were written in, which is what makes
-			// the turn the only thing that moved.
+			// A clipped or turned group becomes a box of its own so the clip
+			// and rotation apply to the whole group rather than per child.
 			var inner []placed
-			c.svgChildren(child, box, paint, childStyle, c.transformed(child, frame, childPath), childPath, &inner)
+			c.svgChildren(child, box, paint, childStyle, innerFrame, childPath, &inner)
 			if len(inner) == 0 {
 				continue
 			}
-			*into = append(*into, placed{Bounds: box, Node: &emitted{
-				Type: "rotated", Degrees: degrees, Origin: about,
-				Child: &emitted{Type: "absolute", Children: inner},
-			}})
-		case "use":
-			var referenced []placed
-			c.svgUse(child, box, inherited, childStyle, c.transformed(child, frame, childPath), childPath, &referenced)
-			if degrees, about, turned := c.turnOf(child, frame, childPath); turned {
-				for _, placement := range referenced {
-					placement = placed{Bounds: box, Node: &emitted{
-						Type: "rotated", Degrees: degrees, Origin: about,
-						Child: &emitted{Type: "absolute", Children: []placed{placement}},
-					}}
-					*into = append(*into, placement)
-				}
-			} else {
-				*into = append(*into, referenced...)
+			inner = c.clipPlaced(child, box, innerFrame, inner, childPath)
+			if turned {
+				inner = []placed{{Bounds: box, Node: &emitted{
+					Type: "rotated", Degrees: degrees, Origin: about,
+					Child: &emitted{Type: "absolute", Children: inner},
+				}}}
 			}
+			*into = append(*into, inner...)
+		case "use":
+			useFrame := c.transformed(child, frame, childPath)
+			var referenced []placed
+			c.svgUse(child, box, inherited, childStyle, useFrame, childPath, &referenced)
+			if len(referenced) == 0 {
+				continue
+			}
+			referenced = c.clipPlaced(child, box, useFrame, referenced, childPath)
+			if degrees, about, turned := c.turnOf(child, frame, childPath); turned {
+				referenced = []placed{{Bounds: box, Node: &emitted{
+					Type: "rotated", Degrees: degrees, Origin: about,
+					Child: &emitted{Type: "absolute", Children: referenced},
+				}}}
+			}
+			*into = append(*into, referenced...)
 		case "title", "desc", "metadata", "style", "defs", "clipPath", "pattern":
 			// Not drawn, by their own definition.
 		default:
 			if childStyle.hidden {
 				continue
 			}
-			placement, ok := c.svgShape(child, box, inherited, childStyle, c.transformed(child, frame, childPath), childPath)
+			shapeFrame := c.transformed(child, frame, childPath)
+			placement, ok := c.svgShape(child, box, inherited, childStyle, shapeFrame, childPath)
 			if !ok {
 				continue
 			}
-			placement = c.clipped(child, box, frame, placement, childPath)
+			placement = c.clipped(child, box, shapeFrame, placement, childPath)
 			if degrees, about, turned := c.turnOf(child, frame, childPath); turned {
 				placement = placed{Bounds: box, Node: &emitted{
 					Type: "rotated", Degrees: degrees, Origin: about,
@@ -349,25 +355,30 @@ func (c *compiler) svgUse(node *html.Node, box rect, inherited svgPaint, inherit
 		c.reportUnread(target, targetPath)
 		paint := c.svgPaint(target, usePaint, targetStyle, targetPath)
 		degrees, about, turned := c.turnOf(target, frame, targetPath)
-		if !turned {
+		if !turned && !hasClipPath(target) {
 			c.svgChildren(target, box, paint, targetStyle, targetFrame, targetPath, into)
 			return
 		}
 		var inner []placed
 		c.svgChildren(target, box, paint, targetStyle, targetFrame, targetPath, &inner)
-		if len(inner) != 0 {
-			*into = append(*into, placed{Bounds: box, Node: &emitted{
+		if len(inner) == 0 {
+			return
+		}
+		inner = c.clipPlaced(target, box, targetFrame, inner, targetPath)
+		if turned {
+			inner = []placed{{Bounds: box, Node: &emitted{
 				Type: "rotated", Degrees: degrees, Origin: about,
 				Child: &emitted{Type: "absolute", Children: inner},
-			}})
+			}}}
 		}
+		*into = append(*into, inner...)
 		return
 	}
 	placement, ok := c.svgShape(target, box, usePaint, targetStyle, targetFrame, targetPath)
 	if !ok {
 		return
 	}
-	placement = c.clipped(target, box, frame, placement, targetPath)
+	placement = c.clipped(target, box, targetFrame, placement, targetPath)
 	if degrees, about, turned := c.turnOf(target, frame, targetPath); turned {
 		placement = placed{Bounds: box, Node: &emitted{
 			Type: "rotated", Degrees: degrees, Origin: about,
@@ -383,17 +394,23 @@ func (c *compiler) svgUse(node *html.Node, box rect, inherited svgPaint, inherit
 // box it is given and so is placed in its own.
 func (c *compiler) svgShape(node *html.Node, box rect, inherited svgPaint, current style, frame svgFrame, path string) (placed, bool) {
 	c.reportUnread(node, path)
-	// A fill that names a pattern is not a colour, so it is read before the
-	// paint is: what comes back is the drawing that fills the shape rather
-	// than an ink to fill it with.
-	if tiled, ok := c.patternFill(c.svgAttribute(node, "fill", path), path); ok {
-		return c.tiled(node, box, frame, tiled, path)
-	}
 	paint := c.svgPaint(node, inherited, current, path)
 	// Stroke lengths live in the SVG user coordinate system just like shape
 	// coordinates. Apply the viewport/transform scale at the shape boundary so
 	// inherited paint is not scaled once per group and then scaled again.
 	paint = paint.scaled(frame)
+	// A fill that names a pattern is not an ink, so it is resolved into a
+	// pattern node clipped to the shape's geometry, with any stroke drawn on
+	// top. Open elements (line, polyline) have no interior and ignore fill.
+	if paint.fillPattern != "" && node.Data != "line" && node.Data != "polyline" {
+		tile, _ := c.patternFill(paint.fillPattern, path)
+		if tile != nil {
+			return c.tiled(node, box, frame, tile, paint, path)
+		}
+		if paint.edge() == nil {
+			return placed{}, false
+		}
+	}
 	switch node.Data {
 	case "rect":
 		x1, y1 := frame.place(svgLength(node, "x"), svgLength(node, "y"))
@@ -524,28 +541,156 @@ func (c *compiler) svgShape(node *html.Node, box rect, inherited svgPaint, curre
 	return placed{}, false
 }
 
-// tiled places a pattern where the shape that named it sits. Only a rectangle
-// can be tiled: the schema fills a box, and clipping the tile to something else
-// is what clip-path is for.
-func (c *compiler) tiled(node *html.Node, box rect, frame svgFrame, tile *emitted, path string) (placed, bool) {
+// tiled fills a closed shape with a repeating pattern by clipping the tile to
+// the shape's geometry. Because display.FillPattern anchors its tile phase to
+// frame coordinates, clipping over the viewport or bounding box preserves the
+// exact pattern phase. Any stroke on the shape is drawn on top of the pattern.
+func (c *compiler) tiled(node *html.Node, box rect, frame svgFrame, tile *emitted, paint svgPaint, path string) (placed, bool) {
 	if tile == nil {
 		return placed{}, false
 	}
-	if node.Data != "rect" {
+	var filled, outlined placed
+	edge := paint.edge()
+	switch node.Data {
+	case "rect":
+		x1, y1 := frame.place(svgLength(node, "x"), svgLength(node, "y"))
+		x2, y2 := frame.place(svgLength(node, "x")+svgLength(node, "width"), svgLength(node, "y")+svgLength(node, "height"))
+		x, y := math.Min(x1, x2), math.Min(y1, y2)
+		width, height := frame.sizeX(svgLength(node, "width")), frame.sizeY(svgLength(node, "height"))
+		if width <= 0 || height <= 0 {
+			c.warn(path, "unsupported-declaration", "a rect with no width or height draws nothing")
+			return placed{}, false
+		}
+		bounds := rect{X: pixels(x), Y: pixels(y), Width: pixels(width), Height: pixels(height)}
+		radiusX, radiusY := frame.sizeX(svgLength(node, "rx")), frame.sizeY(svgLength(node, "ry"))
+		radius := pixels(max(radiusX, radiusY))
+		if radiusX != radiusY && radiusX > 0 && radiusY > 0 {
+			c.warn(path, "unsupported-declaration", fmt.Sprintf(
+				"rx=%g and ry=%g differ; a corner here has one radius and %d was used", radiusX, radiusY, radius))
+		}
+		if radius > 0 {
+			filled = placed{Bounds: bounds, Node: &emitted{
+				Type: "clipShape",
+				Shape: &shape{
+					Kind:   "inset",
+					Insets: []any{0, 0, 0, 0},
+					Corner: radius,
+				},
+				Child: tile,
+			}}
+		} else {
+			filled = placed{Bounds: bounds, Node: tile}
+		}
+		if edge != nil {
+			outlined = placed{Bounds: bounds, Node: &emitted{Type: "rectangle", Radius: radius, Stroke: edge}}
+		}
+
+	case "circle":
+		writtenRadius := svgLength(node, "r")
+		radius := frame.size(writtenRadius)
+		if radius <= 0 {
+			c.warn(path, "unsupported-declaration", "a circle with no radius draws nothing")
+			return placed{}, false
+		}
+		centerX, centerY := frame.place(svgLength(node, "cx"), svgLength(node, "cy"))
+		center := at(centerX, centerY)
+		if frame.sizeX(writtenRadius) != frame.sizeY(writtenRadius) {
+			radiusX, radiusY := frame.sizeX(writtenRadius), frame.sizeY(writtenRadius)
+			filled = placed{Bounds: box, Node: &emitted{
+				Type: "clipShape",
+				Shape: &shape{Kind: "ellipse",
+					RadiusX: pixels(radiusX), RadiusY: pixels(radiusY), Center: center},
+				Child: tile,
+			}}
+			if edge != nil {
+				outlined = placed{Bounds: rect{
+					X: pixels(centerX - radiusX), Y: pixels(centerY - radiusY),
+					Width: pixels(float64(radiusX*2)) + 1, Height: pixels(float64(radiusY*2)) + 1},
+					Node: &emitted{Type: "ellipse", Stroke: edge}}
+			}
+		} else {
+			filled = placed{Bounds: box, Node: &emitted{
+				Type:  "clipShape",
+				Shape: &shape{Kind: "circle", Radius: pixels(radius), Center: center},
+				Child: tile,
+			}}
+			if edge != nil {
+				outlined = placed{Bounds: box, Node: &emitted{
+					Type: "circle", Center: center, Radius: pixels(radius), Stroke: edge}}
+			}
+		}
+
+	case "ellipse":
+		radiusX, radiusY := frame.sizeX(svgLength(node, "rx")), frame.sizeY(svgLength(node, "ry"))
+		if radiusX <= 0 || radiusY <= 0 {
+			c.warn(path, "unsupported-declaration", "an ellipse with no radii draws nothing")
+			return placed{}, false
+		}
+		centreX, centreY := frame.place(svgLength(node, "cx"), svgLength(node, "cy"))
+		filled = placed{Bounds: box, Node: &emitted{
+			Type: "clipShape",
+			Shape: &shape{Kind: "ellipse",
+				RadiusX: pixels(radiusX), RadiusY: pixels(radiusY), Center: at(centreX, centreY)},
+			Child: tile,
+		}}
+		if edge != nil {
+			outlined = placed{Bounds: rect{
+				X: pixels(centreX - radiusX), Y: pixels(centreY - radiusY),
+				Width: pixels(float64(radiusX*2)) + 1, Height: pixels(float64(radiusY*2)) + 1},
+				Node: &emitted{Type: "ellipse", Stroke: edge}}
+		}
+
+	case "polygon":
+		points, err := c.svgPoints(attribute(node, "points"), frame)
+		if err != "" {
+			c.warn(path, "unsupported-declaration", fmt.Sprintf("points: %s", err))
+			return placed{}, false
+		}
+		if len(points) < 3 {
+			c.warn(path, "unsupported-declaration", "a polygon needs at least three points")
+			return placed{}, false
+		}
+		filled = placed{Bounds: box, Node: &emitted{
+			Type:  "clipShape",
+			Shape: &shape{Kind: "polygon", Points: points},
+			Child: tile,
+		}}
+		if edge != nil {
+			outlined = placed{Bounds: box, Node: &emitted{Type: "polygon", Points: points, Stroke: edge}}
+		}
+
+	case "path":
+		data := strings.TrimSpace(attribute(node, "d"))
+		if data == "" {
+			c.warn(path, "unsupported-declaration", "a path with no d draws nothing")
+			return placed{}, false
+		}
+		commands := c.parsePathData(data, frame, path)
+		if len(commands) == 0 {
+			return placed{}, false
+		}
+		filled = placed{Bounds: box, Node: &emitted{
+			Type:  "clipPath",
+			Path:  &pathValue{Commands: commands},
+			Child: tile,
+		}}
+		if edge != nil {
+			outlined = placed{Bounds: box, Node: &emitted{Type: "path", Commands: commands, Stroke: edge}}
+		}
+
+	default:
 		c.warn(path, "unsupported-declaration", fmt.Sprintf(
-			"a %s filled with a pattern is not drawn; a pattern fills a rect, and a clip-path shapes it", node.Data))
+			"%s is not an element this build draws", node.Data))
 		return placed{}, false
 	}
-	x1, y1 := frame.place(svgLength(node, "x"), svgLength(node, "y"))
-	x2, y2 := frame.place(svgLength(node, "x")+svgLength(node, "width"), svgLength(node, "y")+svgLength(node, "height"))
-	x, y := math.Min(x1, x2), math.Min(y1, y2)
-	width, height := frame.sizeX(svgLength(node, "width")), frame.sizeY(svgLength(node, "height"))
-	if width <= 0 || height <= 0 {
-		c.warn(path, "unsupported-declaration", "a rect with no width or height draws nothing")
-		return placed{}, false
+
+	if edge == nil {
+		return filled, true
 	}
-	return placed{Bounds: rect{
-		X: pixels(x), Y: pixels(y), Width: pixels(width), Height: pixels(height)}, Node: tile}, true
+	return placed{Bounds: box, Node: &emitted{
+		Type:     "absolute",
+		Children: []placed{filled, outlined},
+	}}, true
 }
 
 // painted reports whether a shape has anything to draw with, which is the one
@@ -567,6 +712,7 @@ func (c *compiler) painted(shape *emitted, paint svgPaint, path string) bool {
 // a shape inside it the width, and neither has said anything about the other.
 type svgPaint struct {
 	fill        string
+	fillPattern string
 	strokeInk   string
 	strokeWidth int
 	dash        []int
@@ -626,10 +772,16 @@ func (c *compiler) svgPaint(node *html.Node, inherited svgPaint, current style, 
 	report := func(message string) { c.warn(path, "unsupported-declaration", message) }
 	paint := inherited
 	if stated := c.svgAttribute(node, "fill", path); stated != "" {
-		if ink, ok := svgInk(stated, "fill", current, report); ok {
-			paint.fill = ink
-		} else {
+		if isURLReference(stated) {
 			paint.fill = ""
+			paint.fillPattern = stated
+		} else {
+			paint.fillPattern = ""
+			if ink, ok := svgInk(stated, "fill", current, report); ok {
+				paint.fill = ink
+			} else {
+				paint.fill = ""
+			}
 		}
 	}
 	if stated := c.svgAttribute(node, "stroke", path); stated != "" {
@@ -692,6 +844,7 @@ func (c *compiler) svgPaint(node *html.Node, inherited svgPaint, current style, 
 	// the colours are restated in terms the panel has.
 	if current.fill != nil {
 		paint.fill = ""
+		paint.fillPattern = ""
 		if !current.fill.none {
 			paint.fill = inkName(current.fill.ink)
 		}
@@ -1054,33 +1207,50 @@ func readNumbers(arguments string) []float64 {
 // own box would be, and it is the only arrangement that puts the shape where
 // the drawing said it goes.
 
+func hasClipPath(node *html.Node) bool {
+	reference := strings.TrimSpace(attribute(node, "clip-path"))
+	return reference != "" && reference != "none"
+}
+
+func isURLReference(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	return strings.HasPrefix(trimmed, "url(#") && strings.HasSuffix(trimmed, ")")
+}
+
 // clipped wraps a placed shape in the clip its element names.
 func (c *compiler) clipped(node *html.Node, box rect, frame svgFrame, shape placed, path string) placed {
-	reference := strings.TrimSpace(attribute(node, "clip-path"))
-	if reference == "" || reference == "none" {
-		return shape
+	return c.clipPlaced(node, box, frame, []placed{shape}, path)[0]
+}
+
+// clipPlaced wraps one or more placed elements in the clip node names.
+// When clip-path is absent, "none", or unreadable, the elements are left
+// unclipped and any problem is reported.
+func (c *compiler) clipPlaced(node *html.Node, box rect, frame svgFrame, children []placed, path string) []placed {
+	if len(children) == 0 || !hasClipPath(node) {
+		return children
 	}
+	reference := strings.TrimSpace(attribute(node, "clip-path"))
 	name, ok := strings.CutPrefix(reference, "url(#")
 	name, closed := strings.CutSuffix(name, ")")
 	if !ok || !closed {
 		c.warn(path, "unsupported-declaration", fmt.Sprintf(
 			"clip-path=%q is not a reference to a clipPath in this drawing", reference))
-		return shape
+		return children
 	}
 	defined, known := c.clips[name]
 	if !known {
 		c.warn(path, "unsupported-declaration", fmt.Sprintf(
 			"clip-path names %q and this drawing defines no clipPath by that name", name))
-		return shape
+		return children
 	}
 	clip := c.clipNode(defined, c.transformed(defined, frame, path), path)
 	if clip == nil {
-		return shape
+		return children
 	}
 	// The clip resolves against the whole drawing, so it is given the whole
-	// drawing's box and the shape is placed inside it.
-	clip.Child = &emitted{Type: "absolute", Children: []placed{shape}}
-	return placed{Bounds: box, Node: clip}
+	// drawing's box and the clipped elements are placed inside it.
+	clip.Child = &emitted{Type: "absolute", Children: children}
+	return []placed{{Bounds: box, Node: clip}}
 }
 
 // clipNode reads the one shape a clipPath holds into the node that clips to it.

@@ -794,7 +794,6 @@ func TestAPatternThisCannotReadIsReported(t *testing.T) {
 		"is a picture":                    `<defs><pattern id="p" width="200" height="200"><rect width="1" height="1"/></pattern></defs><rect width="9" height="9" fill="url(#p)"/>`,
 		"holds a circle":                  `<defs><pattern id="p" width="4" height="4"><circle cx="2" cy="2" r="1"/></pattern></defs><rect width="9" height="9" fill="url(#p)"/>`,
 		"measured in":                     `<defs><pattern id="p" width="4" height="4" patternUnits="objectBoundingBox"><rect width="1" height="1"/></pattern></defs><rect width="9" height="9" fill="url(#p)"/>`,
-		"a clip-path shapes it":           `<defs><pattern id="p" width="2" height="2"><rect width="1" height="1"/></pattern></defs><circle cx="9" cy="9" r="5" fill="url(#p)"/>`,
 	}
 	for want, content := range tests {
 		t.Run(want, func(t *testing.T) {
@@ -807,6 +806,147 @@ func TestAPatternThisCannotReadIsReported(t *testing.T) {
 				t.Errorf("nothing said %q; it said %q", want, said)
 			}
 		})
+	}
+}
+
+// A clip-path on a group clips everything inside the group, rather than being
+// silently ignored while remaining in readAttributes.
+func TestAGroupClipPathClipsAllItsChildren(t *testing.T) {
+	_, page := drawing(t, `
+		<defs><clipPath id="c"><circle cx="30" cy="20" r="10"/></clipPath></defs>
+		<g clip-path="url(#c)">
+			<rect x="0" y="0" width="60" height="40" fill="black"/>
+			<rect x="0" y="20" width="60" height="20" fill="red"/>
+		</g>`)
+	for _, warning := range page.Warnings {
+		t.Errorf("warning: %s", warning.Message)
+	}
+	frame := frameOf(t, page)
+	if ink, _ := frame.InkAt(5, 5); ink != display.InkWhite {
+		t.Errorf("pixel (5,5) outside group clip = %v, want white", ink)
+	}
+	if ink, _ := frame.InkAt(5, 35); ink != display.InkWhite {
+		t.Errorf("pixel (5,35) outside group clip = %v, want white", ink)
+	}
+	if ink, _ := frame.InkAt(30, 15); ink != display.InkBlack {
+		t.Errorf("pixel (30,15) in top half of group clip = %v, want black", ink)
+	}
+	if ink, _ := frame.InkAt(30, 25); ink != display.InkRed {
+		t.Errorf("pixel (30,25) in bottom half of group clip = %v, want red", ink)
+	}
+}
+
+// A group's clip-path resolves in the group's own transformed coordinate space,
+// and an unreadable clip-path on a group still warns and draws its children.
+func TestAGroupClipPathFollowsTransformAndReportsMissing(t *testing.T) {
+	_, page := drawing(t, `
+		<defs><clipPath id="c"><rect x="0" y="0" width="10" height="10"/></clipPath></defs>
+		<g transform="translate(20, 10)" clip-path="url(#c)">
+			<rect x="0" y="0" width="30" height="20" fill="black"/>
+		</g>`)
+	for _, warning := range page.Warnings {
+		t.Errorf("warning: %s", warning.Message)
+	}
+	frame := frameOf(t, page)
+	if ink, _ := frame.InkAt(25, 15); ink != display.InkBlack {
+		t.Errorf("pixel (25,15) inside translated group clip = %v, want black", ink)
+	}
+	if ink, _ := frame.InkAt(35, 15); ink != display.InkWhite {
+		t.Errorf("pixel (35,15) outside translated group clip = %v, want white", ink)
+	}
+
+	flat, missing := drawing(t, `<g clip-path="url(#missing)"><rect x="2" y="2" width="10" height="10" fill="black"/></g>`)
+	var said string
+	for _, warning := range missing.Warnings {
+		said += warning.Message + "\n"
+	}
+	if !strings.Contains(said, "defines no clipPath by that name") {
+		t.Errorf("missing group clipPath was not reported: %q", said)
+	}
+	if !strings.Contains(flat, `"type":"rectangle"`) {
+		t.Errorf("group children were dropped when clipPath was missing:\n%s", flat)
+	}
+}
+
+// clip-path works both on <use> itself and on a <g> referenced by <use>.
+func TestSVGUseHonorsClipPathOnUseAndReferencedGroup(t *testing.T) {
+	_, page := drawing(t, `
+		<defs>
+			<clipPath id="left"><rect x="0" y="0" width="20" height="40"/></clipPath>
+			<clipPath id="top"><rect x="0" y="0" width="60" height="15"/></clipPath>
+			<g id="box" clip-path="url(#top)">
+				<rect x="0" y="0" width="40" height="30" fill="black"/>
+			</g>
+		</defs>
+		<use href="#box" clip-path="url(#left)"/>`)
+	for _, warning := range page.Warnings {
+		t.Errorf("warning: %s", warning.Message)
+	}
+	frame := frameOf(t, page)
+	if ink, _ := frame.InkAt(10, 10); ink != display.InkBlack {
+		t.Errorf("pixel (10,10) inside both clips = %v, want black", ink)
+	}
+	if ink, _ := frame.InkAt(30, 10); ink != display.InkWhite {
+		t.Errorf("pixel (30,10) outside <use> clip = %v, want white", ink)
+	}
+	if ink, _ := frame.InkAt(10, 22); ink != display.InkWhite {
+		t.Errorf("pixel (10,22) outside referenced <g> clip = %v, want white", ink)
+	}
+}
+
+// A pattern fill shapes itself to any closed SVG geometry, preserves strokes,
+// and inherits through groups.
+func TestAPatternFillsClosedSVGShapesAndPreservesStroke(t *testing.T) {
+	patternDef := `<defs><pattern id="p" width="2" height="2" patternUnits="userSpaceOnUse"><rect x="0" y="0" width="2" height="1" fill="black"/></pattern></defs>`
+
+	tests := []struct {
+		name            string
+		content         string
+		inside, outside image.Point
+	}{
+		{"circle", `<circle cx="30" cy="20" r="12" fill="url(#p)"/>`, image.Pt(30, 20), image.Pt(18, 8)},
+		{"ellipse", `<ellipse cx="30" cy="20" rx="18" ry="10" fill="url(#p)"/>`, image.Pt(30, 20), image.Pt(12, 10)},
+		{"polygon", `<polygon points="30,4 50,36 10,36" fill="url(#p)"/>`, image.Pt(30, 24), image.Pt(10, 8)},
+		{"path", `<path d="M 10 6 L 50 6 L 50 34 L 10 34 Z" fill="url(#p)"/>`, image.Pt(30, 20), image.Pt(4, 4)},
+		{"rounded rect", `<rect x="10" y="6" width="40" height="28" rx="10" fill="url(#p)"/>`, image.Pt(30, 20), image.Pt(11, 7)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, page := drawing(t, patternDef+test.content)
+			for _, warning := range page.Warnings {
+				t.Errorf("warning: %s", warning.Message)
+			}
+			frame := frameOf(t, page)
+			if ink, _ := frame.InkAt(test.inside.X, test.inside.Y); ink != display.InkBlack {
+				t.Errorf("inside pixel %v = %v, want black from pattern", test.inside, ink)
+			}
+			// Row y+1 in the 2x2 stripe pattern is unmapped, so the white
+			// background shows through — proving it tiled rather than solid-filled.
+			if ink, _ := frame.InkAt(test.inside.X, test.inside.Y+1); ink != display.InkWhite {
+				t.Errorf("unmapped stripe row %v = %v, want white", image.Pt(test.inside.X, test.inside.Y+1), ink)
+			}
+			if ink, _ := frame.InkAt(test.outside.X, test.outside.Y); ink != display.InkWhite {
+				t.Errorf("outside pixel %v = %v, want white", test.outside, ink)
+			}
+		})
+	}
+
+	// Stroke on a pattern-filled shape draws on top, and group pattern fill
+	// cascades to closed shapes while open lines keep their stroke cleanly.
+	_, stroked := drawing(t, patternDef+
+		`<g fill="url(#p)" stroke="red" stroke-width="2"><circle cx="30" cy="20" r="10"/><line x1="2" y1="2" x2="10" y2="2"/></g>`)
+	for _, warning := range stroked.Warnings {
+		t.Errorf("warning: %s", warning.Message)
+	}
+	frame := frameOf(t, stroked)
+	if ink, _ := frame.InkAt(30, 20); ink != display.InkBlack {
+		t.Errorf("circle interior (30,20) = %v, want black from pattern", ink)
+	}
+	if ink, _ := frame.InkAt(30, 10); ink != display.InkRed {
+		t.Errorf("circle top edge (30,10) = %v, want red stroke", ink)
+	}
+	if ink, _ := frame.InkAt(6, 2); ink != display.InkRed {
+		t.Errorf("line pixel (6,2) = %v, want red stroke", ink)
 	}
 }
 
